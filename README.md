@@ -1,11 +1,11 @@
-echo "# Gestion des Resources - Colarys Concept" > README.md
-echo "## Description" >> README.md
-echo "Projet de gestion des ressources et production pour Colarys Concept" >> README.md
-echo "## Structure" >> README.md
-echo "- Back-end/: Code backend" >> README.md
-echo "- GRP-Colarys-Concept/: Application principale" >> README.md
-echo "- Fichiers de configuration et documentation" >> README.md
+# Gestion-des-Resources-et-production-de-colarys-concept-Back End
+Ao anaty dossier information dooly ny structure rehetra
 
-git add README.md
-git commit -m "Ajout documentation README"
-git push
+/*
+    HERINANTENAINA Rantonirina Anthony
+    11-07-2025 14:18
+    Besoin d'aide...
+    Tel: 034 85 178 51
+*/
+
+
