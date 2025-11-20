@@ -1,0 +1,20 @@
+npm install
+npm install -g localtunnel
+lt --port 5173
+npm uninstall -g localtunnel
+
+
+
+ETAPE STYLE
+
+npm i bootstrap@5.3.7
+npm install @headlessui/vue
+npm install tailwindcss
+
+npm install vue-burger-menu
+
+
+npm uninstall bootstrap
+npm uninstall @headlessui/vue
+npm uninstall tailwindcss
+npm uninstall vue-burger-menu
