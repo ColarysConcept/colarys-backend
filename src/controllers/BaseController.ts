@@ -2,8 +2,9 @@
 import { Request, Response } from "express";
 import { BaseService } from "../services/BaseService";
 import { HttpStatus } from "../utils/httpStatus";
+import { ObjectLiteral } from "typeorm";
 
-export class BaseController<T> {
+export class BaseController<T extends ObjectLiteral> {
   protected service: BaseService<T>;
   protected withRelations: string[] = [];
 
