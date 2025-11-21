@@ -85,6 +85,22 @@ app.use(`${API_PREFIX}/presences`, presenceRoutes);
 app.use(`${API_PREFIX}/agents-colarys`, agentColarysRoutes);
 app.use(`${API_PREFIX}/colarys`, colarysRoutes);
 
+// Ajoutez cette route AVANT les autres routes
+app.get('/', (_req: Request, res: Response) => {
+  res.json({
+    message: "🚀 Colarys Concept API Server is running!",
+    version: "2.0.0",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    endpoints: {
+      health: "/api/health",
+      test: "/api/test",
+      docs: "Coming soon...",
+      baseUrl: "/api"
+    }
+  });
+});
+
 // Route de santé
 app.get(`${API_PREFIX}/health`, (_req: Request, res: Response) => {
   res.json({
