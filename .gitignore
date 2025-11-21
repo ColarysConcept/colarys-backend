@@ -5,8 +5,8 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Build output
-dist/
+# Build output - NE PLUS IGNORER dist/ pour Vercel
+# dist/  <-- COMMENTEZ CETTE LIGNE
 build/
 out/
 coverage/
@@ -54,9 +54,9 @@ coverage/
 .nyc_output/
 
 # Optional: Ignore compiled JS (if not in dist)
-**/*.js
-**/*.js.map
-**/*.d.ts
+# **/*.js  <-- COMMENTEZ AUSSI
+# **/*.js.map
+# **/*.d.ts
 
 # Optional: Ignore lock files (if you prefer not to commit them)
 # package-lock.json

@@ -1,0 +1,58 @@
+"use strict";
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.Trashpresence = void 0;
+/*
+    HERINANTENAINA Anthony
+    11-07-2025 14:18
+    Tel: 034 85 178 51
+*/
+const typeorm_1 = require("typeorm");
+const DetailPresence_1 = require("./DetailPresence");
+let Trashpresence = class Trashpresence {
+    // Constructeur pour l'initialisation
+    constructor() {
+        this.entree = new Date();
+        this.sortie = new Date();
+        // Les champs @CreateDateColumn et @UpdateDateColumn seront gérés automatiquement
+    }
+};
+exports.Trashpresence = Trashpresence;
+__decorate([
+    (0, typeorm_1.PrimaryGeneratedColumn)(),
+    __metadata("design:type", Number)
+], Trashpresence.prototype, "id", void 0);
+__decorate([
+    (0, typeorm_1.ManyToOne)(() => DetailPresence_1.DetailPresence, { eager: true }) // Option eager pour le chargement automatique
+    ,
+    (0, typeorm_1.JoinColumn)({ name: "iddetail" }),
+    __metadata("design:type", DetailPresence_1.DetailPresence)
+], Trashpresence.prototype, "detailpresence", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ nullable: false, type: "timestamp" }),
+    __metadata("design:type", Date)
+], Trashpresence.prototype, "entree", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ nullable: false, type: "timestamp" }),
+    __metadata("design:type", Date)
+], Trashpresence.prototype, "sortie", void 0);
+__decorate([
+    (0, typeorm_1.CreateDateColumn)({ type: 'timestamp' }),
+    __metadata("design:type", Date)
+], Trashpresence.prototype, "dateajout", void 0);
+__decorate([
+    (0, typeorm_1.UpdateDateColumn)({ type: 'timestamp' }),
+    __metadata("design:type", Date)
+], Trashpresence.prototype, "updatedAt", void 0);
+exports.Trashpresence = Trashpresence = __decorate([
+    (0, typeorm_1.Entity)(),
+    __metadata("design:paramtypes", [])
+], Trashpresence);
