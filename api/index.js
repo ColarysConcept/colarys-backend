@@ -1,39 +1,50 @@
-// api/index.js - Version avec votre vraie application
-const { execSync } = require('child_process');
-const fs = require('fs');
-const path = require('path');
+// api/index.js - Version corrigée avec toutes les routes
+const express = require('express');
+const cors = require('cors');
 
-// Builder si nécessaire
-const distPath = path.join(__dirname, '../dist');
-if (!fs.existsSync(distPath)) {
-  console.log('📦 Building TypeScript...');
-  execSync('npm run build', { stdio: 'inherit' });
-}
+const app = express();
 
-// Importer votre vraie application
-try {
-  const app = require('../dist/app').default;
-  console.log('✅ Loaded full Colarys API from dist');
-  module.exports = app;
-} catch (error) {
-  console.error('❌ Failed to load full app, using fallback:', error);
-  // Fallback simplifié
-  const express = require('express');
-  const app = express();
-  app.use(require('cors')());
-  app.use(require('express').json());
-  
-  app.get('/', (req, res) => {
-    res.json({ 
-      message: "🚀 Colarys API (Fallback Mode)", 
-      status: "OK",
-      timestamp: new Date().toISOString()
-    });
+// Middleware de base
+app.use(cors());
+app.use(express.json());
+
+// Route racine
+app.get('/', (req, res) => {
+  res.json({
+    message: "🚀 Colarys API is running!",
+    timestamp: new Date().toISOString(),
+    status: "OK"
   });
-  
-  app.get('/api/health', (req, res) => {
-    res.json({ status: "OK", environment: "production" });
+});
+
+// Route santé
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: "OK",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'production',
+    service: "Colarys Concept API"
   });
-  
-  module.exports = app;
-}
+});
+
+// Route test - AJOUTÉE ICI
+app.get('/api/test', (req, res) => {
+  res.json({
+    success: true,
+    message: "API test successful!",
+    timestamp: new Date().toISOString(),
+    version: "2.0.0",
+    environment: process.env.NODE_ENV || 'production'
+  });
+});
+
+// Gestionnaire 404
+app.use('*', (req, res) => {
+  res.status(404).json({
+    error: "Route not found",
+    path: req.originalUrl,
+    availableRoutes: ["/", "/api/health", "/api/test"]
+  });
+});
+
+module.exports = app;
