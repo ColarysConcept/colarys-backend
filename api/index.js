@@ -1,21 +1,48 @@
-// api/index.js - Version avec build automatique
-const { execSync } = require('child_process');
-const path = require('path');
-const fs = require('fs');
+// api/index.js - Version ultra-simplifiée
+const express = require('express');
+const cors = require('cors');
 
-// Vérifier si dist existe, sinon builder
-const distPath = path.join(__dirname, '../dist');
-if (!fs.existsSync(distPath)) {
-  console.log('📦 Building TypeScript...');
-  try {
-    execSync('npm run build', { stdio: 'inherit' });
-    console.log('✅ Build successful');
-  } catch (error) {
-    console.error('❌ Build failed:', error);
-    process.exit(1);
-  }
-}
+const app = express();
 
-// Importer l'app compilée
-const app = require('../dist/app').default;
+// Middleware de base
+app.use(cors());
+app.use(express.json());
+
+// Route racine
+app.get('/', (req, res) => {
+  res.json({
+    message: "🚀 Colarys API is running!",
+    timestamp: new Date().toISOString(),
+    status: "OK"
+  });
+});
+
+// Route santé
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: "OK",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'production',
+    service: "Colarys Concept API"
+  });
+});
+
+// Route test simple
+app.get('/api/test', (req, res) => {
+  res.json({
+    success: true,
+    message: "API test successful!",
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Gestionnaire 404
+app.use('*', (req, res) => {
+  res.status(404).json({
+    error: "Route not found",
+    path: req.originalUrl,
+    availableRoutes: ["/", "/api/health", "/api/test"]
+  });
+});
+
 module.exports = app;
