@@ -45,7 +45,6 @@ app.use(cors({
     'http://localhost:5173',
     'http://localhost:3000', 
     'http://localhost:8080',
-    'https://grp-colarys-concept.vercel.app',
     'https://colarys-frontend.vercel.app'
   ],
   credentials: true,
