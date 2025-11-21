@@ -1,48 +1,32 @@
-// api/index.js - Version compatible avec votre tsconfig
+// api/index.js - Version corrigée sans variable inutilisée
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 
-// Fonction pour builder le projet si nécessaire
-function buildProject() {
-  console.log('📦 Building TypeScript project...');
-  try {
-    execSync('npm run build', { stdio: 'inherit' });
-    console.log('✅ Build successful');
-    return true;
-  } catch (error) {
-    console.error('❌ Build failed:', error.message);
-    return false;
-  }
-}
+console.log('🚀 Starting Colarys API...');
 
 // Chemin vers l'app compilée
 const distAppPath = path.join(__dirname, '../dist/app.js');
-const distDir = path.join(__dirname, '../dist');
 
-// Vérifier si le build existe, sinon le créer
-if (!fs.existsSync(distDir)) {
-  console.log('🔨 dist directory not found, building...');
-  buildProject();
-}
+console.log('📁 Checking for compiled app at:', distAppPath);
 
 if (fs.existsSync(distAppPath)) {
-  // Charger l'app compilée
-  console.log('✅ Loading compiled app from dist');
+  // Charger l'app compilée depuis dist/
+  console.log('✅ Loading compiled TypeScript app from dist/');
   try {
     const app = require(distAppPath).default;
+    console.log('✅ Full TypeScript app loaded successfully');
     module.exports = app;
   } catch (error) {
-    console.error('❌ Failed to load compiled app:', error.message);
-    // Fallback vers l'app basique
-    createFallbackApp();
+    console.error('❌ Error loading compiled app:', error.message);
+    loadFallbackApp();
   }
 } else {
   console.log('⚠️ Compiled app not found, using fallback');
-  createFallbackApp();
+  loadFallbackApp();
 }
 
-function createFallbackApp() {
+function loadFallbackApp() {
+  console.log('🔧 Loading fallback app...');
   const express = require('express');
   const cors = require('cors');
   
@@ -56,11 +40,10 @@ function createFallbackApp() {
       message: "🚀 Colarys API (Fallback Mode)",
       timestamp: new Date().toISOString(),
       status: "OK",
-      note: "Building TypeScript files..."
+      note: "Run 'npm run build' to build TypeScript files"
     });
   });
   
-  // Route santé
   app.get('/api/health', (req, res) => {
     res.json({
       status: "OK", 
@@ -70,7 +53,6 @@ function createFallbackApp() {
     });
   });
   
-  // Route test - IMPORTANT: Ajout de cette route manquante
   app.get('/api/test', (req, res) => {
     res.json({
       success: true,
@@ -81,19 +63,12 @@ function createFallbackApp() {
     });
   });
   
-  // Route 404 améliorée
+  // Route 404
   app.use('*', (req, res) => {
     res.status(404).json({
       error: "Route not found",
       path: req.originalUrl,
-      availableRoutes: [
-        "/", 
-        "/api/health", 
-        "/api/test",
-        "/api/auth/*",
-        "/api/users/*",
-        "/api/agents/*"
-      ],
+      availableRoutes: ["/", "/api/health", "/api/test"],
       mode: "fallback"
     });
   });
