@@ -1,55 +1,61 @@
 // @ts-nocheck
-console.log('🚀 ULTRA-SIMPLE API Starting on Vercel...');
+console.log('🚀 Starting Colarys API - Loading full TypeScript app...');
 
-const express = require('express');
-const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 
-const app = express();
+// Chemin vers l'app compilée
+const distAppPath = path.join(__dirname, '../dist/app.js');
 
-app.use(cors());
-app.use(express.json());
+console.log('📁 Checking for dist/app.js at:', distAppPath);
 
-// Route racine
-app.get('/', (req, res) => {
-  res.json({ 
-    message: "🎉 ULTRA-SIMPLE API WORKS!",
-    timestamp: new Date().toISOString(),
-    status: "SUCCESS",
-    version: "3.0.0"
+if (fs.existsSync(distAppPath)) {
+  console.log('✅ dist/app.js found! Attempting to load full app...');
+  try {
+    // Charger l'app compilée
+    const app = require(distAppPath).default;
+    console.log('🎉 SUCCESS: Full Colarys API loaded from dist!');
+    console.log('📋 All routes from app.ts are now available');
+    module.exports = app;
+  } catch (error) {
+    console.error('❌ FAILED to load dist/app.js:', error.message);
+    console.error('Stack trace:', error.stack);
+    loadFallbackApp('load-error');
+  }
+} else {
+  console.log('❌ dist/app.js not found');
+  loadFallbackApp('not-found');
+}
+
+function loadFallbackApp(reason) {
+  console.log(`🔧 Loading fallback app (reason: ${reason})...`);
+  const express = require('express');
+  const cors = require('cors');
+  
+  const app = express();
+  app.use(cors());
+  app.use(express.json());
+  
+  // Routes basiques
+  app.get('/', (req, res) => {
+    res.json({
+      message: "🚀 Colarys API (Fallback Mode)",
+      timestamp: new Date().toISOString(),
+      status: "OK",
+      reason: reason,
+      note: "Full TypeScript app not loaded - check build process"
+    });
   });
-});
-
-// Route santé
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: "OK",
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'production',
-    service: "Colarys Concept API - Simple Version",
-    platform: "Vercel"
+  
+  app.get('/api/health', (req, res) => {
+    res.json({
+      status: "OK", 
+      environment: process.env.NODE_ENV || 'production',
+      service: "Colarys Concept API",
+      mode: "fallback",
+      reason: reason
+    });
   });
-});
-
-// Route test
-app.get('/api/test', (req, res) => {
-  res.json({
-    success: true,
-    message: "Simple API test successful!",
-    timestamp: new Date().toISOString(),
-    version: "3.0.0"
-  });
-});
-
-// Route debug pour voir l'environnement
-app.get('/api/debug', (req, res) => {
-  res.json({
-    vercel: !!process.env.VERCEL,
-    node_env: process.env.NODE_ENV,
-    timestamp: new Date().toISOString(),
-    message: "Debug endpoint"
-  });
-});
-
-console.log('✅ ULTRA-SIMPLE API configured');
-
-module.exports = app;
+  
+  module.exports = app;
+}
