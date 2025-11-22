@@ -53,15 +53,17 @@ export const AppDataSource = new DataSource({
   }
 });
 
-export const initializeDatabase = async (): Promise<DataSource> => {
+// Dans src/config/data-source.ts - VÉRIFIEZ CETTE FONCTION
+export const initializeDatabase = async (): Promise<boolean> => {
   try {
     if (!AppDataSource.isInitialized) {
       await AppDataSource.initialize();
       console.log('✅ Database connection established');
+      return true;
     }
-    return AppDataSource;
+    return true;
   } catch (error) {
     console.error('❌ Database connection failed:', error);
-    throw error;
+    return false; // ⚠️ IMPORTANT: return false au lieu de throw
   }
 };
