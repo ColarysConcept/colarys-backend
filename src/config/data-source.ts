@@ -54,6 +54,7 @@ export const AppDataSource = new DataSource({
 });
 
 // Dans src/config/data-source.ts - VÉRIFIEZ CETTE FONCTION
+// Dans initializeDatabase - RETOURNEZ boolean AU LIEU DE throw
 export const initializeDatabase = async (): Promise<boolean> => {
   try {
     if (!AppDataSource.isInitialized) {

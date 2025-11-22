@@ -52,6 +52,7 @@ exports.AppDataSource = new typeorm_1.DataSource({
     }
 });
 // Dans src/config/data-source.ts - VÉRIFIEZ CETTE FONCTION
+// Dans initializeDatabase - RETOURNEZ boolean AU LIEU DE throw
 const initializeDatabase = async () => {
     try {
         if (!exports.AppDataSource.isInitialized) {
