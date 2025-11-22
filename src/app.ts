@@ -34,17 +34,13 @@ requiredEnvVars.forEach(envVar => {
   }
 });
 
+const PORT = process.env.PORT || 3000;
 const API_PREFIX = "/api";
 const app = express();
 
 // Configuration CORS
 app.use(cors({
-  origin: [
-    'http://localhost:5173', 
-    'http://localhost:3000', 
-    'http://localhost:8080',
-    'https://colarys-frontend.vercel.app' // ✅ Ajoutez votre futur frontend
-  ],
+  origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:8080'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
 }));
@@ -66,8 +62,7 @@ app.get('/', (_req, res) => {
     message: "🚀 Colarys Concept API Server is running!",
     version: "2.0.0",
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development',
-    platform: process.env.VERCEL ? 'Vercel' : 'Local'
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
@@ -78,8 +73,7 @@ app.get(`${API_PREFIX}/health`, (_req, res) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
     service: "Colarys Concept API",
-    version: "2.0.0",
-    database: AppDataSource.isInitialized ? "Connected" : "Connecting"
+    version: "2.0.0"
   });
 });
 
@@ -150,46 +144,28 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   res.status(500).json({ 
     success: false,
     error: "Internal server error",
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
+    message: err.message
   });
 });
 
-// ========== DÉMARRAGE CONDITIONNEL ==========
-// ✅ IMPORTANT: Ne démarre le serveur QUE en local, pas sur Vercel
-
+// Démarrage du serveur
 const startServer = async () => {
   try {
     await AppDataSource.initialize();
     console.log("📦 Connected to database");
 
-    // ✅ Seulement en local
-    if (!process.env.VERCEL) {
-      const PORT = process.env.PORT || 3000;
-      app.listen(PORT, () => {
-        console.log(`🚀 Server running on http://localhost:${PORT}`);
-        console.log(`🔗 Test these URLs:`);
-        console.log(`   http://localhost:${PORT}/`);
-        console.log(`   http://localhost:${PORT}/api/health`);
-        console.log(`   http://localhost:${PORT}/api/users`);
-        console.log(`   http://localhost:${PORT}/api/agents`);
-      });
-    } else {
-      console.log('✅ Vercel environment - Serverless function ready');
-    }
+    app.listen(PORT, () => {
+      console.log(`🚀 Server running on http://localhost:${PORT}`);
+      console.log(`🔗 Test these URLs:`);
+      console.log(`   http://localhost:${PORT}/`);
+      console.log(`   http://localhost:${PORT}/api/health`);
+      console.log(`   http://localhost:${PORT}/api/users`);
+      console.log(`   http://localhost:${PORT}/api/agents`);
+    });
   } catch (error) {
     console.error("❌ Database connection failed:", error);
-    // ✅ Ne pas quitter le processus sur Vercel
-    if (!process.env.VERCEL) {
-      process.exit(1);
-    }
+    process.exit(1);
   }
 };
 
-// ✅ Démarrage conditionnel
-if (!process.env.VERCEL) {
-  startServer();
-} else {
-  console.log('🚀 Vercel Serverless - App exported without starting server');
-}
-
-export default app;
+startServer();

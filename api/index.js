@@ -1,61 +1,35 @@
-// api/index.js - VERSION COMPLÈTE POUR VERCEL
-console.log('🚀 Colarys API - Starting on Vercel...');
+// api/index.js - VERSION SANS DB
+const express = require('express');
+const app = express();
 
-let app;
-let isInitialized = false;
+app.use(express.json());
+app.use(require('cors')());
 
-async function initializeApp() {
-  try {
-    console.log('📦 Importing compiled app...');
-    app = require('../dist/app').default;
-    
-    // Initialiser la base de données
-    console.log('🔄 Initializing database connection...');
-    const { initializeDatabase } = require('../dist/config/data-source');
-    const dbConnected = await initializeDatabase();
-    
-    if (dbConnected) {
-      console.log('✅ Database connected successfully');
-    } else {
-      console.warn('⚠️ Database connection failed, but server will start');
-    }
-    
-    isInitialized = true;
-    console.log('🎉 Vercel function ready to handle requests');
-    
-  } catch (error) {
-    console.error('❌ Initialization failed:', error);
-    
-    // Fallback: créer une app Express basique
-    const express = require('express');
-    app = express();
-    
-    // Middleware basique
-    app.use(express.json());
-    
-    // Route de santé basique
-    app.get('/api/health', (req, res) => {
-      res.json({ 
-        status: 'WARNING', 
-        message: 'Application initializing...',
-        database: isInitialized ? 'connected' : 'connecting'
-      });
-    });
-    
-    // Routes par défaut
-    app.get('*', (req, res) => {
-      res.status(503).json({ 
-        error: 'Service Temporarily Unavailable',
-        message: 'Application is initializing, please try again in a few seconds',
-        timestamp: new Date().toISOString()
-      });
-    });
-    
-    isInitialized = false;
-  }
-}
+app.get('/api/health', (req, res) => {
+  res.json({ status: "OK", message: "API without database", timestamp: new Date().toISOString() });
+});
 
-// Démarrer l'initialisation immédiatement
-initializeApp();
+app.get('/api/agents', (req, res) => {
+  res.json({
+    success: true,
+    message: "Sample data - Database unavailable",
+    data: [
+      { id: 1, matricule: "SAMPLE001", nom: "Test", prenom: "Agent", poste: "Developer" },
+      { id: 2, matricule: "SAMPLE002", nom: "Demo", prenom: "User", poste: "Designer" }
+    ]
+  });
+});
 
+app.get('/api/users', (req, res) => {
+  res.json({
+    success: true,
+    message: "Sample data - Database unavailable",
+    data: [
+      { id: 1, name: "Admin", email: "admin@colarys.com", role: "admin" },
+      { id: 2, name: "User", email: "user@colarys.com", role: "user" }
+    ]
+  });
+});
+
+console.log('✅ No-DB API deployed');
 module.exports = app;
