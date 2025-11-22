@@ -6,6 +6,28 @@ class AgentController {
     constructor() {
         this.agentService = new AgentService_1.AgentService();
     }
+    // Dans AgentController.ts
+    async getAll(req, res) {
+        try {
+            console.log('📦 Fetching ALL real agents from database');
+            const agents = await this.agentService.getAllAgents();
+            console.log(`✅ Found ${agents.length} real agents in database`);
+            res.json({
+                success: true,
+                message: "Real agents retrieved from database",
+                timestamp: new Date().toISOString(),
+                count: agents.length,
+                data: agents
+            });
+        }
+        catch (error) {
+            console.error('❌ Error in getAll:', error);
+            res.status(500).json({
+                success: false,
+                message: error instanceof Error ? error.message : 'Error retrieving real agents'
+            });
+        }
+    }
     async getByMatricule(req, res) {
         try {
             const { matricule } = req.params;

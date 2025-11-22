@@ -25,7 +25,8 @@
   "exclude": [
     "node_modules", 
     "dist", 
+    "src/migrations",
     "frontend", 
-    "../GRP-Colarys-Concept"
+    "./colarys-frontend"
   ]
 }

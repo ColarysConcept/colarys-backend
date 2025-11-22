@@ -7,6 +7,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "seed": "ts-node src/scripts/seedAgents.ts",
     "vercel-build": "npm run build",
     "vercel-dev": "npm run build"
   },

@@ -1,9 +1,28 @@
-// src/routes/userRoutes.ts
+// src/routes/userRoutes.ts - VERSION FINALE
+import { Router } from 'express';
 import { createCrudRouter } from "./crudRouter";
 import { userController } from "../controllers/UserController";
-// import { authMiddleware } from "../middleware/authMiddleware";
 import { User } from "../entities/User";
 
-// export default createCrudRouter(userController, "");
-// export default createCrudRouter(userController,User, "", [authMiddleware]);
-export default createCrudRouter(userController,User, "");
+const router = Router();
+
+// ✅ REDIRECTION : /api/users → /api/users/getAll (vos données réelles)
+router.get('/', (req, res) => {
+  console.log('GET /users - Redirecting to /getAll for real data');
+  // Appelle directement la méthode getAll du contrôleur
+  userController.getAll(req, res);
+});
+
+// ✅ MONTEZ LE ROUTEUR CRUD POUR GARDER TOUTES LES FONCTIONNALITÉS
+const crudRouter = createCrudRouter(userController, User, "");
+router.use('/', crudRouter);
+
+console.log('✅ User routes mounted:');
+console.log('   GET / → Real user data from database');
+console.log('   GET /getAll → CRUD route (same data)');
+console.log('   GET /getOne/:id → Get user by ID');
+console.log('   POST /create → Create user');
+console.log('   PUT /update/:id → Update user');
+console.log('   DELETE /delete/:id → Delete user');
+
+export default router;
