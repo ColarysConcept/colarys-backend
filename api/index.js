@@ -1,5 +1,5 @@
-// api/index.js - POINT D'ENTRÉE VERCELL
-console.log('🚀 Vercel API Handler - Starting...');
+// api/index.js - VERSION AMÉLIORÉE AVEC MEILLEUR CHARGEMENT
+console.log('🚀 Vercel API Handler - Starting with enhanced loading...');
 
 const express = require('express');
 const app = express();
@@ -20,6 +20,49 @@ app.use(require('cors')({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
 }));
 
+// ✅ ÉTAT DE L'APPLICATION
+let mainAppInitialized = false;
+let dbInitialized = false;
+let initializationAttempted = false;
+
+// ✅ FONCTION D'INITIALISATION ASYNCHRONE
+async function initializeMainApp() {
+  if (initializationAttempted) return;
+  initializationAttempted = true;
+  
+  try {
+    console.log('🔄 Step 1: Loading main application...');
+    
+    // Charger l'application principale
+    const mainApp = require('../dist/app').default;
+    console.log('✅ Main application loaded');
+    
+    console.log('🔄 Step 2: Initializing database...');
+    // Initialiser la base de données
+    const { AppDataSource, initializeDatabase } = require('../dist/config/data-source');
+    
+    // Utiliser la fonction d'initialisation robuste
+    dbInitialized = await initializeDatabase(2);
+    
+    if (dbInitialized) {
+      console.log('✅ Database connected successfully');
+      
+      // Monter l'application principale
+      app.use(mainApp);
+      mainAppInitialized = true;
+      console.log('🎉 Full application initialized with database');
+    } else {
+      console.warn('⚠️ Database connection failed, using basic mode');
+      setupFallbackRoutes();
+    }
+    
+  } catch (error) {
+    console.error('❌ Failed to initialize main app:', error.message);
+    console.error('💥 Full error:', error);
+    setupFallbackRoutes();
+  }
+}
+
 // ✅ ROUTES DE BASE (TOUJOURS DISPONIBLES)
 app.get('/', (req, res) => {
   res.json({
@@ -27,7 +70,9 @@ app.get('/', (req, res) => {
     status: "RUNNING",
     timestamp: new Date().toISOString(),
     version: "2.0.0",
-    environment: process.env.NODE_ENV || 'production'
+    environment: process.env.NODE_ENV || 'production',
+    mode: mainAppInitialized ? "FULL" : "BASIC",
+    database: dbInitialized ? "CONNECTED" : "DISCONNECTED"
   });
 });
 
@@ -37,73 +82,101 @@ app.get('/api/health', (req, res) => {
     message: "API is healthy",
     timestamp: new Date().toISOString(),
     service: "Colarys Concept API",
-    deployment: "Vercel"
+    deployment: "Vercel",
+    mode: mainAppInitialized ? "full" : "basic",
+    database: dbInitialized ? "connected" : "disconnected"
   });
 });
 
-// ✅ ESSAYER D'IMPORTER L'APPLICATION PRINCIPALE
-let mainAppInitialized = false;
+// ✅ ROUTE DE DIAGNOSTIC AMÉLIORÉE
+app.get('/api/debug', async (req, res) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    
+    // Vérifier si les fichiers dist existent
+    const distExists = fs.existsSync(path.join(__dirname, '../dist'));
+    const appExists = fs.existsSync(path.join(__dirname, '../dist/app.js'));
+    const dataSourceExists = fs.existsSync(path.join(__dirname, '../dist/config/data-source.js'));
+    
+    // Test de connexion base de données
+    let dbTest = { success: false, error: 'Not tested' };
+    try {
+      const { AppDataSource } = require('../dist/config/data-source');
+      if (AppDataSource.isInitialized) {
+        const result = await AppDataSource.query('SELECT NOW() as time');
+        dbTest = { success: true, time: result[0].time };
+      }
+    } catch (dbError) {
+      dbTest = { success: false, error: dbError.message };
+    }
+    
+    res.json({
+      environment: {
+        node_env: process.env.NODE_ENV,
+        has_db_host: !!process.env.POSTGRES_HOST,
+        has_db_user: !!process.env.POSTGRES_USER,
+        has_db_password: !!process.env.POSTGRES_PASSWORD,
+        has_db_url: !!process.env.POSTGRES_URL
+      },
+      files: {
+        dist_folder: distExists,
+        app_js: appExists,
+        data_source_js: dataSourceExists
+      },
+      application: {
+        mainAppInitialized,
+        dbInitialized,
+        initializationAttempted
+      },
+      database_test: dbTest
+    });
+    
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-try {
-  console.log('🔄 Attempting to load main application...');
-  const mainApp = require('../dist/app').default;
-  app.use(mainApp);
-  mainAppInitialized = true;
-  console.log('✅ Main application loaded successfully');
-} catch (error) {
-  console.warn('⚠️ Could not load main application:', error.message);
-  console.log('🛠️ Running in basic mode with fallback routes');
+// ✅ ROUTES DE SECOURS (SI L'APP PRINCIPALE ÉCHOUE)
+function setupFallbackRoutes() {
+  console.log('🛡️ Setting up fallback routes...');
   
-  // ✅ ROUTES DE SECOURS
   app.get('/api/agents', (req, res) => {
     res.json({
       success: true,
-      message: "Basic mode - Sample data",
+      message: "Basic mode - Sample data (REAL DATABASE NOT CONNECTED)",
       data: [
         { id: 1, matricule: "EMP001", nom: "DUPONT", prenom: "Jean", poste: "Developer" },
         { id: 2, matricule: "EMP002", nom: "MARTIN", prenom: "Marie", poste: "Designer" }
-      ]
+      ],
+      note: "This is MOCK data. Database connection failed.",
+      debug: {
+        mainAppInitialized,
+        dbInitialized,
+        timestamp: new Date().toISOString()
+      }
     });
   });
 
   app.get('/api/users', (req, res) => {
     res.json({
       success: true,
-      message: "Basic mode - Sample data",
+      message: "Basic mode - Sample data (REAL DATABASE NOT CONNECTED)",
       data: [
         { id: 1, name: "Admin", email: "admin@colarys.com", role: "admin" }
-      ]
+      ],
+      note: "This is MOCK data. Database connection failed."
     });
   });
 }
 
-// ✅ ROUTE POUR TESTER LA CONNEXION DB
-app.get('/api/test-db', async (req, res) => {
-  try {
-    console.log('🔧 Testing database connection...');
-    const { AppDataSource } = require('../dist/config/data-source');
-    
-    if (AppDataSource.isInitialized) {
-      const result = await AppDataSource.query('SELECT NOW() as time');
-      res.json({
-        success: true,
-        message: "Database connected",
-        time: result[0].time
-      });
-    } else {
-      res.json({
-        success: false,
-        message: "Database not initialized",
-        mainAppLoaded: mainAppInitialized
-      });
-    }
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Database test failed: " + error.message
-    });
-  }
-});
+// ✅ DÉMARRER L'INITIALISATION (NON-BLOQUANT)
+console.log('🔧 Starting non-blocking initialization...');
+setTimeout(() => {
+  initializeMainApp().catch(error => {
+    console.error('💥 Initialization failed:', error);
+  });
+}, 100);
 
 // ✅ ROUTE 404 AMÉLIORÉE
 app.use('*', (req, res) => {
@@ -113,11 +186,14 @@ app.use('*', (req, res) => {
     availableRoutes: [
       '/',
       '/api/health',
-      '/api/test-db',
+      '/api/debug',
       '/api/agents',
       '/api/users'
     ],
-    mainAppStatus: mainAppInitialized ? "loaded" : "not loaded"
+    application_status: {
+      main: mainAppInitialized ? "loaded" : "not loaded",
+      database: dbInitialized ? "connected" : "disconnected"
+    }
   });
 });
 
