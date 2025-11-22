@@ -1,7 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AgentService = void 0;
-// backend/src/services/AgentService.ts
 const data_source_1 = require("../config/data-source");
 const Agent_1 = require("../entities/Agent");
 class AgentService {
@@ -21,7 +20,6 @@ class AgentService {
             relations: ["presences"]
         });
     }
-    // NOUVELLE MÉTHODE : Recherche par nom et prénom
     async findAgentByNomPrenom(nom, prenom) {
         return await this.agentRepository.findOne({
             where: {
@@ -55,7 +53,6 @@ class AgentService {
             where: { matricule }
         });
     }
-    //Recherche multiple par nom et prénom
     async findAgentsByNomPrenom(nom, prenom) {
         const queryBuilder = this.agentRepository.createQueryBuilder('agent');
         if (nom) {

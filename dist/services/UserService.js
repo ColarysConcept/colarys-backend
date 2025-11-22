@@ -4,7 +4,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.UserService = void 0;
-// services/UserService.ts
 const data_source_1 = require("../config/data-source");
 const User_1 = require("../entities/User");
 const BaseService_1 = require("./BaseService");
@@ -16,12 +15,10 @@ class UserService extends BaseService_1.BaseService {
         super(userRepo);
     }
     async createUser(name, email, password, role = "agent") {
-        // Vérification de l'existence de l'email
         const existingUser = await userRepo.findOne({ where: { email } });
         if (existingUser) {
             throw new Error("L'email est déjà utilisé");
         }
-        // Validation des champs requis
         if (!name || !email || !password) {
             throw new Error("Tous les champs obligatoires doivent être remplis");
         }
@@ -36,7 +33,6 @@ class UserService extends BaseService_1.BaseService {
         }
         catch (error) {
             if (error instanceof typeorm_1.QueryFailedError) {
-                // Gestion spécifique des erreurs PostgreSQL
                 if (error.message.includes("unique constraint")) {
                     throw new Error("L'email existe déjà");
                 }
@@ -52,7 +48,6 @@ class UserService extends BaseService_1.BaseService {
         if (!user) {
             throw new Error("Utilisateur non trouvé");
         }
-        // Vérification de l'unicité si email modifié
         if (email && email !== user.email) {
             const emailExists = await userRepo.exist({ where: { email } });
             if (emailExists) {
@@ -77,7 +72,6 @@ class UserService extends BaseService_1.BaseService {
             throw error;
         }
     }
-    // Méthode supplémentaire utile
     async getUserByEmail(email) {
         return await userRepo.findOne({
             where: { email },

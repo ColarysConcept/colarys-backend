@@ -10,7 +10,6 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Presence = void 0;
-// backend/src/entities/Presence.ts
 const typeorm_1 = require("typeorm");
 const Agent_1 = require("./Agent");
 const DetailPresence_1 = require("./DetailPresence");
@@ -36,7 +35,7 @@ __decorate([
 ], Presence.prototype, "heureEntree", void 0);
 __decorate([
     (0, typeorm_1.Column)({ name: "heure_sortie", type: "time", nullable: true }),
-    __metadata("design:type", Object)
+    __metadata("design:type", String)
 ], Presence.prototype, "heureSortie", void 0);
 __decorate([
     (0, typeorm_1.Column)({ default: "JOUR" }),
@@ -44,7 +43,7 @@ __decorate([
 ], Presence.prototype, "shift", void 0);
 __decorate([
     (0, typeorm_1.Column)({ name: "heures_travaillees", type: "decimal", precision: 5, scale: 2, nullable: true }),
-    __metadata("design:type", Object)
+    __metadata("design:type", Number)
 ], Presence.prototype, "heuresTravaillees", void 0);
 __decorate([
     (0, typeorm_1.OneToOne)(() => DetailPresence_1.DetailPresence, detail => detail.presence),

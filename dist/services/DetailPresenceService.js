@@ -1,7 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DetailPresenceService = void 0;
-// backend/src/services/DetailPresenceService.ts
 const data_source_1 = require("../config/data-source");
 const DetailPresence_1 = require("../entities/DetailPresence");
 const BaseService_1 = require("./BaseService");
@@ -12,13 +11,11 @@ class DetailPresenceService extends BaseService_1.BaseService {
     }
     async update(id, data) {
         try {
-            // Correction : Conversion vers 'unknown' d'abord pour satisfaire la contrainte de TypeORM
             const whereCondition = { id };
             const entity = await this.repo.findOne({ where: whereCondition });
             if (!entity) {
                 return null;
             }
-            // Mise à jour des champs
             Object.assign(entity, data);
             return await this.repo.save(entity);
         }

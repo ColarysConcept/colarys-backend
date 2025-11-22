@@ -45,4 +45,3 @@ const getAgentById = async (req, res, next) => {
     }
 };
 exports.getAgentById = getAgentById;
-// ... autres fonctions createAgent, updateAgent, deleteAgent

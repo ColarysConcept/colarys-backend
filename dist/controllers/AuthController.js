@@ -6,7 +6,6 @@ const logger_1 = require("../config/logger");
 class AuthController {
     static async login(req, res) {
         const { email, password } = req.body;
-        // Validation des entrées
         if (!email || !password) {
             logger_1.logger.warn('Tentative de connexion sans credentials', {
                 email: email || 'non fourni',
@@ -21,9 +20,7 @@ class AuthController {
                 ip: req.ip,
                 userAgent: req.headers['user-agent']
             });
-            // Appel du service d'authentification
             const { user, token } = await AuthService_1.AuthService.login(email, password);
-            // Formatage sécurisé de la réponse
             const userResponse = {
                 id: user.id,
                 email: user.email,
@@ -47,22 +44,6 @@ class AuthController {
         }
         catch (error) {
             return res.status(401).json({ error: "Email ou mot de passe incorrect" });
-            // Gestion des erreurs spécifiques
-            // let status = 500;
-            // let message = "Erreur d'authentification";
-            // if (error.message.includes("Identifiants invalides")) {
-            //   status = 401;
-            //   message = "Email ou mot de passe incorrect";
-            // } else if (error.message.includes("Mot de passe incorrect")) {
-            //   status = 401;
-            //   message = "Mot de passe incorrect";
-            // }
-            // return res.status(status).json({
-            //   status,
-            //   success: false,
-            //   message,
-            //   data: null
-            // });
         }
     }
 }

@@ -10,7 +10,6 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Agent = void 0;
-// backend/src/entities/Agent.ts
 const typeorm_1 = require("typeorm");
 const Presence_1 = require("./Presence");
 let Agent = class Agent {
@@ -22,7 +21,7 @@ __decorate([
 ], Agent.prototype, "id", void 0);
 __decorate([
     (0, typeorm_1.Column)({ type: "varchar", unique: true, nullable: true }),
-    __metadata("design:type", Object)
+    __metadata("design:type", String)
 ], Agent.prototype, "matricule", void 0);
 __decorate([
     (0, typeorm_1.Column)({ type: "varchar" }),

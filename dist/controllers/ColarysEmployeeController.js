@@ -3,7 +3,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.colarysEmployeeController = exports.ColarysEmployeeController = void 0;
 const ColarysEmployeeService_1 = require("../services/ColarysEmployeeService");
 class ColarysEmployeeController {
-    // ==================== SANTÉ ====================
     async healthCheck(_req, res) {
         try {
             const employees = await ColarysEmployeeService_1.colarysEmployeeService.getAllEmployees();
@@ -27,7 +26,6 @@ class ColarysEmployeeController {
             });
         }
     }
-    // ==================== EMPLOYÉS ====================
     async getAllEmployees(_req, res) {
         try {
             const employees = await ColarysEmployeeService_1.colarysEmployeeService.getAllEmployees();
@@ -143,8 +141,6 @@ class ColarysEmployeeController {
             });
         }
     }
-    // ==================== PRÉSENCES ====================
-    // ==================== PRÉSENCES ====================
     async getPresences(_req, res) {
         try {
             const presences = await ColarysEmployeeService_1.colarysEmployeeService.getPresences();
@@ -179,7 +175,6 @@ class ColarysEmployeeController {
             });
         }
     }
-    // 🔥 NOUVELLE MÉTHODE: Synchroniser automatiquement les jours OFF
     async syncJoursOff(req, res) {
         try {
             const { year, month } = req.body;
@@ -206,24 +201,19 @@ class ColarysEmployeeController {
             });
         }
     }
-    // 🔥 MÉTHODE PRIVÉE: Synchronisation automatique des jours OFF
     async synchroniserJoursOffAutomatique(year, month) {
         let synchronises = 0;
         let erreurs = 0;
         try {
-            // Récupérer tous les employés
             const employees = await ColarysEmployeeService_1.colarysEmployeeService.getAllEmployees();
-            // Pour chaque employé, récupérer ses jours OFF du planning
             for (const employee of employees) {
                 try {
                     const matricule = employee.Matricule;
                     const joursOffEmploye = await this.getJoursOffForEmployee(matricule, year, month);
-                    // Marquer chaque jour OFF dans les présences
                     for (const dateStr of joursOffEmploye) {
                         const date = new Date(dateStr);
                         const day = date.getDate();
-                        await ColarysEmployeeService_1.colarysEmployeeService.updatePresence(matricule, year, month, day, 'o' // Type 'o' pour OFF
-                        );
+                        await ColarysEmployeeService_1.colarysEmployeeService.updatePresence(matricule, year, month, day, 'o');
                         synchronises++;
                     }
                 }
@@ -239,19 +229,9 @@ class ColarysEmployeeController {
             throw error;
         }
     }
-    // 🔥 MÉTHODE PRIVÉE: Récupérer les jours OFF pour un employé spécifique
     async getJoursOffForEmployee(matricule, year, month) {
         try {
-            // Implémentez ici la logique spécifique pour récupérer les jours OFF
-            // d'un employé selon son planning et les rotations
-            // Cette méthode doit interroger votre système de planning
-            // et retourner un tableau de dates (format: "YYYY-MM-DD")
-            // correspondant aux jours OFF de l'employé
-            // EXEMPLE: 
-            // - Récupérer le planning de l'employé
-            // - Identifier ses jours de repos selon la rotation
-            // - Retourner les dates correspondantes
-            return []; // Retour temporaire
+            return [];
         }
         catch (error) {
             console.error(`Erreur récupération jours OFF pour ${matricule}:`, error);
@@ -284,7 +264,6 @@ class ColarysEmployeeController {
             });
         }
     }
-    // ==================== SALAIRES ====================
     async getSalaires(_req, res) {
         try {
             const salaires = await ColarysEmployeeService_1.colarysEmployeeService.getSalaires();
@@ -302,13 +281,11 @@ class ColarysEmployeeController {
             });
         }
     }
-    // 🔥 CORRECTION AMÉLIORÉE : Méthode calculateSalaires avec gestion des erreurs renforcée
     async calculateSalaires(req, res) {
         try {
             const { year, month } = req.params;
             const { joursTheoriques } = req.query;
             console.log(`🧮 Calcul salaires demandé: ${year}/${month}, jours: ${joursTheoriques || 'auto'}`);
-            // 🔥 VALIDATION DES PARAMÈTRES
             const yearNum = parseInt(year);
             const monthNum = parseInt(month);
             if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) {
@@ -323,7 +300,6 @@ class ColarysEmployeeController {
                     message: 'Mois invalide. Doit être entre 1 et 12.'
                 });
             }
-            // 🔥 CONVERSION FLEXIBLE du paramètre joursTheoriques
             let joursTheoriquesNum;
             if (joursTheoriques !== undefined && joursTheoriques !== null && joursTheoriques !== '') {
                 joursTheoriquesNum = parseInt(joursTheoriques);
@@ -337,7 +313,6 @@ class ColarysEmployeeController {
             console.log(`📊 Paramètres validés: ${yearNum}/${monthNum}, jours: ${joursTheoriquesNum || 'auto'}`);
             const salaires = await ColarysEmployeeService_1.colarysEmployeeService.calculateSalaires(yearNum, monthNum, joursTheoriquesNum);
             console.log(`✅ Calcul réussi: ${salaires.length} salaires calculés`);
-            // 🔥 CORRECTION : Déplacer getMonthName dans la portée locale
             const getMonthName = (month) => {
                 const months = [
                     'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -345,7 +320,6 @@ class ColarysEmployeeController {
                 ];
                 return months[month - 1] || 'Inconnu';
             };
-            // 🔥 RÉPONSE ENRICHIE avec informations détaillées
             const premierSalaire = salaires[0] || {};
             const joursUtilises = premierSalaire['Jours théoriques'] || 'auto';
             res.json({
@@ -367,7 +341,6 @@ class ColarysEmployeeController {
         }
         catch (error) {
             console.error('💥 Erreur contrôleur calcul salaires:', error);
-            // 🔥 GESTION D'ERREUR AMÉLIORÉE avec vérification de type
             const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue lors du calcul des salaires';
             res.status(500).json({
                 success: false,
@@ -379,7 +352,6 @@ class ColarysEmployeeController {
     async updateSalaire(req, res) {
         try {
             const { matricule, year, month } = req.params;
-            // 🔥 VALIDATION DES PARAMÈTRES
             const yearNum = parseInt(year);
             const monthNum = parseInt(month);
             if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) {
@@ -421,7 +393,6 @@ class ColarysEmployeeController {
             });
         }
     }
-    // ==================== UTILITAIRES ====================
     async updateCongesAutomatique(_req, res) {
         try {
             await ColarysEmployeeService_1.colarysEmployeeService.updateCongesAutomatique();
@@ -456,7 +427,6 @@ class ColarysEmployeeController {
             }
             const employees = await ColarysEmployeeService_1.colarysEmployeeService.getAllEmployees();
             const presences = await ColarysEmployeeService_1.colarysEmployeeService.getPresences();
-            // 🔥 AJOUT: Compter les jours OFF
             let totalJoursOff = 0;
             if (yearNum && monthNum) {
                 const presencesData = await ColarysEmployeeService_1.colarysEmployeeService.getMonthlyPresences(yearNum, monthNum);
@@ -474,7 +444,7 @@ class ColarysEmployeeController {
             const stats = {
                 totalEmployes: employees.length,
                 totalPresences: Object.keys(presences).length,
-                totalJoursOff: totalJoursOff, // 🔥 NOUVEAU: statistique jours OFF
+                totalJoursOff: totalJoursOff,
                 employesActifs: employees.filter(emp => this.parseFloat(emp['Solde de congé']) > 0).length,
                 congesMoyens: employees.length > 0 ?
                     employees.reduce((sum, emp) => sum + this.parseFloat(emp['Solde de congé']), 0) / employees.length : 0,
@@ -493,12 +463,10 @@ class ColarysEmployeeController {
             });
         }
     }
-    // 🔥 NOUVELLE MÉTHODE : Export des fiches de paie
     async exportFichesPaie(req, res) {
         try {
             const { year, month, matricules } = req.body;
-            console.log(`📄 Export fiches de paie demandé: ${month}/${year}, ${matricules?.length || 'tous'} employés`);
-            // 🔥 VALIDATION DES PARAMÈTRES
+            console.log(`📄 Export fiches de paie demandé: ${month}/${year}, ${(matricules === null || matricules === void 0 ? void 0 : matricules.length) || 'tous'} employés`);
             const yearNum = parseInt(year);
             const monthNum = parseInt(month);
             if (isNaN(yearNum) || yearNum < 2000 || yearNum > 2100) {
@@ -513,9 +481,7 @@ class ColarysEmployeeController {
                     message: 'Mois invalide'
                 });
             }
-            // 🔥 CALCUL DES SALAIRES
             const salaires = await ColarysEmployeeService_1.colarysEmployeeService.calculateSalaires(yearNum, monthNum);
-            // 🔥 FILTRER PAR MATRICULES SI SPÉCIFIÉS
             let salairesFiltres = salaires;
             if (matricules && Array.isArray(matricules) && matricules.length > 0) {
                 salairesFiltres = salaires.filter(s => matricules.includes(s.Matricule));
@@ -527,7 +493,6 @@ class ColarysEmployeeController {
                     message: 'Aucune donnée de salaire trouvée pour les critères spécifiés'
                 });
             }
-            // 🔥 POUR L'INSTANT, ON RENVOIE JSON EN ATTENDANT L'IMPLÉMENTATION PDF
             const resultatExport = {
                 success: true,
                 message: `${salairesFiltres.length} fiche(s) de paie générée(s)`,
@@ -574,7 +539,6 @@ class ColarysEmployeeController {
         }
         catch (error) {
             console.error('💥 Erreur export fiches paie:', error);
-            // 🔥 CORRECTION : Vérification du type d'erreur
             const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue lors de l\'export des fiches de paie';
             res.status(500).json({
                 success: false,
@@ -583,7 +547,6 @@ class ColarysEmployeeController {
             });
         }
     }
-    // 🔥 MÉTHODES UTILITAIRES PRIVÉES
     getMonthName(month) {
         const months = [
             'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -600,7 +563,7 @@ class ColarysEmployeeController {
             const str = String(value).replace(/\s/g, '').replace(',', '.');
             return parseFloat(str) || defaultValue;
         }
-        catch {
+        catch (_a) {
             return defaultValue;
         }
     }
@@ -611,7 +574,6 @@ class ColarysEmployeeController {
             for (let jour = 1; jour <= joursDansMois; jour++) {
                 const date = new Date(year, month - 1, jour);
                 const jourSemaine = date.getDay();
-                // Lundi à vendredi seulement
                 if (jourSemaine >= 1 && jourSemaine <= 5) {
                     joursOuvrables++;
                 }
@@ -623,10 +585,7 @@ class ColarysEmployeeController {
             return 22;
         }
     }
-    // 🔥 MÉTHODE POUR GÉNÉRER LE PDF (À IMPLÉMENTER)
     async genererPDFFichesPaie(salaires, year, month) {
-        // Implémentation future avec pdfkit, puppeteer, ou autre bibliothèque PDF
-        // Pour l'instant, on retourne un buffer vide
         return Buffer.from('');
     }
 }

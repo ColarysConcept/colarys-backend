@@ -8,7 +8,6 @@ const AgentColarysController_1 = require("../controllers/AgentColarysController"
 const multer_1 = __importDefault(require("multer"));
 const path_1 = __importDefault(require("path"));
 const router = (0, express_1.Router)();
-// Configuration Multer pour les routes
 const storage = multer_1.default.diskStorage({
     destination: (req, file, cb) => {
         cb(null, path_1.default.join(__dirname, '../../public/uploads/'));
@@ -31,15 +30,13 @@ const upload = (0, multer_1.default)({
     storage: storage,
     fileFilter: fileFilter,
     limits: {
-        fileSize: 5 * 1024 * 1024, // 5MB
+        fileSize: 5 * 1024 * 1024,
     }
 });
-// Routes principales
 router.get("/", AgentColarysController_1.AgentColarysController.getAllAgents);
 router.get("/:id", AgentColarysController_1.AgentColarysController.getAgentById);
 router.post("/", upload.single('image'), AgentColarysController_1.AgentColarysController.createAgent);
 router.put("/:id", upload.single('image'), AgentColarysController_1.AgentColarysController.updateAgent);
 router.delete("/:id", AgentColarysController_1.AgentColarysController.deleteAgent);
-// Route dédiée pour l'upload d'image seule
 router.post("/upload-image", upload.single('image'), AgentColarysController_1.AgentColarysController.uploadImage);
 exports.default = router;

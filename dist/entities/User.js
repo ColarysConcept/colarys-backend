@@ -22,7 +22,6 @@ let User = class User {
         this.email = "";
         this.password = "";
         this.role = "agent";
-        // Ajouter le mapping explicit pour les colonnes
         this.createdAt = new Date();
         this.updatedAt = new Date();
     }

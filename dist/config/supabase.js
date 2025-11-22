@@ -37,14 +37,12 @@ exports.supabaseAdmin = exports.supabase = void 0;
 exports.testConnection = testConnection;
 exports.checkDatabaseHealth = checkDatabaseHealth;
 exports.handleSupabaseError = handleSupabaseError;
-// config/supabase.ts
 const supabase_js_1 = require("@supabase/supabase-js");
 const dotenv = __importStar(require("dotenv"));
-// Charger les variables d'environnement
 dotenv.config();
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY; // Clé de service pour les opérations admin
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 if (!supabaseUrl || !supabaseKey) {
     console.error('❌ Variables d\'environnement Supabase manquantes');
     console.error('SUPABASE_URL:', supabaseUrl || 'non défini');
@@ -52,7 +50,6 @@ if (!supabaseUrl || !supabaseKey) {
     throw new Error('Configuration Supabase incomplète. Vérifiez vos variables d\'environnement.');
 }
 console.log('✅ Configuration Supabase chargée - URL:', supabaseUrl);
-// Client principal avec la clé publique
 exports.supabase = (0, supabase_js_1.createClient)(supabaseUrl, supabaseKey, {
     auth: {
         persistSession: false,
@@ -65,7 +62,6 @@ exports.supabase = (0, supabase_js_1.createClient)(supabaseUrl, supabaseKey, {
         }
     }
 });
-// Client admin avec la clé de service (si disponible)
 exports.supabaseAdmin = supabaseServiceKey
     ? (0, supabase_js_1.createClient)(supabaseUrl, supabaseServiceKey, {
         auth: {
@@ -74,18 +70,15 @@ exports.supabaseAdmin = supabaseServiceKey
         }
     })
     : null;
-// Fonction de test de connexion améliorée
 async function testConnection() {
     try {
-        // Test plus simple et plus fiable
         const { data, error } = await exports.supabase
             .from('plannings')
             .select('id')
             .limit(1)
-            .maybeSingle(); // Utilise maybeSingle pour éviter les erreurs si la table n'existe pas
+            .maybeSingle();
         if (error) {
-            // Si la table n'existe pas, essayez une requête plus basique
-            if (error.code === '42P01') { // Table doesn't exist
+            if (error.code === '42P01') {
                 console.log('⚠️ Table plannings non trouvée, test avec une requête système');
                 const { error: sysError } = await exports.supabase.rpc('version');
                 if (sysError) {
@@ -106,7 +99,6 @@ async function testConnection() {
         return false;
     }
 }
-// Fonction pour vérifier la santé de la base de données
 async function checkDatabaseHealth() {
     try {
         const startTime = Date.now();
@@ -115,7 +107,7 @@ async function checkDatabaseHealth() {
         return {
             connected: !error,
             responseTime: responseTime,
-            error: error?.message,
+            error: error === null || error === void 0 ? void 0 : error.message,
             timestamp: new Date().toISOString()
         };
     }
@@ -127,7 +119,6 @@ async function checkDatabaseHealth() {
         };
     }
 }
-// Gestion des erreurs Supabase
 function handleSupabaseError(error) {
     if (!error)
         return 'Erreur inconnue';
@@ -143,7 +134,6 @@ function handleSupabaseError(error) {
     }
     return error.message || 'Erreur inconnue';
 }
-// Export des URLs pour le débogage (seulement en développement)
 if (process.env.NODE_ENV === 'development') {
     console.log('🔧 Mode développement - Supabase config:');
     console.log('URL:', supabaseUrl);

@@ -4,11 +4,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PythonAPIService = void 0;
-// services/PythonAPIService.ts
 const axios_1 = __importDefault(require("axios"));
 const PYTHON_API_BASE = 'http://localhost:8000';
 class PythonAPIService {
-    // Employés
     static async getEmployes() {
         const response = await axios_1.default.get(`${PYTHON_API_BASE}/employes`);
         return response.data;
@@ -25,7 +23,6 @@ class PythonAPIService {
         const response = await axios_1.default.delete(`${PYTHON_API_BASE}/employes/${matricule}`);
         return response.data;
     }
-    // Présences
     static async getPresences(year, month) {
         const response = await axios_1.default.get(`${PYTHON_API_BASE}/presences/${year}/${month}`);
         return response.data;
@@ -34,7 +31,6 @@ class PythonAPIService {
         const response = await axios_1.default.post(`${PYTHON_API_BASE}/presences/${year}/${month}`, presences);
         return response.data;
     }
-    // Salaires
     static async getSalaires(year, month) {
         const response = await axios_1.default.get(`${PYTHON_API_BASE}/salaires/${year}/${month}`);
         return response.data;

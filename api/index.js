@@ -26,6 +26,7 @@ let dbInitialized = false;
 let initializationAttempted = false;
 
 // ✅ FONCTION D'INITIALISATION ASYNCHRONE
+// Dans api/index.js - remplacez la fonction initializeMainApp
 async function initializeMainApp() {
   if (initializationAttempted) return;
   initializationAttempted = true;
@@ -38,11 +39,15 @@ async function initializeMainApp() {
     console.log('✅ Main application loaded');
     
     console.log('🔄 Step 2: Initializing database...');
+    console.log('📍 DB Host:', process.env.POSTGRES_HOST);
+    console.log('📍 DB Port:', process.env.POSTGRES_PORT);
+    console.log('📍 DB User:', process.env.POSTGRES_USER ? '***' : 'NOT SET');
+    
     // Initialiser la base de données
     const { AppDataSource, initializeDatabase } = require('../dist/config/data-source');
     
     // Utiliser la fonction d'initialisation robuste
-    dbInitialized = await initializeDatabase(2);
+    dbInitialized = await initializeDatabase(3); // 3 tentatives
     
     if (dbInitialized) {
       console.log('✅ Database connected successfully');
@@ -52,13 +57,18 @@ async function initializeMainApp() {
       mainAppInitialized = true;
       console.log('🎉 Full application initialized with database');
     } else {
-      console.warn('⚠️ Database connection failed, using basic mode');
+      console.error('❌ Database connection failed after all attempts');
+      console.log('🔧 Possible issues:');
+      console.log('   - SSL configuration');
+      console.log('   - Wrong host/port');
+      console.log('   - Authentication failed');
+      console.log('   - Network restrictions');
       setupFallbackRoutes();
     }
     
   } catch (error) {
     console.error('❌ Failed to initialize main app:', error.message);
-    console.error('💥 Full error:', error);
+    console.error('💥 Stack trace:', error.stack);
     setupFallbackRoutes();
   }
 }
@@ -158,7 +168,10 @@ function setupFallbackRoutes() {
     });
   });
 
-  app.get('/api/users', (req, res) => {
+  // Ajoutez dans api/index.js après les autres routes
+app.get('/api/test-simple', require('./test-db-simple'));
+
+  app.get('/api/users', (_req, res) => {
     res.json({
       success: true,
       message: "Basic mode - Sample data (REAL DATABASE NOT CONNECTED)",

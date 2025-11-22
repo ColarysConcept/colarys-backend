@@ -1,6 +1,5 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-// CloudinaryService.ts
 const cloudinary_1 = require("cloudinary");
 class CloudinaryService {
     async uploadAgentImage(file) {

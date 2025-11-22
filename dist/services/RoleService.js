@@ -1,7 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RoleService = void 0;
-// src/services/RoleService.ts
 const data_source_1 = require("../config/data-source");
 const Role_1 = require("../entities/Role");
 const BaseService_1 = require("./BaseService");
@@ -11,9 +10,6 @@ class RoleService extends BaseService_1.BaseService {
     constructor() {
         super(roleRepository);
     }
-    /**
-     * Récupère tous les rôles avec pagination et filtres
-     */
     async getAllRoles(filter = {}, skip = 0, take = 10) {
         try {
             logger_1.logger.debug(`Fetching roles with filter: ${JSON.stringify(filter)}`);
@@ -30,9 +26,6 @@ class RoleService extends BaseService_1.BaseService {
             throw new Error("Erreur lors de la récupération des rôles");
         }
     }
-    /**
-     * Crée un nouveau rôle avec validation
-     */
     async createRole(roleData) {
         if (!roleData.role) {
             throw new Error("Le nom du rôle est requis");
@@ -50,13 +43,3 @@ class RoleService extends BaseService_1.BaseService {
     }
 }
 exports.RoleService = RoleService;
-// services/RoleService.ts
-// import { AppDataSource } from "../config/data-source";
-// import { Role } from "../entities/Role";
-// import { BaseService } from "./BaseService";
-// const roleRepo = AppDataSource.getRepository(Role);
-// export class RoleService extends BaseService<Role> {
-//   constructor() {
-//     super(roleRepo);
-//   }
-// }

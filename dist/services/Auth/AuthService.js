@@ -1,4 +1,15 @@
 "use strict";
+var __rest = (this && this.__rest) || function (s, e) {
+    var t = {};
+    for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p) && e.indexOf(p) < 0)
+        t[p] = s[p];
+    if (s != null && typeof Object.getOwnPropertySymbols === "function")
+        for (var i = 0, p = Object.getOwnPropertySymbols(s); i < p.length; i++) {
+            if (e.indexOf(p[i]) < 0 && Object.prototype.propertyIsEnumerable.call(s, p[i]))
+                t[p[i]] = s[p[i]];
+        }
+    return t;
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -12,14 +23,11 @@ const userRepository = data_source_1.AppDataSource.getRepository(User_1.User);
 class AuthService {
     static async login(email, password) {
         try {
-            // 1. Nettoyage des entrées
             const cleanEmail = email.toLowerCase().trim();
             const cleanPassword = password.trim();
-            // 2. Vérification des entrées
             if (!cleanEmail || !cleanPassword) {
                 throw new Error("Email and password required");
             }
-            // 3. Récupération utilisateur
             const user = await userRepository
                 .createQueryBuilder("user")
                 .addSelect("user.password")
@@ -28,26 +36,21 @@ class AuthService {
             if (!user) {
                 throw new Error("Invalid credentials");
             }
-            // 4. DEBUG: Affichage des valeurs pour diagnostic
             console.log("------ DEBUG AUTH ------");
             console.log("Input password:", cleanPassword);
             console.log("Stored hash:", user.password);
             console.log("Hash length:", user.password.length);
             console.log("Hash type:", typeof user.password);
-            // 5. Comparaison des mots de passe
             const isMatch = await bcryptjs_1.default.compare(cleanPassword, user.password);
             console.log("Match result:", isMatch);
             if (!isMatch) {
-                // 6. Génération d'un nouveau hash pour comparaison
                 const testHash = await bcryptjs_1.default.hash(cleanPassword, 10);
                 console.log("New generated hash:", testHash);
                 console.log("Compare new hash with stored:", testHash === user.password);
                 throw new Error("Invalid credentials");
             }
-            // 7. Génération du token
             const token = jsonwebtoken_1.default.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: "1d" });
-            // 8. Réponse sans le mot de passe
-            const { password: _, ...safeUser } = user;
+            const { password: _ } = user, safeUser = __rest(user, ["password"]);
             return { user: safeUser, token };
         }
         catch (error) {

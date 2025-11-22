@@ -1,6 +1,5 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-// src/scripts/seedAgents.ts
 const data_source_1 = require("../config/data-source");
 const Agent_1 = require("../entities/Agent");
 const AgentService_1 = require("../services/AgentService");
@@ -10,14 +9,12 @@ async function seedAgents() {
         console.log("📦 Connected to database for seeding");
         const agentService = new AgentService_1.AgentService();
         const agentRepository = data_source_1.AppDataSource.getRepository(Agent_1.Agent);
-        // Vérifiez si des agents existent déjà
         const existingAgents = await agentRepository.find();
         if (existingAgents.length > 0) {
             console.log("✅ Agents already exist in database:", existingAgents.length);
             await data_source_1.AppDataSource.destroy();
             return;
         }
-        // Données d'exemple réalistes
         const agentsData = [
             {
                 matricule: "AGT001",
@@ -72,5 +69,4 @@ async function seedAgents() {
         process.exit(1);
     }
 }
-// Exécutez le script
 seedAgents();

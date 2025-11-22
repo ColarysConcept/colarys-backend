@@ -6,7 +6,6 @@ class AgentController {
     constructor() {
         this.agentService = new AgentService_1.AgentService();
     }
-    // Dans AgentController.ts
     async getAll(req, res) {
         try {
             console.log('📦 Fetching ALL real agents from database');
@@ -55,7 +54,6 @@ class AgentController {
             });
         }
     }
-    // NOUVELLE MÉTHODE : Recherche par nom et prénom
     async getByNomPrenom(req, res) {
         try {
             const { nom, prenom } = req.params;
@@ -90,7 +88,6 @@ class AgentController {
             });
         }
     }
-    //Recherche multiple par nom et prénom
     async searchByNomPrenom(req, res) {
         try {
             const { nom, prenom } = req.query;

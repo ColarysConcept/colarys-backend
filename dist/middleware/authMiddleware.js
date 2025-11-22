@@ -7,11 +7,10 @@ exports.authMiddleware = authMiddleware;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const SECRET = process.env.JWT_SECRET || "secret_key";
 function authMiddleware(req, res, next) {
-    // Cherche le token dans l'en-tête Authorization (Bearer token)
+    var _a;
     const authHeader = req.headers.authorization;
-    const tokenFromHeader = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : null;
-    // Ou dans le body
-    const tokenFromBody = req.body?.token;
+    const tokenFromHeader = (authHeader === null || authHeader === void 0 ? void 0 : authHeader.startsWith("Bearer ")) ? authHeader.split(" ")[1] : null;
+    const tokenFromBody = (_a = req.body) === null || _a === void 0 ? void 0 : _a.token;
     const token = tokenFromHeader || tokenFromBody;
     if (!token)
         return res.status(401).json({ message: "Token manquant" });

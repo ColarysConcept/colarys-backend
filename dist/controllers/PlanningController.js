@@ -51,7 +51,6 @@ class PlanningController {
     }
     static extractWeekNumber(weekInfo) {
         try {
-            // Vérifier que la chaîne contient bien un format de date
             const dateMatch = weekInfo.match(/(\d{2}\/\d{2}\/\d{2})/);
             if (!dateMatch) {
                 console.error('Format de date invalide dans weekInfo:', weekInfo);
@@ -90,32 +89,11 @@ class PlanningController {
             return new Date().getFullYear().toString();
         }
     }
-    // PlanningController.ts
-    // private static calculateDate(week: string, dayIndex: number, year: string): Date {
-    //   try {
-    //     const [, weekNum] = week.split('-W');
-    //     const weekNumber = parseInt(weekNum);
-    //     const yearNumber = parseInt(year);
-    //     // Calcul plus robuste de la date basé sur la semaine ISO
-    //     const januaryFirst = new Date(yearNumber, 0, 1);
-    //     const firstDayOfYear = januaryFirst.getDay();
-    //     const firstMonday = firstDayOfYear <= 4 ?
-    //       januaryFirst.getDate() - firstDayOfYear + 1 :
-    //       januaryFirst.getDate() + 8 - firstDayOfYear;
-    //     const targetDate = new Date(yearNumber, 0, firstMonday);
-    //     targetDate.setDate(targetDate.getDate() + (weekNumber - 1) * 7 + dayIndex);
-    //     return targetDate;
-    //   } catch (error) {
-    //     console.error('Erreur calculateDate:', error);
-    //     return new Date(); // Fallback à la date actuelle
-    //   }
-    // }
     static calculateDate(week, dayIndex, year) {
         try {
             const [, weekNum] = week.split('-W');
             const weekNumber = parseInt(weekNum);
             const yearNumber = parseInt(year);
-            // Use ISO week date calculation
             const simple = new Date(yearNumber, 0, 1 + (weekNumber - 1) * 7);
             const dow = simple.getDay();
             const ISOweekStart = new Date(simple);
@@ -125,13 +103,12 @@ class PlanningController {
             else {
                 ISOweekStart.setDate(simple.getDate() + 8 - simple.getDay());
             }
-            // Add day offset (0 = Monday, 6 = Sunday)
             ISOweekStart.setDate(ISOweekStart.getDate() + dayIndex);
             return ISOweekStart;
         }
         catch (error) {
             console.error('Erreur calculateDate:', error);
-            return new Date(); // Fallback to current date
+            return new Date();
         }
     }
     static parseMultiMonthExcel(file) {
@@ -140,6 +117,7 @@ class PlanningController {
         const weeks = [];
         const daysOfWeek = ['LUNDI', 'MARDI', 'MERCREDI', 'JEUDI', 'VENDREDI', 'SAMEDI', 'DIMANCHE'];
         workbook.SheetNames.forEach(sheetName => {
+            var _a, _b, _c, _d, _e, _f, _g;
             if (!sheetName || ['Octobre', 'Novembre', 'Decembre'].includes(sheetName)) {
                 console.log(`Ignorer feuille: ${sheetName}`);
                 return;
@@ -153,7 +131,6 @@ class PlanningController {
             let agentOrder = 0;
             for (let i = 0; i < rawData.length; i++) {
                 const row = rawData[i];
-                // Vérifier si la ligne contient des informations de semaine
                 if (row[0] && typeof row[0] === 'string' && row[0].includes('Semaine du')) {
                     const weekInfo = row[0];
                     try {
@@ -166,27 +143,21 @@ class PlanningController {
                         console.log(`Feuille: ${sheetName}, Semaine extraite: ${currentWeek}, Année: ${currentYear}`);
                     }
                     catch (error) {
-                        // Conversion de l'erreur en chaîne pour l'affichage
                         const errorMessage = error instanceof Error ? error.message : String(error);
                         console.warn(`Erreur lors de l'extraction de la semaine: ${errorMessage}`);
-                        // Continuer avec la semaine précédente ou une valeur par défaut
                         currentWeek = currentWeek || `${new Date().getFullYear()}-W01`;
                     }
                     continue;
                 }
-                // Ignorer les en-têtes et lignes vides
                 if (!row[0] || row[0] === 'PRENOMS' || row[0] === 'EMPLOI DU TEMPS' || typeof row[0] !== 'string') {
                     continue;
                 }
-                // Traiter les lignes d'agents
                 const agentName = row[0].trim();
-                // Ignorer les noms d'agents qui pourraient être interprétés comme des semaines
                 if (agentName && agentName !== '' && !agentName.includes('Semaine du')) {
                     const days = daysOfWeek.map((day, index) => {
                         const columnIndex = hasManrdiTypo && day === 'MARDI' ? index + 1 : index + 1;
                         const shiftRaw = row[columnIndex] || 'OFF';
                         const shift = shiftRaw.toUpperCase().replace(/\s+/g, '');
-                        // Calcul de la date avec gestion d'erreur
                         let date;
                         try {
                             date = this.calculateDate(currentWeek, index, currentYear);
@@ -196,7 +167,6 @@ class PlanningController {
                         }
                         catch (error) {
                             console.error(`Date invalide pour la semaine ${currentWeek}, jour ${index}:`, error);
-                            // Date de fallback - utilise la date actuelle
                             date = new Date();
                         }
                         return {
@@ -219,13 +189,13 @@ class PlanningController {
                         days,
                         total_heures: totalHours,
                         remarques: row[8] || null,
-                        lundi: days[0]?.shift || 'OFF',
-                        mardi: days[1]?.shift || 'OFF',
-                        mercredi: days[2]?.shift || 'OFF',
-                        jeudi: days[3]?.shift || 'OFF',
-                        vendredi: days[4]?.shift || 'OFF',
-                        samedi: days[5]?.shift || 'OFF',
-                        dimanche: days[6]?.shift || 'OFF',
+                        lundi: ((_a = days[0]) === null || _a === void 0 ? void 0 : _a.shift) || 'OFF',
+                        mardi: ((_b = days[1]) === null || _b === void 0 ? void 0 : _b.shift) || 'OFF',
+                        mercredi: ((_c = days[2]) === null || _c === void 0 ? void 0 : _c.shift) || 'OFF',
+                        jeudi: ((_d = days[3]) === null || _d === void 0 ? void 0 : _d.shift) || 'OFF',
+                        vendredi: ((_e = days[4]) === null || _e === void 0 ? void 0 : _e.shift) || 'OFF',
+                        samedi: ((_f = days[5]) === null || _f === void 0 ? void 0 : _f.shift) || 'OFF',
+                        dimanche: ((_g = days[6]) === null || _g === void 0 ? void 0 : _g.shift) || 'OFF',
                     });
                 }
             }
@@ -244,13 +214,11 @@ class PlanningController {
             }
             console.log('Fichier reçu:', req.file.originalname);
             const result = PlanningController.parseMultiMonthExcel(req.file);
-            // Log des données parsées
             console.log('Données parsées:', {
                 count: result.count,
                 weeks: result.weeks,
                 sample: result.data.length > 0 ? result.data[0] : 'Aucune donnée'
             });
-            // Utilisation de upsert pour gérer les doublons
             const { error } = await supabase
                 .from('plannings')
                 .upsert(result.data, {
@@ -276,14 +244,11 @@ class PlanningController {
             });
         }
     }
-    // PlanningController.ts
-    // Dans PlanningController.ts - méthode getPlannings
     static async getPlannings(req, res) {
         try {
             const { searchQuery, selectedFilter, selectedYear, selectedMonth, selectedWeek } = req.query;
             console.log('Filtres reçus dans getPlannings:', { searchQuery, selectedFilter, selectedYear, selectedMonth, selectedWeek });
             let query = supabase.from('plannings').select('*');
-            // Ne pas appliquer les filtres avec la valeur "all"
             if (searchQuery && searchQuery !== 'all') {
                 query = query.ilike('agent_name', `%${searchQuery}%`);
             }
@@ -303,7 +268,7 @@ class PlanningController {
             const { data, error, count } = await query;
             if (error)
                 throw error;
-            console.log('Résultats filtrés Supabase:', { count, sample: data?.[0] });
+            console.log('Résultats filtrés Supabase:', { count, sample: data === null || data === void 0 ? void 0 : data[0] });
             res.json(data || []);
         }
         catch (error) {
@@ -311,8 +276,6 @@ class PlanningController {
             res.status(500).json([]);
         }
     }
-    // PlanningController.ts
-    // Dans PlanningController.ts
     static async getAvailableYears(_req, res) {
         try {
             const { data, error } = await supabase
@@ -321,8 +284,7 @@ class PlanningController {
                 .order('year');
             if (error)
                 throw error;
-            // Extraire les années uniques
-            const years = [...new Set(data?.map(item => item.year).filter(Boolean))];
+            const years = [...new Set(data === null || data === void 0 ? void 0 : data.map(item => item.year).filter(Boolean))];
             console.log('Années disponibles:', years);
             res.json(years);
         }
@@ -338,7 +300,7 @@ class PlanningController {
                 .select('month');
             if (error)
                 throw error;
-            const allMonths = data?.flatMap(item => item.month || []) || [];
+            const allMonths = (data === null || data === void 0 ? void 0 : data.flatMap(item => item.month || [])) || [];
             const uniqueMonths = [...new Set(allMonths)].sort();
             res.json(uniqueMonths);
         }
@@ -355,7 +317,7 @@ class PlanningController {
                 .order('semaine');
             if (error)
                 throw error;
-            const weeks = [...new Set(data?.map(item => item.semaine))];
+            const weeks = [...new Set(data === null || data === void 0 ? void 0 : data.map(item => item.semaine))];
             res.json(weeks);
         }
         catch (error) {
@@ -371,7 +333,7 @@ class PlanningController {
                 .order('agent_name');
             if (error)
                 throw error;
-            const agents = [...new Set(data?.map(item => item.agent_name))];
+            const agents = [...new Set(data === null || data === void 0 ? void 0 : data.map(item => item.agent_name))];
             res.json(agents);
         }
         catch (error) {
@@ -379,7 +341,6 @@ class PlanningController {
             res.json([]);
         }
     }
-    // PlanningController.ts - méthode getStats
     static async getStats(req, res) {
         try {
             const { searchQuery, selectedFilter, selectedYear, selectedMonth, selectedWeek } = req.query;
@@ -403,7 +364,6 @@ class PlanningController {
             const { data, error } = await query;
             if (error)
                 throw error;
-            // Nouvelle logique : compter les agents uniques
             const uniqueAgents = new Set();
             let totalHours = 0;
             let presentCount = 0;
@@ -411,32 +371,26 @@ class PlanningController {
             let dayShiftCount = 0;
             let nightShiftCount = 0;
             const shiftCounts = {};
-            // Premier passage : compter les agents uniques et les heures totales
-            data?.forEach((p) => {
+            data === null || data === void 0 ? void 0 : data.forEach((p) => {
                 uniqueAgents.add(p.agent_name);
                 totalHours += p.total_heures || 0;
             });
-            // Deuxième passage : calculer les autres statistiques
-            data?.forEach((p) => {
-                // Vérifier si l'agent a au moins un jour de travail
-                const hasWorkDay = p.days?.some((d) => d.shift !== 'OFF' && d.shift !== 'CONGE' && d.shift !== '-' && d.shift !== 'FORMATION');
+            data === null || data === void 0 ? void 0 : data.forEach((p) => {
+                var _a, _b;
+                const hasWorkDay = (_a = p.days) === null || _a === void 0 ? void 0 : _a.some((d) => d.shift !== 'OFF' && d.shift !== 'CONGE' && d.shift !== '-' && d.shift !== 'FORMATION');
                 if (hasWorkDay) {
                     presentCount++;
                 }
                 else {
                     absentCount++;
                 }
-                // Compter les shifts
-                p.days?.forEach((d) => {
-                    // Shifts de jour
+                (_b = p.days) === null || _b === void 0 ? void 0 : _b.forEach((d) => {
                     if (['JOUR', 'MAT5', 'MAT8', 'MAT9'].includes(d.shift)) {
                         dayShiftCount++;
                     }
-                    // Shifts de nuit
                     if (d.shift === 'NUIT') {
                         nightShiftCount++;
                     }
-                    // Compter tous les types de shifts
                     shiftCounts[d.shift] = (shiftCounts[d.shift] || 0) + 1;
                 });
             });

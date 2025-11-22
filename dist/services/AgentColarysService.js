@@ -6,17 +6,8 @@ const AgentColarys_1 = require("../entities/AgentColarys");
 const errorMiddleware_1 = require("../middleware/errorMiddleware");
 class AgentColarysService {
     constructor() {
-        // Initialisation directe si la DataSource est déjà initialisée
         this.agentRepository = data_source_1.AppDataSource.getRepository(AgentColarys_1.AgentColarys);
     }
-    // private async ensureInitialized() {
-    //   if (!this.agentRepository) {
-    //     if (!AppDataSource.isInitialized) {
-    //       await AppDataSource.initialize();
-    //     }
-    //     this.agentRepository = AppDataSource.getRepository(AgentColarys);
-    //   }
-    // }
     async getAllAgents() {
         try {
             console.log("🔄 Service: Getting all agents from database");
@@ -32,7 +23,6 @@ class AgentColarysService {
         }
     }
     async getAgentById(id) {
-        // await this.ensureInitialized();
         try {
             console.log(`🔄 Service: Getting agent by ID: ${id}`);
             const agent = await this.agentRepository.findOne({ where: { id } });
@@ -48,7 +38,6 @@ class AgentColarysService {
         }
     }
     async createAgent(agentData) {
-        // await this.ensureInitialized();
         try {
             if (!agentData.matricule || !agentData.nom || !agentData.prenom || !agentData.role || !agentData.mail) {
                 throw new errorMiddleware_1.ValidationError("Tous les champs obligatoires doivent être remplis");
@@ -73,7 +62,6 @@ class AgentColarysService {
         }
     }
     async updateAgent(id, agentData) {
-        // await this.ensureInitialized();
         try {
             const agent = await this.getAgentById(id);
             if (agentData.matricule || agentData.mail) {
@@ -98,7 +86,6 @@ class AgentColarysService {
         }
     }
     async deleteAgent(id) {
-        // await this.ensureInitialized();
         try {
             const agent = await this.getAgentById(id);
             await this.agentRepository.remove(agent);

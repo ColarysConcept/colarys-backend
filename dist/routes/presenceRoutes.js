@@ -20,12 +20,10 @@ router.get('/aujourdhui/:matricule', (req, res) => {
     console.log('GET /presences/aujourdhui/:matricule appelé avec matricule:', req.params.matricule);
     presenceController.getPresenceAujourdhui(req, res);
 });
-// Nouvelle route pour l'export
 router.get('/export/:format', (req, res) => {
     console.log('GET /presences/export/:format appelé avec params:', req.params, 'query:', req.query);
     presenceController.exportHistorique(req, res);
 });
-// Dans presenceRoutes.ts
 router.get('/aujourdhui/nom/:nom/prenom/:prenom', (req, res) => {
     console.log('GET /presences/aujourdhui/nom/:nom/prenom/:prenom appelé avec:', req.params);
     presenceController.getPresenceAujourdhuiByNomPrenom(req, res);

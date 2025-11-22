@@ -4,14 +4,7 @@ exports.PlanningService = void 0;
 class PlanningService {
     static async getPlannings(filters = {}) {
         try {
-            const completeFilters = {
-                searchQuery: '',
-                selectedFilter: 'all',
-                selectedYear: 'all',
-                selectedMonth: 'all',
-                selectedWeek: 'all',
-                ...filters,
-            };
+            const completeFilters = Object.assign({ searchQuery: '', selectedFilter: 'all', selectedYear: 'all', selectedMonth: 'all', selectedWeek: 'all' }, filters);
             const query = new URLSearchParams();
             if (completeFilters.searchQuery)
                 query.append('searchQuery', completeFilters.searchQuery);
@@ -32,10 +25,7 @@ class PlanningService {
                 throw new Error(`HTTP ${response.status}: ${errorText}`);
             }
             const responseData = await response.json();
-            return responseData.map((agent) => ({
-                ...agent,
-                days: agent.days || [],
-            }));
+            return responseData.map((agent) => (Object.assign(Object.assign({}, agent), { days: agent.days || [] })));
         }
         catch (error) {
             console.error('Erreur getPlannings:', error);
@@ -190,7 +180,6 @@ class PlanningService {
             const response = await fetch(`${this.baseUrl}/weeks`);
             if (!response.ok) {
                 console.warn('Endpoint /weeks non disponible, tentative de récupération via une autre méthode');
-                // Fallback: récupérer les semaines à partir des plannings
                 const plannings = await this.getPlannings({
                     searchQuery: '',
                     selectedFilter: 'all',
@@ -205,7 +194,6 @@ class PlanningService {
         }
         catch (error) {
             console.warn('Erreur getAvailableWeeks, tentative de fallback:', error);
-            // Fallback: récupérer les semaines à partir des plannings
             try {
                 const plannings = await this.getPlannings({
                     searchQuery: '',
@@ -240,14 +228,7 @@ class PlanningService {
     }
     static async getStats(filters = {}) {
         try {
-            const completeFilters = {
-                searchQuery: '',
-                selectedFilter: 'all',
-                selectedYear: 'all',
-                selectedMonth: 'all',
-                selectedWeek: 'all',
-                ...filters,
-            };
+            const completeFilters = Object.assign({ searchQuery: '', selectedFilter: 'all', selectedYear: 'all', selectedMonth: 'all', selectedWeek: 'all' }, filters);
             const query = new URLSearchParams();
             if (completeFilters.searchQuery)
                 query.append('searchQuery', completeFilters.searchQuery);

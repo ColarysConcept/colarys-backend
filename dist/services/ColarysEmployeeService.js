@@ -37,7 +37,6 @@ class ColarysEmployeeService {
             }
         }
     }
-    // 🔥 MÉTHODES UTILITAIRES
     parseFloat(s, defaultVal = 0.0) {
         try {
             if (s === null || s === undefined)
@@ -47,7 +46,7 @@ class ColarysEmployeeService {
             const str = String(s).replace(/\s/g, '').replace(',', '.');
             return parseFloat(str) || defaultVal;
         }
-        catch {
+        catch (_a) {
             return defaultVal;
         }
     }
@@ -60,7 +59,7 @@ class ColarysEmployeeService {
             const str = String(s).replace(/[^\d-]/g, '');
             return parseInt(str, 10) || defaultVal;
         }
-        catch {
+        catch (_a) {
             return defaultVal;
         }
     }
@@ -138,7 +137,6 @@ class ColarysEmployeeService {
             return false;
         }
     }
-    // 🔥 CORRECTION: Calcul amélioré des jours ouvrables avec rotation mensuelle
     calculerJoursOuvrables(year, month) {
         try {
             const joursDansMois = new Date(year, month, 0).getDate();
@@ -146,7 +144,6 @@ class ColarysEmployeeService {
             for (let jour = 1; jour <= joursDansMois; jour++) {
                 const date = new Date(year, month - 1, jour);
                 const jourSemaine = date.getDay();
-                // Compter seulement les jours de semaine (lundi à vendredi)
                 if (jourSemaine >= 1 && jourSemaine <= 5) {
                     joursOuvrables++;
                 }
@@ -156,11 +153,9 @@ class ColarysEmployeeService {
         }
         catch (error) {
             console.error('❌ Erreur calcul jours ouvrables:', error);
-            // 🔥 CORRECTION: Retourne une valeur réaliste basée sur le mois
             return this.getJoursOuvrablesParDefaut(month);
         }
     }
-    // 🔥 NOUVELLE MÉTHODE: Jours ouvrables par défaut selon le mois
     getJoursOuvrablesParDefaut(month) {
         const joursParMois = {
             1: 22, 2: 20, 3: 23, 4: 21, 5: 22, 6: 22,
@@ -168,8 +163,8 @@ class ColarysEmployeeService {
         };
         return joursParMois[month] || 22;
     }
-    // 🔥 MÉTHODE POUR CALCULER LES HEURES COMME PYTHON
     calculHeuresPresence(matricule, year, month, presences) {
+        var _a;
         const result = {
             presence: 0,
             conge: 0,
@@ -178,61 +173,55 @@ class ColarysEmployeeService {
             formation: 0,
             absence: 0,
             joursFormation: 0,
-            joursOff: 0, // 🔥 NOUVEAU: compteur de jours OFF
+            joursOff: 0,
             heuresTravailleesReelles: 0
         };
         const joursDansMois = new Date(year, month, 0).getDate();
         for (let jour = 1; jour <= joursDansMois; jour++) {
             const key = `${matricule}_${year}_${month}_${jour}`;
-            const statut = presences[key]?.toLowerCase();
+            const statut = (_a = presences[key]) === null || _a === void 0 ? void 0 : _a.toLowerCase();
             const heuresPlanifiees = this.getHeuresPlanifiees(matricule, year, month, jour) || 8;
             switch (statut) {
-                case 'p': // Présence normale
+                case 'p':
                     result.presence += heuresPlanifiees;
                     result.heuresTravailleesReelles += heuresPlanifiees;
                     break;
-                case 'n': // Nuit
+                case 'n':
                     result.presence += heuresPlanifiees;
                     result.nuit += heuresPlanifiees;
                     result.heuresTravailleesReelles += heuresPlanifiees;
                     break;
-                case 'a': // Absence
+                case 'a':
                     result.absence += heuresPlanifiees;
                     break;
-                case 'c': // Congé
+                case 'c':
                     result.conge += heuresPlanifiees;
                     break;
-                case 'm': // Férié
+                case 'm':
                     result.presence += heuresPlanifiees;
                     result.ferie += heuresPlanifiees;
                     result.heuresTravailleesReelles += heuresPlanifiees;
                     break;
-                case 'f': // Formation
+                case 'f':
                     result.formation += heuresPlanifiees;
                     result.joursFormation += 1;
                     break;
-                case 'o': // 🔥 NOUVEAU: Jour OFF (repos)
+                case 'o':
                     result.joursOff += 1;
-                    // Ne compte pas dans les heures travaillées
                     break;
             }
         }
         return result;
     }
-    // 🔥 NOUVELLE MÉTHODE: Récupérer les heures planifiées depuis le planning de l'agent
     getHeuresPlanifiees(matricule, year, month, day) {
         try {
-            // Implémentez ici la logique pour récupérer les heures planifiées
-            // depuis votre système de planning
-            // Pour l'instant, retourne 8h par défaut
             return 8;
         }
         catch (error) {
             console.error(`❌ Erreur récupération planning ${matricule}:`, error);
-            return 8; // Valeur par défaut sécurisée
+            return 8;
         }
     }
-    // 🔥 CALCUL ANCIENNETÉ EN ANNÉES
     calculAncienneteAns(dateEmbaucheStr) {
         const dateEmbauche = this.parseDateEmbauche(dateEmbaucheStr);
         if (!dateEmbauche)
@@ -245,7 +234,6 @@ class ColarysEmployeeService {
         }
         return years;
     }
-    // ==================== GESTION EMPLOYÉS ====================
     async getAllEmployees() {
         return this.readJSONFile('employes.json', []);
     }
@@ -264,13 +252,7 @@ class ColarysEmployeeService {
             const droit = this.calculDroitDepuisDate(dateEmbauche);
             const soldeInitial = this.parseFloat(employeeData["Solde initial congé"], 0);
             const soldeConge = this.parseFloat(employeeData["Solde de congé"], -1);
-            const nouvelEmploye = {
-                ...employeeData,
-                Ancienneté: anciennete,
-                "droit ostie": droit.toString(),
-                "droit transport et repas": droit.toString(),
-                "Solde de congé": soldeConge < 0 ? soldeInitial.toString() : employeeData["Solde de congé"]
-            };
+            const nouvelEmploye = Object.assign(Object.assign({}, employeeData), { Ancienneté: anciennete, "droit ostie": droit.toString(), "droit transport et repas": droit.toString(), "Solde de congé": soldeConge < 0 ? soldeInitial.toString() : employeeData["Solde de congé"] });
             employees.push(nouvelEmploye);
             const success = this.writeJSONFile('employes.json', employees);
             return success ?
@@ -296,7 +278,7 @@ class ColarysEmployeeService {
                 employeeData["droit ostie"] = droit.toString();
                 employeeData["droit transport et repas"] = droit.toString();
             }
-            employees[index] = { ...employees[index], ...employeeData };
+            employees[index] = Object.assign(Object.assign({}, employees[index]), employeeData);
             const success = this.writeJSONFile('employes.json', employees);
             return success ?
                 { success: true, message: 'Employé modifié avec succès' } :
@@ -324,7 +306,6 @@ class ColarysEmployeeService {
             return { success: false, message: 'Erreur lors de la suppression' };
         }
     }
-    // ==================== GESTION PRÉSENCES ====================
     async getPresences() {
         return this.readJSONFile('presences.json', {});
     }
@@ -332,7 +313,6 @@ class ColarysEmployeeService {
         try {
             const presences = await this.getPresences();
             const key = `${matricule}_${year}_${month}_${day}`;
-            // 🔥 AJOUT: 'o' pour les jours OFF
             const ALLOWED_PRESENCE_VALUES = new Set(["p", "n", "a", "c", "m", "f", "o"]);
             if (!ALLOWED_PRESENCE_VALUES.has(type) && type !== '') {
                 return { success: false, message: 'Type de présence invalide' };
@@ -343,7 +323,6 @@ class ColarysEmployeeService {
             else {
                 presences[key] = type;
             }
-            // Mise à jour du solde de congé si c'est un congé (mais pas pour 'o')
             if (type === 'c') {
                 await this.updateSoldeConge(matricule, -1);
             }
@@ -371,7 +350,6 @@ class ColarysEmployeeService {
             employees
         };
     }
-    // ==================== GESTION SALAIRES ====================
     async getSalaires() {
         return this.readJSONFile('salaires.json', {});
     }
@@ -379,7 +357,7 @@ class ColarysEmployeeService {
         try {
             const salaires = await this.getSalaires();
             const key = `${matricule}_${year}_${month}`;
-            salaires[key] = { ...salaires[key], ...salaireData };
+            salaires[key] = Object.assign(Object.assign({}, salaires[key]), salaireData);
             const success = this.writeJSONFile('salaires.json', salaires);
             return success ?
                 { success: true, message: 'Salaire mis à jour avec succès' } :
@@ -390,7 +368,6 @@ class ColarysEmployeeService {
             return { success: false, message: 'Erreur lors de la mise à jour' };
         }
     }
-    // ==================== MÉTHODES UTILITAIRES ====================
     async updateSoldeConge(matricule, variation) {
         const employees = await this.getAllEmployees();
         const index = employees.findIndex(emp => emp.Matricule === matricule);
@@ -400,7 +377,6 @@ class ColarysEmployeeService {
             this.writeJSONFile('employes.json', employees);
         }
     }
-    // 🔥 MISE À JOUR CONGÉS AUTOMATIQUE
     async updateCongesAutomatique() {
         const employees = await this.getAllEmployees();
         const today = new Date();
@@ -423,14 +399,12 @@ class ColarysEmployeeService {
         }
         this.writeJSONFile('employes.json', employees);
     }
-    // 🔥 CORRECTION MÉTHODE calculateSalaires - SALAIRE FIXE AVEC DÉDUCTION D'ABSENCE UNIQUEMENT
     async calculateSalaires(year, month, joursTheoriques) {
         try {
             console.log(`🧮 Calcul des salaires pour ${month}/${year}, jours théoriques: ${joursTheoriques !== undefined ? joursTheoriques : 'auto'}`);
             const employees = await this.getAllEmployees();
             const presences = await this.getPresences();
             const salaireData = await this.getSalaires();
-            // 🔥 CORRECTION: Calcul automatique REALISTE des jours théoriques
             let joursTravail = joursTheoriques;
             if (joursTravail === undefined || joursTravail === null || joursTravail <= 0) {
                 joursTravail = this.calculerJoursOuvrables(year, month);
@@ -449,7 +423,6 @@ class ColarysEmployeeService {
                     const droitTR = this.calculDroitDepuisDate(employee["Date d'embauche"]);
                     const droitOSTIE = this.calculDroitDepuisDate(employee["Date d'embauche"]);
                     const ancienneteAns = this.calculAncienneteAns(employee["Date d'embauche"]);
-                    // 🔥 CORRECTION: Calcul des heures
                     const heures = this.calculHeuresPresence(matricule, year, month, presences);
                     const h_presence = heures.presence;
                     const h_conge = heures.conge;
@@ -458,10 +431,8 @@ class ColarysEmployeeService {
                     const joursFormation = heures.joursFormation;
                     const heuresTravailleesReelles = heures.heuresTravailleesReelles;
                     const absences = heures.absence / 8;
-                    // 🔥 CORRECTION: Calcul du taux horaire (uniquement pour les déductions et majorations)
                     const heuresTheoriquesMois = joursTravail * 8;
                     const tauxH = heuresTheoriquesMois > 0 ? salBase / heuresTheoriquesMois : 0;
-                    // Données manuelles
                     const key = `${matricule}_${year}_${month}`;
                     const manual = salaireData[key] || {};
                     const primeProd = this.parseFloat(manual["Prime de production"]) || 0;
@@ -471,10 +442,8 @@ class ColarysEmployeeService {
                     const primeResp = this.parseFloat(manual["Prime de responsabilité"]) || 0;
                     const social = this.parseFloat(manual["Social"]) || 15000;
                     const avance = this.parseFloat(manual["Avance sur salaire"]) || 0;
-                    // 🔥 CORRECTION: NOUVELLE LOGIQUE - SALAIRE FIXE AVEC DÉDUCTION D'ABSENCE UNIQUEMENT
                     const montantAbsenceDeduit = heures.absence * tauxH;
-                    const montantTravaille = Math.max(0, salBase - montantAbsenceDeduit); // Salaire base fixe moins les absences
-                    // Les majorations et indemnités restent calculées normalement
+                    const montantTravaille = Math.max(0, salBase - montantAbsenceDeduit);
                     const majNuit = (h_nuit / 8) * 8000;
                     const majFerie = h_ferie * tauxH * 1.00;
                     const indemConge = h_conge * tauxH;
@@ -482,17 +451,14 @@ class ColarysEmployeeService {
                     const joursPresenceArr = Math.round(heuresTravailleesReelles / 8);
                     const indemRepas = joursPresenceArr * 2500 * (droitTR ? 1 : 0);
                     const indemTransport = joursPresenceArr * 1200 * (droitTR ? 1 : 0);
-                    // Salaire brut
                     const brut = montantTravaille + majNuit + majFerie + indemConge + indemFormation +
                         primeProd + primeAssid + primeAnc + primeElite + primeResp +
                         indemRepas + indemTransport;
-                    // OSTIE et CNAPS
                     let ostie = 0, cnaps = 0;
                     if (ancienneteAns >= 1 && droitOSTIE) {
                         ostie = brut * 0.01;
                         cnaps = brut * 0.01;
                     }
-                    // 🔥 CALCUL IRSA
                     const base = Math.max(0, brut);
                     const tranche1 = Math.max(0, Math.min(base, 350000));
                     const tranche2 = Math.max(0, Math.min(base, 400000) - 350000);
@@ -514,45 +480,35 @@ class ColarysEmployeeService {
                         Nom: employee.Nom || '',
                         Prénom: employee.Prénom || '',
                         Compagne: employee.Compagne || '',
-                        // Salaire et taux
                         'Salaire de base': Math.round(salBase),
                         'Taux horaire': Math.round(tauxH),
                         'Solde de congé': this.parseFloat(employee['Solde de congé']),
-                        // Heures (affichées mais ne comptent pas dans le calcul du salaire de base)
                         'Heures de présence': parseInt(h_presence.toString()),
                         'Heures travaillées réelles': parseInt(heuresTravailleesReelles.toString()),
                         'Heures de congé': parseInt(h_conge.toString()),
                         'Heures férié majoré': parseInt(h_ferie.toString()),
                         'Heures nuit majoré': parseInt(h_nuit.toString()),
-                        // 🔥 NOUVEAU: Colonnes pour la déduction d'absence
                         'Jours absence': absences,
                         'Montant absence déduit': Math.round(montantAbsenceDeduit),
-                        // Montants calculés
                         'Montant travaillé': Math.round(montantTravaille),
                         'Majoration de nuit': Math.round(majNuit),
                         'Majoration férié': Math.round(majFerie),
                         'Indemnité congé': Math.round(indemConge),
                         'Indemnité formation': Math.round(indemFormation),
-                        // Primes
                         'Prime de production': Math.round(primeProd),
                         'Prime d\'assiduité': Math.round(primeAssid),
                         'Prime d\'ancienneté': Math.round(primeAnc),
                         'Prime élite': Math.round(primeElite),
                         'Prime de responsabilité': Math.round(primeResp),
-                        // Indemnités
                         'Indemnité repas': Math.round(indemRepas),
                         'Indemnité transport': Math.round(indemTransport),
-                        // Total brut
                         'Salaire brut': Math.round(brut),
-                        // Déductions
                         'Avance sur salaire': Math.round(avance),
                         'OSTIE': Math.round(ostie),
                         'CNaPS': Math.round(cnaps),
                         'Social': Math.round(social),
                         'IGR': Math.round(igr),
-                        // Reste à payer
                         'Reste à payer': Math.round(resteAPayer),
-                        // Informations sur les jours
                         'Jours théoriques': joursTravail,
                         'Jours formation': joursFormation,
                         'Heures théoriques mois': heuresTheoriquesMois,

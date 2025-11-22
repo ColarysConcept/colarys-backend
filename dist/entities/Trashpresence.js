@@ -10,19 +10,12 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Trashpresence = void 0;
-/*
-    HERINANTENAINA Anthony
-    11-07-2025 14:18
-    Tel: 034 85 178 51
-*/
 const typeorm_1 = require("typeorm");
 const DetailPresence_1 = require("./DetailPresence");
 let Trashpresence = class Trashpresence {
-    // Constructeur pour l'initialisation
     constructor() {
         this.entree = new Date();
         this.sortie = new Date();
-        // Les champs @CreateDateColumn et @UpdateDateColumn seront gérés automatiquement
     }
 };
 exports.Trashpresence = Trashpresence;
@@ -31,8 +24,7 @@ __decorate([
     __metadata("design:type", Number)
 ], Trashpresence.prototype, "id", void 0);
 __decorate([
-    (0, typeorm_1.ManyToOne)(() => DetailPresence_1.DetailPresence, { eager: true }) // Option eager pour le chargement automatique
-    ,
+    (0, typeorm_1.ManyToOne)(() => DetailPresence_1.DetailPresence, { eager: true }),
     (0, typeorm_1.JoinColumn)({ name: "iddetail" }),
     __metadata("design:type", DetailPresence_1.DetailPresence)
 ], Trashpresence.prototype, "detailpresence", void 0);

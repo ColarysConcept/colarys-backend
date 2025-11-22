@@ -23,7 +23,7 @@ class PresenceController {
                 });
             }
             const result = await this.presenceService.pointageEntree({
-                matricule, // Facultatif maintenant
+                matricule,
                 nom,
                 prenom,
                 campagne: campagne || "Standard",
@@ -74,13 +74,10 @@ class PresenceController {
             }
         }
     }
-    // backend/src/controllers/PresenceController.ts
     async getHistorique(req, res) {
         console.log('getHistorique appelé avec query:', req.query);
         try {
-            // CORRECTION : Récupération de tous les paramètres
             const { dateDebut, dateFin, matricule, nom, prenom, annee, mois, campagne, shift } = req.query;
-            // Vérification des paramètres obligatoires
             if ((!dateDebut || !dateFin) && !annee) {
                 return res.status(400).json({
                     success: false,
@@ -94,8 +91,8 @@ class PresenceController {
                 dateDebut: dateDebut,
                 dateFin: dateFin,
                 matricule: matricule,
-                nom: nom, // CORRECTION : Ajout du nom
-                prenom: prenom, // CORRECTION : Ajout du prénom
+                nom: nom,
+                prenom: prenom,
                 annee: annee,
                 mois: mois,
                 campagne: campagne,
@@ -148,7 +145,6 @@ class PresenceController {
             }
         }
     }
-    // Dans PresenceController.ts
     async getPresenceAujourdhuiByNomPrenom(req, res) {
         console.log('getPresenceAujourdhuiByNomPrenom appelé avec:', req.params);
         try {
@@ -172,7 +168,6 @@ class PresenceController {
         try {
             const { dateDebut, dateFin, matricule, annee, mois, campagne, shift } = req.query;
             const { format } = req.params;
-            // Validation du format
             if (format !== 'pdf') {
                 return res.status(400).json({ error: 'Format non supporté. Utilisez "pdf"' });
             }
@@ -185,10 +180,7 @@ class PresenceController {
                 campagne: campagne,
                 shift: shift
             });
-            const presencesConverties = result.data.map(presence => ({
-                ...presence,
-                heuresTravaillees: presence.heuresTravaillees != null ? Number(presence.heuresTravaillees) : null
-            }));
+            const presencesConverties = result.data.map(presence => (Object.assign(Object.assign({}, presence), { heuresTravaillees: presence.heuresTravaillees != null ? Number(presence.heuresTravaillees) : null })));
             const pdfBuffer = await this.presenceService.generatePDF(presencesConverties, result.totalHeures, result.totalPresences);
             res.setHeader('Content-Type', 'application/pdf');
             res.setHeader('Content-Disposition', `attachment; filename=historique-presences-${new Date().toISOString().split('T')[0]}.pdf`);
