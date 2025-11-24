@@ -45,13 +45,28 @@ const API_PREFIX = "/api";
 const app = express();
 
 // Configuration CORS
+// Configuration CORS dynamique pour Vercel
 app.use(cors({
-  origin: [
-    'http://localhost:5173', 
-    'http://localhost:3000', 
-    'http://localhost:8080',
-    'https://colarys-frontend.vercel.app'
-  ],
+  origin: (origin, callback) => {
+    // Autoriser les URLs localhost pour le développement
+    const allowedOrigins = [
+      'http://localhost:5173', 
+      'http://localhost:3000', 
+      'http://localhost:8080',
+      'https://colarys-frontend.vercel.app' // URL de production principale
+    ];
+    
+    // Autoriser toutes les URLs Vercel (.vercel.app)
+    if (origin && origin.endsWith('.vercel.app')) {
+      callback(null, true);
+    } 
+    // Autoriser les origines spécifiques
+    else if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
 }));
