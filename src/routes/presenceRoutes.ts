@@ -4,6 +4,13 @@ import { PresenceController } from '../controllers/PresenceController';
 const router = Router();
 const presenceController = new PresenceController();
 
+// ✅ AJOUTEZ CETTE ROUTE RACINE
+router.get('/', (req, res) => {
+  console.log('GET /presences/ appelé');
+  presenceController.getAllPresences(req, res);
+});
+
+// Routes existantes
 router.post('/entree', (req, res) => {
   console.log('POST /presences/entree appelé avec body:', req.body);
   presenceController.pointageEntree(req, res);

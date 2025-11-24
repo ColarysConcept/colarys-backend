@@ -129,6 +129,29 @@ async getHistorique(req: Request, res: Response) {
     }
   }
 
+  public async getAllPresences(req: Request, res: Response): Promise<void> {
+  try {
+    console.log('🔄 Getting all presences...');
+    
+    // Exemple d'implémentation - adaptez selon votre logique
+    const presences = await this.presenceService.findAll();
+    
+    res.json({
+      success: true,
+      message: 'All presences retrieved successfully',
+      count: presences.length,
+      data: presences
+    });
+  } catch (error) {
+    console.error('❌ Error getting all presences:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve presences',
+      message: error.message
+    });
+  }
+}
+
   async getPresenceAujourdhui(req: Request, res: Response) {
     console.log('getPresenceAujourdhui appelé avec matricule:', req.params.matricule);
     try {
