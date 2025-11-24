@@ -22,6 +22,7 @@ const planningRoutes_1 = __importDefault(require("./routes/planningRoutes"));
 const errorMiddleware_1 = require("./middleware/errorMiddleware");
 const agentColarysRoutes_1 = __importDefault(require("./routes/agentColarysRoutes"));
 const colarysRoutes_1 = __importDefault(require("./routes/colarysRoutes"));
+const adminRoutes_1 = __importDefault(require("./routes/adminRoutes"));
 dotenv_1.default.config();
 console.log('🚀 Starting Colarys API Server...');
 const requiredEnvVars = [
@@ -129,6 +130,8 @@ app.use(`${API_PREFIX}/agents-colarys`, agentColarysRoutes_1.default);
 console.log('✅ Mounted: /api/agents-colarys');
 app.use(`${API_PREFIX}/colarys`, colarysRoutes_1.default);
 console.log('✅ Mounted: /api/colarys');
+app.use(`${API_PREFIX}/admin`, adminRoutes_1.default);
+console.log('✅ Mounted: /api/admin');
 console.log('📋 All routes mounted successfully');
 app.use(errorMiddleware_1.errorMiddleware);
 app.use('*', (req, res) => {

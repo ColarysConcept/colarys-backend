@@ -16,6 +16,7 @@ import planningRoutes from "./routes/planningRoutes";
 import { errorMiddleware } from "./middleware/errorMiddleware";
 import agentColarysRoutes from "./routes/agentColarysRoutes";
 import colarysRoutes from "./routes/colarysRoutes";
+import adminRoutes from "./routes/adminRoutes";
 
 dotenv.config();
 
@@ -158,6 +159,9 @@ console.log('✅ Mounted: /api/agents-colarys');
 
 app.use(`${API_PREFIX}/colarys`, colarysRoutes);
 console.log('✅ Mounted: /api/colarys');
+
+app.use(`${API_PREFIX}/admin`, adminRoutes);
+console.log('✅ Mounted: /api/admin');
 
 console.log('📋 All routes mounted successfully');
 

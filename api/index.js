@@ -1,10 +1,11 @@
-// api/index.js - Point d'entrée pour Vercel
+// api/index.js - Point d'entrée Vercel
 console.log('🚀 Colarys API - Starting Vercel serverless function...');
 
+// Import de l'app compilée
 const app = require('../dist/app').default;
 
-// Initialisation asynchrone de la base de données pour Vercel
-const initializeVercelDatabase = async () => {
+// Initialisation asynchrone de la base de données
+const initializeDatabase = async () => {
   try {
     console.log('🔄 Initializing database connection for Vercel...');
     const { AppDataSource } = require('../dist/config/data-source');
@@ -14,12 +15,16 @@ const initializeVercelDatabase = async () => {
       console.log('✅ Database connected successfully on Vercel');
     }
   } catch (error) {
-    console.error('❌ Database connection failed on Vercel:', error);
-    // Ne pas bloquer le démarrage même si la DB échoue
+    console.warn('⚠️ Database connection warning (non-blocking):', error.message);
+    // Ne pas bloquer le démarrage - la connexion peut se faire au premier appel
   }
 };
 
-// Démarrer l'initialisation
-initializeVercelDatabase();
+// Démarrer l'initialisation (sans await pour ne pas bloquer)
+initializeDatabase().then(() => {
+  console.log('🎉 Vercel serverless function ready');
+}).catch(err => {
+  console.error('❌ Database init error:', err);
+});
 
 module.exports = app;

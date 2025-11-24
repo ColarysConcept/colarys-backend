@@ -8,7 +8,7 @@
     "build": "tsc",
     "start": "node dist/app.js",
     "seed": "ts-node src/scripts/seedAgents.ts",
-    "vercel-build": "npm run build",
+    "vercel-build": "npm run build && npm run typeorm -- migration:run",
     "vercel-dev": "npm run build"
   },
   "dependencies": {

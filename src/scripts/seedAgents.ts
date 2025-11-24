@@ -4,7 +4,14 @@ import { Agent } from "../entities/Agent";
 import { AgentService } from "../services/AgentService";
 
 async function seedAgents() {
+  // ✅ Ne pas exécuter sur Vercel en production
+  if (process.env.VERCEL && process.env.NODE_ENV === 'production') {
+    console.log('⏭️ Skipping seed on Vercel production');
+    return;
+  }
+
   try {
+    console.log("🔄 Initializing database connection for seeding...");
     await AppDataSource.initialize();
     console.log("📦 Connected to database for seeding");
 
@@ -73,9 +80,16 @@ async function seedAgents() {
     
   } catch (error) {
     console.error("❌ Seeding failed:", error);
-    process.exit(1);
+    // ✅ Ne pas quitter le processus sur Vercel
+    if (!process.env.VERCEL) {
+      process.exit(1);
+    }
   }
 }
 
-// Exécutez le script
-seedAgents();
+// Exécution conditionnelle
+if (require.main === module) {
+  seedAgents();
+}
+
+export { seedAgents };

@@ -1,10 +1,16 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.seedAgents = seedAgents;
 const data_source_1 = require("../config/data-source");
 const Agent_1 = require("../entities/Agent");
 const AgentService_1 = require("../services/AgentService");
 async function seedAgents() {
+    if (process.env.VERCEL && process.env.NODE_ENV === 'production') {
+        console.log('⏭️ Skipping seed on Vercel production');
+        return;
+    }
     try {
+        console.log("🔄 Initializing database connection for seeding...");
         await data_source_1.AppDataSource.initialize();
         console.log("📦 Connected to database for seeding");
         const agentService = new AgentService_1.AgentService();
@@ -66,7 +72,11 @@ async function seedAgents() {
     }
     catch (error) {
         console.error("❌ Seeding failed:", error);
-        process.exit(1);
+        if (!process.env.VERCEL) {
+            process.exit(1);
+        }
     }
 }
-seedAgents();
+if (require.main === module) {
+    seedAgents();
+}
