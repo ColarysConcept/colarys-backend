@@ -1,4 +1,3 @@
-// src/config/data-source.ts - VERSION VERCEL
 import { DataSource } from "typeorm";
 import dotenv from "dotenv";
 
@@ -13,9 +12,21 @@ import { AgentColarys } from "../entities/AgentColarys";
 
 dotenv.config();
 
+const requiredEnvVars = ['POSTGRES_HOST', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DATABASE'];
+const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingEnvVars.length > 0) {
+  console.error('❌ Variables d\'environnement manquantes:', missingEnvVars);
+  throw new Error('Configuration de base de données incomplète');
+}
+
 export const AppDataSource = new DataSource({
   type: "postgres",
-  url: process.env.POSTGRES_URL || process.env.SUPABASE_URL, // ✅ Utilisez l'URL complète
+  host: process.env.POSTGRES_HOST,
+  port: parseInt(process.env.POSTGRES_PORT || "5432"),
+  username: process.env.POSTGRES_USER,
+  password: process.env.POSTGRES_PASSWORD,
+  database: process.env.POSTGRES_DATABASE,
   entities: [
     User, 
     HistoAgents, 
@@ -26,29 +37,31 @@ export const AppDataSource = new DataSource({
     Trashpresence,
     AgentColarys
   ],
-  synchronize: false,
-  logging: false, // ✅ Désactive les logs en production
-  migrations: [], // ✅ Désactive complètement les migrations
+  synchronize: false, // ✅ TOUJOURS false en production
+  logging: process.env.NODE_ENV === 'development',
+  
+  // ✅ CORRECTION : Utiliser les migrations compilées OU les désactiver
+  migrations: process.env.NODE_ENV === 'production' ? [] : ["src/migrations/*.ts"],
+  
+  subscribers: [],
+  // Configuration SSL pour Supabase
+  ssl: true,
   extra: {
-    ssl: process.env.NODE_ENV === 'production' ? {
+    ssl: {
       rejectUnauthorized: false
-    } : false,
-    connectionTimeoutMillis: 10000, // ✅ Timeout de connexion
+    }
   }
 });
 
-// ✅ Fonction robuste pour Vercel
-export const initializeDatabase = async (): Promise<boolean> => {
+export const initializeDatabase = async (): Promise<DataSource> => {
   try {
     if (!AppDataSource.isInitialized) {
-      console.log('🔄 Initializing database connection...');
       await AppDataSource.initialize();
-      console.log('✅ Database connected successfully');
-      return true;
+      console.log('✅ Database connection established');
     }
-    return true;
+    return AppDataSource;
   } catch (error) {
     console.error('❌ Database connection failed:', error);
-    return false;
+    throw error;
   }
 };

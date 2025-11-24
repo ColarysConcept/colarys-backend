@@ -8,22 +8,24 @@ const dotenv_1 = __importDefault(require("dotenv"));
 const data_source_1 = require("./config/data-source");
 const app_1 = __importDefault(require("./app"));
 dotenv_1.default.config();
-const PORT = process.env.PORT || 3000;
-async function startServer() {
+console.log('🚀 Starting Colarys API Server in LOCAL mode...');
+const startServer = async () => {
     try {
-        console.log('🚀 Starting Colarys API Server...');
-        console.log('📦 Connecting to database...');
         await data_source_1.AppDataSource.initialize();
-        console.log('✅ Database connected successfully');
+        console.log("📦 Connected to database");
+        const PORT = process.env.PORT || 3000;
         app_1.default.listen(PORT, () => {
-            console.log(`🎉 Server running on port ${PORT}`);
+            console.log(`🚀 Server running on http://localhost:${PORT}`);
             console.log(`📍 Local: http://localhost:${PORT}`);
             console.log(`📍 Health: http://localhost:${PORT}/api/health`);
         });
     }
     catch (error) {
-        console.error('❌ Failed to start server:', error);
+        console.error("❌ Database connection failed:", error);
         process.exit(1);
     }
+};
+if (!process.env.VERCEL) {
+    startServer();
 }
-startServer();
+exports.default = app_1.default;

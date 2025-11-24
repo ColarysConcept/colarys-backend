@@ -1,4 +1,4 @@
-// src/server.ts - DÉMARREUR SERVEUR LOCAL
+// src/server.ts - Point d'entrée pour le développement local
 import "reflect-metadata";
 import dotenv from "dotenv";
 import { AppDataSource } from "./config/data-source";
@@ -6,28 +6,28 @@ import app from "./app";
 
 dotenv.config();
 
-const PORT = process.env.PORT || 3000;
+console.log('🚀 Starting Colarys API Server in LOCAL mode...');
 
-async function startServer() {
+const startServer = async () => {
   try {
-    console.log('🚀 Starting Colarys API Server...');
-
-    // ✅ INITIALISATION BASE DE DONNÉES
-    console.log('📦 Connecting to database...');
     await AppDataSource.initialize();
-    console.log('✅ Database connected successfully');
+    console.log("📦 Connected to database");
 
-    // ✅ DÉMARRAGE SERVEUR
+    const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => {
-      console.log(`🎉 Server running on port ${PORT}`);
+      console.log(`🚀 Server running on http://localhost:${PORT}`);
       console.log(`📍 Local: http://localhost:${PORT}`);
       console.log(`📍 Health: http://localhost:${PORT}/api/health`);
     });
-
   } catch (error) {
-    console.error('❌ Failed to start server:', error);
+    console.error("❌ Database connection failed:", error);
     process.exit(1);
   }
+};
+
+// Démarrage uniquement en local
+if (!process.env.VERCEL) {
+  startServer();
 }
 
-startServer();
+export default app;

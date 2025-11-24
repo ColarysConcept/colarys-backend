@@ -1,12 +1,12 @@
 {
 "name": "colarys-backend",
   "version": "1.0.0",
-  "main": "dist/server.js",
+  "main": "dist/app.js",
   "type": "commonjs",
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "node dist/app.js",
     "seed": "ts-node src/scripts/seedAgents.ts",
     "vercel-build": "npm run build",
     "vercel-dev": "npm run build"
