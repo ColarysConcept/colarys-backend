@@ -1,13 +1,22 @@
 // src/routes/authRoutes.ts
-import { Router } from "express";
-import { AuthController } from "../controllers/AuthController";
+import { Router } from 'express';
+import { AuthController } from '../controllers/AuthController';
 
 const router = Router();
+const authController = new AuthController();
 
-router.post('/login', AuthController.login);
+// ✅ CORRECTION : Seulement les routes existantes
+router.post('/login', (req, res) => {
+  console.log('POST /auth/login called with:', req.body);
+  authController.login(req, res);
+});
 
-// Debug: Affiche les routes enregistrées
-console.log('Auth routes registered:');
-console.log('POST /login → /api/auth/login');
+// Route de base pour tester
+router.get('/', (req, res) => {
+  res.json({ 
+    message: 'Auth API is working',
+    availableEndpoints: ['POST /login'] // ✅ Seulement login pour l'instant
+  });
+});
 
 export default router;
