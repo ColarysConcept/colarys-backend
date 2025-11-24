@@ -15,11 +15,17 @@ const DetailPresence_1 = require("../entities/DetailPresence");
 const Trashpresence_1 = require("../entities/Trashpresence");
 const AgentColarys_1 = require("../entities/AgentColarys");
 dotenv_1.default.config();
-const requiredEnvVars = ['POSTGRES_HOST', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DATABASE'];
+console.log('🔧 Database configuration:', {
+    host: process.env.POSTGRES_HOST,
+    port: process.env.POSTGRES_PORT,
+    user: process.env.POSTGRES_USER,
+    database: process.env.POSTGRES_DB,
+    nodeEnv: process.env.NODE_ENV
+});
+const requiredEnvVars = ['POSTGRES_HOST', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DB'];
 const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
 if (missingEnvVars.length > 0) {
-    console.error('❌ Variables d\'environnement manquantes:', missingEnvVars);
-    throw new Error('Configuration de base de données incomplète');
+    console.warn('⚠️ Missing environment variables:', missingEnvVars);
 }
 exports.AppDataSource = new typeorm_1.DataSource({
     type: "postgres",
@@ -27,7 +33,7 @@ exports.AppDataSource = new typeorm_1.DataSource({
     port: parseInt(process.env.POSTGRES_PORT || "5432"),
     username: process.env.POSTGRES_USER,
     password: process.env.POSTGRES_PASSWORD,
-    database: process.env.POSTGRES_DATABASE,
+    database: process.env.POSTGRES_DB,
     entities: [
         User_1.User,
         HistoAgents_1.HistoAgents,
@@ -40,13 +46,13 @@ exports.AppDataSource = new typeorm_1.DataSource({
     ],
     synchronize: false,
     logging: process.env.NODE_ENV === 'development',
-    migrations: process.env.NODE_ENV === 'production' ? [] : ["src/migrations/*.ts"],
+    migrations: [],
     subscribers: [],
-    ssl: true,
+    ssl: process.env.NODE_ENV === 'production',
     extra: {
-        ssl: {
+        ssl: process.env.NODE_ENV === 'production' ? {
             rejectUnauthorized: false
-        }
+        } : undefined
     }
 });
 const initializeDatabase = async () => {
@@ -58,7 +64,7 @@ const initializeDatabase = async () => {
         return exports.AppDataSource;
     }
     catch (error) {
-        console.error('❌ Database connection failed:', error);
+        console.error('❌ Database connection failed:', error.message);
         throw error;
     }
 };

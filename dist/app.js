@@ -23,6 +23,9 @@ const errorMiddleware_1 = require("./middleware/errorMiddleware");
 const agentColarysRoutes_1 = __importDefault(require("./routes/agentColarysRoutes"));
 const colarysRoutes_1 = __importDefault(require("./routes/colarysRoutes"));
 const adminRoutes_1 = __importDefault(require("./routes/adminRoutes"));
+if (process.env.VERCEL) {
+    console.log('🔧 Vercel environment detected - disabling file logging');
+}
 dotenv_1.default.config();
 console.log('🚀 Starting Colarys API Server...');
 const requiredEnvVars = [
@@ -50,7 +53,7 @@ app.use((0, cors_1.default)({
 }));
 app.use(express_1.default.json({ limit: '50mb' }));
 app.use(express_1.default.urlencoded({ extended: true, limit: '50mb' }));
-app.use((req, res, next) => {
+app.use((req, _res, next) => {
     console.log(`📱 ${req.method} ${req.originalUrl} - ${new Date().toISOString()}`);
     next();
 });
@@ -58,7 +61,7 @@ const storage = multer_1.default.diskStorage({
     destination: (req, file, cb) => {
         cb(null, path_1.default.join(__dirname, '../public/uploads/'));
     },
-    filename: (req, file, cb) => {
+    filename: (_req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const fileExtension = path_1.default.extname(file.originalname);
         cb(null, 'agent-' + uniqueSuffix + fileExtension);

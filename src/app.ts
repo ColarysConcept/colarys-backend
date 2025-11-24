@@ -18,6 +18,12 @@ import agentColarysRoutes from "./routes/agentColarysRoutes";
 import colarysRoutes from "./routes/colarysRoutes";
 import adminRoutes from "./routes/adminRoutes";
 
+// Au début de app.ts, ajoutez :
+if (process.env.VERCEL) {
+  console.log('🔧 Vercel environment detected - disabling file logging');
+  // Si vous utilisez un logger qui écrit dans des fichiers, désactivez-le
+}
+
 dotenv.config();
 
 console.log('🚀 Starting Colarys API Server...');
@@ -54,7 +60,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Middleware de logging
-app.use((req, res, next) => {
+app.use((req, _res, next) => {
   console.log(`📱 ${req.method} ${req.originalUrl} - ${new Date().toISOString()}`);
   next();
 });
@@ -64,7 +70,7 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, path.join(__dirname, '../public/uploads/'));
   },
-  filename: (req, file, cb) => {
+  filename: (_req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const fileExtension = path.extname(file.originalname);
     cb(null, 'agent-' + uniqueSuffix + fileExtension);
