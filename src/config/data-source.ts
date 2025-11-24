@@ -12,7 +12,7 @@ import { AgentColarys } from "../entities/AgentColarys";
 
 dotenv.config();
 
-const requiredEnvVars = ['POSTGRES_HOST', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DATABASE'];
+const requiredEnvVars = ['POSTGRES_HOST', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DB'];
 const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
 
 if (missingEnvVars.length > 0) {
@@ -26,7 +26,7 @@ export const AppDataSource = new DataSource({
   port: parseInt(process.env.POSTGRES_PORT || "5432"),
   username: process.env.POSTGRES_USER,
   password: process.env.POSTGRES_PASSWORD,
-  database: process.env.POSTGRES_DATABASE,
+  database: process.env.POSTGRES_DB, // ✅ CORRIGÉ : POSTGRES_DB au lieu de POSTGRES_DATABASE
   entities: [
     User, 
     HistoAgents, 
@@ -37,14 +37,10 @@ export const AppDataSource = new DataSource({
     Trashpresence,
     AgentColarys
   ],
-  synchronize: false, // ✅ TOUJOURS false en production
+  synchronize: false,
   logging: process.env.NODE_ENV === 'development',
-  
-  // ✅ CORRECTION : Utiliser les migrations compilées OU les désactiver
   migrations: process.env.NODE_ENV === 'production' ? [] : ["src/migrations/*.ts"],
-  
   subscribers: [],
-  // Configuration SSL pour Supabase
   ssl: true,
   extra: {
     ssl: {
