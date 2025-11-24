@@ -1,50 +1,61 @@
-// api/index.js - VERSION URGENCE STABLE
-console.log('🚀 Starting Colarys API - Emergency Stable Version');
+// api/index.js - VERSION COMPLÈTE POUR VERCEL
+console.log('🚀 Colarys API - Starting on Vercel...');
 
-const express = require('express');
-const app = express();
+let app;
+let isInitialized = false;
 
-// ✅ MIDDLEWARE BASIQUE
-app.use(express.json());
-app.use(require('cors')());
+async function initializeApp() {
+  try {
+    console.log('📦 Importing compiled app...');
+    app = require('../dist/app').default;
+    
+    // Initialiser la base de données
+    console.log('🔄 Initializing database connection...');
+    const { initializeDatabase } = require('../dist/config/data-source');
+    const dbConnected = await initializeDatabase();
+    
+    if (dbConnected) {
+      console.log('✅ Database connected successfully');
+    } else {
+      console.warn('⚠️ Database connection failed, but server will start');
+    }
+    
+    isInitialized = true;
+    console.log('🎉 Vercel function ready to handle requests');
+    
+  } catch (error) {
+    console.error('❌ Initialization failed:', error);
+    
+    // Fallback: créer une app Express basique
+    const express = require('express');
+    app = express();
+    
+    // Middleware basique
+    app.use(express.json());
+    
+    // Route de santé basique
+    app.get('/api/health', (req, res) => {
+      res.json({ 
+        status: 'WARNING', 
+        message: 'Application initializing...',
+        database: isInitialized ? 'connected' : 'connecting'
+      });
+    });
+    
+    // Routes par défaut
+    app.get('*', (req, res) => {
+      res.status(503).json({ 
+        error: 'Service Temporarily Unavailable',
+        message: 'Application is initializing, please try again in a few seconds',
+        timestamp: new Date().toISOString()
+      });
+    });
+    
+    isInitialized = false;
+  }
+}
 
-// ✅ ROUTES GARANTIES
-app.get('/', (_req, res) => {
-  res.json({
-    message: "🚀 Colarys Concept API - Emergency Mode",
-    status: "RUNNING",
-    timestamp: new Date().toISOString(),
-    note: "Database connection disabled for stability"
-  });
-});
+// Démarrer l'initialisation immédiatement
+initializeApp();
 
-app.get('/api/health', (_req, res) => {
-  res.json({
-    status: "OK",
-    message: "API running in emergency mode",
-    timestamp: new Date().toISOString()
-  });
-});
-
-app.get('/api/agents', (_req, res) => {
-  res.json({
-    success: true,
-    message: "Emergency mode - Static data",
-    data: [
-      { id: 1, matricule: "EMG001", nom: "Emergency", prenom: "Mode", poste: "System" }
-    ],
-    timestamp: new Date().toISOString()
-  });
-});
-
-// ✅ GESTION D'ERREUR
-app.use((err, _req, res, next) => {
-  console.error('Error:', err);
-  res.status(500).json({ 
-    success: false, 
-    message: "Internal server error - Emergency mode" 
-  });
-});
-
-console.log('✅ Emergency server ready');
 module.exports = app;

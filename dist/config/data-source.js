@@ -15,16 +15,9 @@ const DetailPresence_1 = require("../entities/DetailPresence");
 const Trashpresence_1 = require("../entities/Trashpresence");
 const AgentColarys_1 = require("../entities/AgentColarys");
 dotenv_1.default.config();
-console.log('🔧 Database configuration - Environment:', process.env.NODE_ENV);
-console.log('🔧 Database host:', process.env.POSTGRES_HOST ? '***' : 'NOT SET');
 exports.AppDataSource = new typeorm_1.DataSource({
     type: "postgres",
     url: process.env.POSTGRES_URL || process.env.SUPABASE_URL,
-    host: process.env.POSTGRES_HOST,
-    port: parseInt(process.env.POSTGRES_PORT || "5432"),
-    username: process.env.POSTGRES_USER,
-    password: process.env.POSTGRES_PASSWORD,
-    database: process.env.POSTGRES_DATABASE || "postgres",
     entities: [
         User_1.User,
         HistoAgents_1.HistoAgents,
@@ -38,40 +31,25 @@ exports.AppDataSource = new typeorm_1.DataSource({
     synchronize: false,
     logging: false,
     migrations: [],
-    ssl: true,
     extra: {
-        ssl: {
+        ssl: process.env.NODE_ENV === 'production' ? {
             rejectUnauthorized: false
-        },
+        } : false,
         connectionTimeoutMillis: 10000,
-        query_timeout: 10000,
-        statement_timeout: 10000
     }
 });
 const initializeDatabase = async () => {
     try {
-        if (exports.AppDataSource.isInitialized) {
-            console.log('✅ Database already connected');
+        if (!exports.AppDataSource.isInitialized) {
+            console.log('🔄 Initializing database connection...');
+            await exports.AppDataSource.initialize();
+            console.log('✅ Database connected successfully');
             return true;
         }
-        console.log('🔄 Initializing database connection...');
-        const requiredVars = ['POSTGRES_HOST', 'POSTGRES_USER', 'POSTGRES_PASSWORD'];
-        const missingVars = requiredVars.filter(varName => !process.env[varName]);
-        if (missingVars.length > 0) {
-            console.warn('⚠️ Missing database variables:', missingVars);
-            return false;
-        }
-        await exports.AppDataSource.initialize();
-        console.log('✅ Database connected successfully');
         return true;
     }
     catch (error) {
-        if (error instanceof Error) {
-            console.error('❌ Database connection failed:', error.message);
-        }
-        else {
-            console.error('❌ Database connection failed:', String(error));
-        }
+        console.error('❌ Database connection failed:', error);
         return false;
     }
 };
