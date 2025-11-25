@@ -68,6 +68,8 @@ export class AgentColarysController {
   static async createAgent(req: Request, res: Response, next: NextFunction) {
     try {
       const agentData = req.body;
+
+      agentData.image = '/images/default-avatar.svg';
       
       console.log("🔄 Controller: Creating new agent", { 
         nom: agentData.nom,
@@ -115,6 +117,11 @@ export class AgentColarysController {
       
       const agentData = req.body;
       
+       // ✅ GARDER L'IMAGE EXISTANTE OU UTILISER SVG PAR DÉFAUT
+    if (!agentData.image || agentData.image.includes('default-avatar')) {
+      agentData.image = '/images/default-avatar.svg';
+    }
+
       console.log(`🔄 Controller: Updating agent ${id}`, {
         nom: agentData.nom,
         prenom: agentData.prenom,

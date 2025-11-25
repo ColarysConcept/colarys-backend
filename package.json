@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "main": "dist/app.js",
   "type": "commonjs",
-  "scripts": {
+"scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
-    "build": "tsc",
+    "build": "tsc && npm run copy-assets",
+    "copy-assets": "copyfiles -u 1 src/public/**/* dist/ || xcopy src\\public dist\\public /E /I /Y",
     "start": "node dist/app.js",
-    "init-db": "ts-node src/scripts/initDatabase.ts",
     "vercel-build": "npm run build",
     "vercel-dev": "npm run build"
   },

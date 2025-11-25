@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import express from "express";
+import path from "path";
 import cors from "cors";
 import dotenv from "dotenv";
 import { AppDataSource } from "./config/data-source";
@@ -25,6 +26,10 @@ console.log('🔧 Platform:', process.env.VERCEL ? 'Vercel' : 'Local');
 
 const API_PREFIX = "/api";
 const app = express();
+
+app.use(express.static(path.join(__dirname, '../public')));
+app.use('/images', express.static(path.join(__dirname, '../public/images')));
+
 
 // ✅ CORS Configuration optimisée pour Vercel
 app.use(cors({
