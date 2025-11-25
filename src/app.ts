@@ -5,6 +5,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import multer from 'multer';
 import bcrypt from "bcryptjs";
+import fs from "fs"; // ✅ AJOUT IMPORT MANQUANT
 import { AppDataSource } from "./config/data-source";
 import { User } from "./entities/User";
 import userRoutes from "./routes/userRoutes";
@@ -81,17 +82,32 @@ app.use((req, _res, next) => {
   next();
 });
 
-// Configuration Multer
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, '../public/uploads/'));
-  },
-  filename: (_req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const fileExtension = path.extname(file.originalname);
-    cb(null, 'agent-' + uniqueSuffix + fileExtension);
-  }
-});
+// ✅ CORRECTION : Configuration Multer pour Vercel
+let storage;
+
+if (process.env.VERCEL) {
+  // ✅ Sur Vercel : utiliser memoryStorage (pas de fichiers physiques)
+  console.log('🔧 Vercel environment - using memory storage');
+  storage = multer.memoryStorage();
+} else {
+  // ✅ En local : utiliser diskStorage normal
+  console.log('🔧 Local environment - using disk storage');
+  storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+      const uploadDir = path.join(__dirname, '../public/uploads/');
+      // Créer le dossier s'il n'existe pas
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+      cb(null, uploadDir);
+    },
+    filename: (_req, file, cb) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      const fileExtension = path.extname(file.originalname);
+      cb(null, 'agent-' + uniqueSuffix + fileExtension);
+    }
+  });
+}
 
 const fileFilter = (
   req: express.Request,
@@ -236,8 +252,6 @@ console.log('✅ Mounted: /api/agents-colarys');
 app.use(`${API_PREFIX}/colarys`, colarysRoutes);
 console.log('✅ Mounted: /api/colarys');
 
-
-
 console.log('📋 All routes mounted successfully');
 
 // Middleware d'erreur
@@ -262,8 +276,7 @@ app.use('*', (req, res) => {
       "/api/roles",
       "/api/plannings",
       "/api/agents-colarys",
-      "/api/colarys",
-      "/api/admin"
+      "/api/colarys"
     ]
   });
 });
