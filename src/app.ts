@@ -16,7 +16,8 @@ import planningRoutes from "./routes/planningRoutes";
 import { errorMiddleware } from "./middleware/errorMiddleware";
 import agentColarysRoutes from "./routes/agentColarysRoutes";
 import colarysRoutes from "./routes/colarysRoutes";
-import adminRoutes from "./routes/adminRoutes";
+import { User } from "./entities/User";
+import bcrypt from "bcryptjs";
 
 // Au début de app.ts, ajoutez :
 if (process.env.VERCEL) {
@@ -182,9 +183,6 @@ console.log('✅ Mounted: /api/agents-colarys');
 app.use(`${API_PREFIX}/colarys`, colarysRoutes);
 console.log('✅ Mounted: /api/colarys');
 
-app.use(`${API_PREFIX}/admin`, adminRoutes);
-console.log('✅ Mounted: /api/admin');
-
 console.log('📋 All routes mounted successfully');
 
 // Middleware d'erreur
@@ -258,6 +256,39 @@ const startServer = async () => {
     }
   }
 };
+
+// Après AppDataSource.initialize() dans app.ts
+const createDefaultUser = async () => {
+  try {
+    console.log('🔄 Vérification/création utilisateur par défaut...');
+    
+    const userRepository = AppDataSource.getRepository(User);
+    const existingUser = await userRepository.findOne({ 
+      where: { email: 'ressource.prod@gmail.com' } 
+    });
+    
+    if (!existingUser) {
+      const hashedPassword = await bcrypt.hash('password123', 10);
+      const defaultUser = userRepository.create({
+        name: 'Admin Ressources',
+        email: 'ressource.prod@gmail.com',
+        password: hashedPassword,
+        role: 'admin'
+      });
+      await userRepository.save(defaultUser);
+      console.log('✅ Utilisateur par défaut créé en base de données');
+    } else {
+      console.log('✅ Utilisateur existe déjà en base');
+    }
+  } catch (error: any) {
+    console.log('⚠️ Note: Utilisateur non créé (DB peut être en cours de setup):', error.message);
+  }
+};
+
+// Appeler après l'initialisation DB
+if (AppDataSource.isInitialized) {
+  createDefaultUser();
+}
 
 // ✅ Démarrage conditionnel
 if (!process.env.VERCEL) {
