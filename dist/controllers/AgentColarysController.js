@@ -58,6 +58,7 @@ class AgentColarysController {
     static async createAgent(req, res, next) {
         try {
             const agentData = req.body;
+            agentData.image = '/images/default-avatar.svg';
             console.log("🔄 Controller: Creating new agent", {
                 nom: agentData.nom,
                 prenom: agentData.prenom,
@@ -97,6 +98,9 @@ class AgentColarysController {
                 });
             }
             const agentData = req.body;
+            if (!agentData.image || agentData.image.includes('default-avatar')) {
+                agentData.image = '/images/default-avatar.svg';
+            }
             console.log(`🔄 Controller: Updating agent ${id}`, {
                 nom: agentData.nom,
                 prenom: agentData.prenom,

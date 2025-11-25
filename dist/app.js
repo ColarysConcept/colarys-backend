@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 require("reflect-metadata");
 const express_1 = __importDefault(require("express"));
+const path_1 = __importDefault(require("path"));
 const cors_1 = __importDefault(require("cors"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const data_source_1 = require("./config/data-source");
@@ -25,6 +26,8 @@ console.log('🔧 Environment:', process.env.NODE_ENV);
 console.log('🔧 Platform:', process.env.VERCEL ? 'Vercel' : 'Local');
 const API_PREFIX = "/api";
 const app = (0, express_1.default)();
+app.use(express_1.default.static(path_1.default.join(__dirname, '../public')));
+app.use('/images', express_1.default.static(path_1.default.join(__dirname, '../public/images')));
 app.use((0, cors_1.default)({
     origin: [
         'http://localhost:5173',
