@@ -4,7 +4,9 @@ import path from "path";
 import cors from "cors";
 import dotenv from "dotenv";
 import multer from 'multer';
+import bcrypt from "bcryptjs";
 import { AppDataSource } from "./config/data-source";
+import { User } from "./entities/User";
 import userRoutes from "./routes/userRoutes";
 import authRoutes from "./routes/authRoutes";
 import agentRoutes from "./routes/agentRoutes";
@@ -16,8 +18,7 @@ import planningRoutes from "./routes/planningRoutes";
 import { errorMiddleware } from "./middleware/errorMiddleware";
 import agentColarysRoutes from "./routes/agentColarysRoutes";
 import colarysRoutes from "./routes/colarysRoutes";
-import { User } from "./entities/User";
-import bcrypt from "bcryptjs";
+import adminRoutes from "./routes/adminRoutes";
 
 // Au début de app.ts, ajoutez :
 if (process.env.VERCEL) {
@@ -45,7 +46,6 @@ requiredEnvVars.forEach(envVar => {
 const API_PREFIX = "/api";
 const app = express();
 
-// Configuration CORS
 // Configuration CORS dynamique pour Vercel
 app.use(cors({
   origin: (origin, callback) => {
@@ -116,6 +116,60 @@ const upload = multer({
 
 export { upload };
 
+// ========== FONCTIONS UTILITAIRES ==========
+
+const resetUserPassword = async () => {
+  try {
+    console.log('🔄 Réinitialisation du mot de passe utilisateur...');
+    
+    const userRepository = AppDataSource.getRepository(User);
+    const existingUser = await userRepository.findOne({ 
+      where: { email: 'ressource.prod@gmail.com' } 
+    });
+    
+    if (existingUser) {
+      // ✅ UTILISER LE VRAI MOT DE PASSE "stage25"
+      const hashedPassword = await bcrypt.hash('stage25', 10);
+      existingUser.password = hashedPassword;
+      await userRepository.save(existingUser);
+      console.log('✅ Mot de passe réinitialisé avec "stage25" pour:', existingUser.email);
+    } else {
+      console.log('❌ Utilisateur non trouvé pour réinitialisation');
+    }
+  } catch (error: any) {
+    console.log('⚠️ Erreur réinitialisation mot de passe:', error.message);
+  }
+};
+
+const createDefaultUser = async () => {
+  try {
+    console.log('🔄 Vérification/création utilisateur par défaut...');
+    
+    const userRepository = AppDataSource.getRepository(User);
+    const existingUser = await userRepository.findOne({ 
+      where: { email: 'ressource.prod@gmail.com' } 
+    });
+    
+    if (!existingUser) {
+      const hashedPassword = await bcrypt.hash('stage25', 10);
+      const defaultUser = userRepository.create({
+        name: 'Admin Ressources',
+        email: 'ressource.prod@gmail.com',
+        password: hashedPassword,
+        role: 'admin'
+      });
+      await userRepository.save(defaultUser);
+      console.log('✅ Utilisateur par défaut créé en base de données');
+    } else {
+      console.log('✅ Utilisateur existe déjà en base');
+      // Réinitialiser le mot de passe de l'utilisateur existant
+      await resetUserPassword();
+    }
+  } catch (error: any) {
+    console.log('⚠️ Note: Utilisateur non créé (DB peut être en cours de setup):', error.message);
+  }
+};
+
 // ========== ROUTES ==========
 
 // Route racine
@@ -141,7 +195,7 @@ app.get(`${API_PREFIX}/health`, async (_req, res) => {
       version: "2.0.0",
       database: dbStatus
     });
-  } catch (error) {
+  } catch (error: any) {
     res.json({
       status: "WARNING",
       database: "Connection issues",
@@ -183,6 +237,9 @@ console.log('✅ Mounted: /api/agents-colarys');
 app.use(`${API_PREFIX}/colarys`, colarysRoutes);
 console.log('✅ Mounted: /api/colarys');
 
+app.use(`${API_PREFIX}/admin`, adminRoutes);
+console.log('✅ Mounted: /api/admin');
+
 console.log('📋 All routes mounted successfully');
 
 // Middleware d'erreur
@@ -207,7 +264,8 @@ app.use('*', (req, res) => {
       "/api/roles",
       "/api/plannings",
       "/api/agents-colarys",
-      "/api/colarys"
+      "/api/colarys",
+      "/api/admin"
     ]
   });
 });
@@ -223,12 +281,14 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 // ========== DÉMARRAGE CONDITIONNEL ==========
-// ✅ IMPORTANT: Ne démarre le serveur QUE en local, pas sur Vercel
 
 const startServer = async () => {
   try {
     await AppDataSource.initialize();
     console.log("📦 Connected to database");
+
+    // ✅ CRÉATION OU RÉINITIALISATION UTILISATEUR
+    await createDefaultUser();
     console.log("✅ All services initialized");
 
     // ✅ Seulement en local
@@ -256,39 +316,6 @@ const startServer = async () => {
     }
   }
 };
-
-// Après AppDataSource.initialize() dans app.ts
-const createDefaultUser = async () => {
-  try {
-    console.log('🔄 Vérification/création utilisateur par défaut...');
-    
-    const userRepository = AppDataSource.getRepository(User);
-    const existingUser = await userRepository.findOne({ 
-      where: { email: 'ressource.prod@gmail.com' } 
-    });
-    
-    if (!existingUser) {
-      const hashedPassword = await bcrypt.hash('password123', 10);
-      const defaultUser = userRepository.create({
-        name: 'Admin Ressources',
-        email: 'ressource.prod@gmail.com',
-        password: hashedPassword,
-        role: 'admin'
-      });
-      await userRepository.save(defaultUser);
-      console.log('✅ Utilisateur par défaut créé en base de données');
-    } else {
-      console.log('✅ Utilisateur existe déjà en base');
-    }
-  } catch (error: any) {
-    console.log('⚠️ Note: Utilisateur non créé (DB peut être en cours de setup):', error.message);
-  }
-};
-
-// Appeler après l'initialisation DB
-if (AppDataSource.isInitialized) {
-  createDefaultUser();
-}
 
 // ✅ Démarrage conditionnel
 if (!process.env.VERCEL) {
