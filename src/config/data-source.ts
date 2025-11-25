@@ -46,11 +46,11 @@ export const AppDataSource = new DataSource({
     Trashpresence,
     AgentColarys
   ],
-  synchronize: false,
+  // ✅ ACTIVER la synchronisation temporairement
+  synchronize: true, // ⚠️ Changez à true pour créer les tables
   logging: process.env.NODE_ENV === 'development',
   migrations: [],
   subscribers: [],
-  // Configuration SSL pour Supabase
   ssl: process.env.NODE_ENV === 'production',
   extra: {
     ssl: process.env.NODE_ENV === 'production' ? {
