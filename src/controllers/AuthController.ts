@@ -8,10 +8,9 @@ export class AuthController {
       const { email, password } = req.body;
       
       console.log('🔐 Login attempt:', { email });
-      
-      // ✅ SOLUTION URGENCE - Auth temporaire qui fonctionne TOUJOURS
-      // Cette auth marche même sans base de données
-      if (email === 'ressource.prod@gmail.com' && password === 'password123') {
+
+      // ✅ SOLUTION URGENCE - Auth temporaire qui FONCTIONNE
+      if (email === 'ressource.prod@gmail.com' && password === 'stage25') {
         console.log('✅ Login réussi (mode urgence)');
         
         res.json({
@@ -29,15 +28,15 @@ export class AuthController {
         });
         return;
       }
-      
-      // ❌ Si mauvais identifiants
+
+      // ❌ Si on arrive ici, mauvais identifiants
       console.log('❌ Identifiants incorrects');
       res.status(401).json({
         success: false,
         error: 'Email ou mot de passe incorrect'
       });
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Login error:', error);
       res.status(500).json({
         success: false,
