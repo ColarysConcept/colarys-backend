@@ -1,0 +1,16 @@
+// src/routes/adminRoutes.ts
+import { Router } from "express";
+import { AdminController } from "../controllers/AdminController";
+
+const router = Router();
+const adminController = new AdminController();
+
+// Routes d'administration
+router.get("/stats", adminController.getStats);
+router.get("/users", adminController.getAllUsers);
+router.get("/backup", adminController.createBackup);
+router.post("/reset-password/:userId", adminController.resetUserPassword);
+router.get("/logs", adminController.getLogs);
+router.delete("/users/:userId", adminController.deleteUser);
+
+export default router;

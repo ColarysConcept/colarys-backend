@@ -19,7 +19,7 @@ class AgentColarysService {
         }
         catch (error) {
             console.error("❌ Service Error in getAllAgents:", error);
-            throw new Error("Erreur lors de la récupération des agents");
+            throw new Error("Erreur lors de la récupération des agents: " + error.message);
         }
     }
     async getAgentById(id) {
@@ -27,7 +27,7 @@ class AgentColarysService {
             console.log(`🔄 Service: Getting agent by ID: ${id}`);
             const agent = await this.agentRepository.findOne({ where: { id } });
             if (!agent) {
-                throw new errorMiddleware_1.NotFoundError("Agent non trouvé");
+                throw new errorMiddleware_1.NotFoundError(`Agent avec l'ID ${id} non trouvé`);
             }
             console.log(`✅ Service: Found agent: ${agent.nom} ${agent.prenom}`);
             return agent;
@@ -39,8 +39,10 @@ class AgentColarysService {
     }
     async createAgent(agentData) {
         try {
-            if (!agentData.matricule || !agentData.nom || !agentData.prenom || !agentData.role || !agentData.mail) {
-                throw new errorMiddleware_1.ValidationError("Tous les champs obligatoires doivent être remplis");
+            const requiredFields = ['matricule', 'nom', 'prenom', 'role', 'mail'];
+            const missingFields = requiredFields.filter(field => !agentData[field]);
+            if (missingFields.length > 0) {
+                throw new errorMiddleware_1.ValidationError(`Champs obligatoires manquants: ${missingFields.join(', ')}`);
             }
             const existingAgent = await this.agentRepository.findOne({
                 where: [
@@ -49,52 +51,67 @@ class AgentColarysService {
                 ]
             });
             if (existingAgent) {
-                throw new errorMiddleware_1.ValidationError("Le matricule ou l'email existe déjà");
+                if (existingAgent.matricule === agentData.matricule) {
+                    throw new errorMiddleware_1.ValidationError(`Un agent avec le matricule ${agentData.matricule} existe déjà`);
+                }
+                if (existingAgent.mail === agentData.mail) {
+                    throw new errorMiddleware_1.ValidationError(`Un agent avec l'email ${agentData.mail} existe déjà`);
+                }
+            }
+            if (!agentData.image) {
+                agentData.image = '/images/default-avatar.svg';
             }
             const agent = this.agentRepository.create(agentData);
-            return await this.agentRepository.save(agent);
+            const savedAgent = await this.agentRepository.save(agent);
+            console.log(`✅ Service: Agent créé avec ID: ${savedAgent.id}`);
+            return savedAgent;
         }
         catch (error) {
-            if (error instanceof errorMiddleware_1.ValidationError) {
-                throw error;
-            }
-            throw new Error("Erreur lors de la création de l'agent");
+            console.error("❌ Service Error in createAgent:", error);
+            throw error;
         }
     }
     async updateAgent(id, agentData) {
         try {
-            const agent = await this.getAgentById(id);
+            const existingAgent = await this.getAgentById(id);
             if (agentData.matricule || agentData.mail) {
-                const existingAgent = await this.agentRepository.findOne({
+                const duplicateAgent = await this.agentRepository.findOne({
                     where: [
                         { matricule: agentData.matricule },
                         { mail: agentData.mail }
                     ]
                 });
-                if (existingAgent && existingAgent.id !== id) {
-                    throw new errorMiddleware_1.ValidationError("Le matricule ou l'email existe déjà pour un autre agent");
+                if (duplicateAgent && duplicateAgent.id !== id) {
+                    if (duplicateAgent.matricule === agentData.matricule) {
+                        throw new errorMiddleware_1.ValidationError(`Un autre agent avec le matricule ${agentData.matricule} existe déjà`);
+                    }
+                    if (duplicateAgent.mail === agentData.mail) {
+                        throw new errorMiddleware_1.ValidationError(`Un autre agent avec l'email ${agentData.mail} existe déjà`);
+                    }
                 }
             }
+            if (!agentData.image) {
+                agentData.image = '/images/default-avatar.svg';
+            }
             await this.agentRepository.update(id, agentData);
-            return await this.getAgentById(id);
+            const updatedAgent = await this.getAgentById(id);
+            console.log(`✅ Service: Agent ${id} mis à jour`);
+            return updatedAgent;
         }
         catch (error) {
-            if (error instanceof errorMiddleware_1.NotFoundError || error instanceof errorMiddleware_1.ValidationError) {
-                throw error;
-            }
-            throw new Error("Erreur lors de la modification de l'agent");
+            console.error("❌ Service Error in updateAgent:", error);
+            throw error;
         }
     }
     async deleteAgent(id) {
         try {
             const agent = await this.getAgentById(id);
             await this.agentRepository.remove(agent);
+            console.log(`✅ Service: Agent ${id} supprimé`);
         }
         catch (error) {
-            if (error instanceof errorMiddleware_1.NotFoundError) {
-                throw error;
-            }
-            throw new Error("Erreur lors de la suppression de l'agent");
+            console.error("❌ Service Error in deleteAgent:", error);
+            throw error;
         }
     }
 }

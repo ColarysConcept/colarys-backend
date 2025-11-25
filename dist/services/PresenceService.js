@@ -172,6 +172,19 @@ class PresenceService {
             await queryRunner.release();
         }
     }
+    async findAll() {
+        try {
+            const presences = await this.presenceRepository.find({
+                relations: ['agent'],
+                order: { date: 'DESC' }
+            });
+            return presences;
+        }
+        catch (error) {
+            console.error('Error finding all presences:', error);
+            throw error;
+        }
+    }
     validerFormatHeure(heure) {
         const regex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
         if (!regex.test(heure)) {

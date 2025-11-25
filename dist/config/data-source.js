@@ -44,7 +44,7 @@ exports.AppDataSource = new typeorm_1.DataSource({
         Trashpresence_1.Trashpresence,
         AgentColarys_1.AgentColarys
     ],
-    synchronize: false,
+    synchronize: true,
     logging: process.env.NODE_ENV === 'development',
     migrations: [],
     subscribers: [],

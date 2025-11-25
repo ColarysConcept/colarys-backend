@@ -122,6 +122,26 @@ class PresenceController {
             }
         }
     }
+    async getAllPresences(req, res) {
+        try {
+            console.log('🔄 Getting all presences...');
+            const presences = await this.presenceService.findAll();
+            res.json({
+                success: true,
+                message: 'All presences retrieved successfully',
+                count: presences.length,
+                data: presences
+            });
+        }
+        catch (error) {
+            console.error('❌ Error getting all presences:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Failed to retrieve presences',
+                message: error.message
+            });
+        }
+    }
     async getPresenceAujourdhui(req, res) {
         console.log('getPresenceAujourdhui appelé avec matricule:', req.params.matricule);
         try {

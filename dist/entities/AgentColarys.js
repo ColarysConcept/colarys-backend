@@ -38,7 +38,7 @@ __decorate([
     __metadata("design:type", String)
 ], AgentColarys.prototype, "role", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ type: "varchar", nullable: true }),
+    (0, typeorm_1.Column)({ type: "varchar", nullable: true, default: '/images/default-avatar.svg' }),
     __metadata("design:type", String)
 ], AgentColarys.prototype, "image", void 0);
 __decorate([

@@ -11,16 +11,20 @@ export class AgentColarysController {
       console.log("🔄 Controller: Getting all agents");
       const agents = await agentService.getAllAgents();
       
-      // ✅ FORMAT DE RÉPONSE CORRIGÉ
-      res.json(agents); // ✅ Retourne directement le tableau
+      // ✅ FORMAT DE RÉPONSE STANDARD
+      res.json({
+        success: true,
+        data: agents,
+        count: agents.length
+      });
       
     } catch (error: any) {
       console.error("❌ Controller Error getting all agents:", error);
       
       res.status(500).json({
         success: false,
-        error: "Erreur lors du chargement des agents",
-        message: error.message
+        error: "Erreur serveur lors du chargement des agents",
+        message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
       });
     }
   }
@@ -38,31 +42,26 @@ export class AgentColarysController {
       console.log(`🔄 Controller: Getting agent with ID: ${id}`);
       const agent = await agentService.getAgentById(id);
       
-      if (!agent) {
+      res.json({
+        success: true,
+        data: agent
+      });
+      
+    } catch (error: any) {
+      console.error("❌ Controller Error getting agent by ID:", error);
+      
+      if (error instanceof NotFoundError || error.message.includes("non trouvé")) {
         return res.status(404).json({
           success: false,
           error: "Agent non trouvé"
         });
       }
       
-      // ✅ RETOUR DIRECT DE L'AGENT
-      res.json(agent);
-      
-    } catch (error: any) {
-      console.error("❌ Controller Error getting agent by ID:", error);
-      
-      if (error.message.includes("non trouvé") || error.message.includes("not found")) {
-        res.status(404).json({
-          success: false,
-          error: "Agent non trouvé"
-        });
-      } else {
-        res.status(500).json({
-          success: false,
-          error: "Erreur lors de la récupération de l'agent",
-          message: error.message
-        });
-      }
+      res.status(500).json({
+        success: false,
+        error: "Erreur lors de la récupération de l'agent",
+        message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
     }
   }
 
@@ -70,25 +69,36 @@ export class AgentColarysController {
     try {
       const agentData = req.body;
       
-      // ✅ IMAGE PAR DÉFAUT POUR TOUS LES AGENTS
-      agentData.image = '/images/default-avatar.svg';
-      
       console.log("🔄 Controller: Creating new agent", { 
-        ...agentData, 
-        password: '***' // Masquer le mot de passe dans les logs
+        nom: agentData.nom,
+        prenom: agentData.prenom,
+        matricule: agentData.matricule,
+        mail: agentData.mail,
+        role: agentData.role
       });
       
       const newAgent = await agentService.createAgent(agentData);
       
-      res.status(201).json(newAgent); // ✅ Retour direct
+      res.status(201).json({
+        success: true,
+        message: "Agent créé avec succès",
+        data: newAgent
+      });
       
     } catch (error: any) {
       console.error("❌ Controller Error creating agent:", error);
       
-      res.status(400).json({
+      if (error instanceof ValidationError) {
+        return res.status(400).json({
+          success: false,
+          error: error.message
+        });
+      }
+      
+      res.status(500).json({
         success: false,
         error: "Erreur lors de la création de l'agent",
-        message: error.message
+        message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
       });
     }
   }
@@ -105,82 +115,84 @@ export class AgentColarysController {
       
       const agentData = req.body;
       
-      // ✅ TOUJOURS UTILISER L'IMAGE PAR DÉFAUT SUR VERCEL
-      agentData.image = '/images/default-avatar.svg';
-      
-      console.log(`🔄 Controller: Updating agent ${id}`, { 
-        ...agentData, 
-        password: '***' 
+      console.log(`🔄 Controller: Updating agent ${id}`, {
+        nom: agentData.nom,
+        prenom: agentData.prenom,
+        matricule: agentData.matricule,
+        mail: agentData.mail,
+        role: agentData.role
       });
       
       const updatedAgent = await agentService.updateAgent(id, agentData);
       
-      if (!updatedAgent) {
+      res.json({
+        success: true,
+        message: "Agent modifié avec succès",
+        data: updatedAgent
+      });
+      
+    } catch (error: any) {
+      console.error("❌ Controller Error updating agent:", error);
+      
+      if (error instanceof NotFoundError) {
         return res.status(404).json({
           success: false,
           error: "Agent non trouvé"
         });
       }
       
-      res.json(updatedAgent); // ✅ Retour direct
+      if (error instanceof ValidationError) {
+        return res.status(400).json({
+          success: false,
+          error: error.message
+        });
+      }
+      
+      res.status(500).json({
+        success: false,
+        error: "Erreur lors de la modification de l'agent",
+        message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
+
+  static async deleteAgent(req: Request, res: Response, next: NextFunction) {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({
+          success: false,
+          error: "ID invalide"
+        });
+      }
+      
+      console.log(`🔄 Controller: Deleting agent ${id}`);
+      
+      await agentService.deleteAgent(id);
+      
+      res.json({
+        success: true,
+        message: "Agent supprimé avec succès"
+      });
       
     } catch (error: any) {
-      console.error("❌ Controller Error updating agent:", error);
+      console.error("❌ Controller Error deleting agent:", error);
       
-      if (error.message.includes("non trouvé") || error.message.includes("not found")) {
-        res.status(404).json({
+      if (error instanceof NotFoundError) {
+        return res.status(404).json({
           success: false,
           error: "Agent non trouvé"
         });
-      } else {
-        res.status(400).json({
-          success: false,
-          error: "Erreur lors de la modification de l'agent",
-          message: error.message
-        });
       }
-    }
-  }
-
- static async deleteAgent(req: Request, res: Response, next: NextFunction) {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) {
-      return res.status(400).json({
-        success: false,
-        error: "ID invalide"
-      });
-    }
-    
-    console.log(`🔄 Controller: Deleting agent ${id}`);
-    
-    // ✅ CORRECTION : Appel simple sans vérification de résultat
-    await agentService.deleteAgent(id);
-    
-    res.json({
-      success: true,
-      message: "Agent supprimé avec succès"
-    });
-    
-  } catch (error: any) {
-    console.error("❌ Controller Error deleting agent:", error);
-    
-    if (error.message.includes("non trouvé") || error.message.includes("not found")) {
-      res.status(404).json({
-        success: false,
-        error: "Agent non trouvé"
-      });
-    } else {
+      
       res.status(500).json({
         success: false,
         error: "Erreur lors de la suppression de l'agent",
-        message: error.message
+        message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
       });
     }
   }
-}
 
-  // ✅ ENDPOINT SIMPLIFIÉ - TOUJOURS RETOURNER L'AVATAR PAR DÉFAUT
   static async uploadImage(req: Request, res: Response, next: NextFunction) {
     try {
       console.log("🔄 Upload image endpoint called");
@@ -205,18 +217,19 @@ export class AgentColarysController {
     }
   }
 
-  // ✅ ENDPOINT DE SANTÉ SIMPLIFIÉ
   static async healthCheck(_req: Request, res: Response) {
     try {
       console.log("🔍 Health check agents endpoint");
-      
       const agents = await agentService.getAllAgents();
       
       res.json({
         success: true,
         message: "Service agents opérationnel",
-        agentsCount: agents.length,
-        timestamp: new Date().toISOString()
+        data: {
+          agentsCount: agents.length,
+          timestamp: new Date().toISOString(),
+          status: "healthy"
+        }
       });
     } catch (error: any) {
       console.error("❌ Health check agents failed:", error);
@@ -224,12 +237,12 @@ export class AgentColarysController {
       res.status(500).json({
         success: false,
         error: "Service agents non disponible",
-        message: error.message
+        message: error.message,
+        status: "unhealthy"
       });
     }
   }
 
-  // ✅ NOUVEL ENDPOINT : RECHERCHE D'AGENTS
   static async searchAgents(req: Request, res: Response) {
     try {
       const { query } = req.query;
@@ -244,8 +257,6 @@ export class AgentColarysController {
       }
       
       const allAgents = await agentService.getAllAgents();
-      
-      // ✅ RECHERCHE SIMPLE DANS TOUS LES CHAMPS
       const filteredAgents = allAgents.filter(agent => 
         agent.nom?.toLowerCase().includes(query.toLowerCase()) ||
         agent.prenom?.toLowerCase().includes(query.toLowerCase()) ||
@@ -254,7 +265,11 @@ export class AgentColarysController {
         agent.role?.toLowerCase().includes(query.toLowerCase())
       );
       
-      res.json(filteredAgents); // ✅ Retour direct du tableau
+      res.json({
+        success: true,
+        data: filteredAgents,
+        count: filteredAgents.length
+      });
       
     } catch (error: any) {
       console.error("❌ Controller Error searching agents:", error);
@@ -262,7 +277,7 @@ export class AgentColarysController {
       res.status(500).json({
         success: false,
         error: "Erreur lors de la recherche des agents",
-        message: error.message
+        message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
       });
     }
   }

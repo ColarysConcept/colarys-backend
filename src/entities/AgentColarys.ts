@@ -17,7 +17,7 @@ export class AgentColarys {
   @Column({ type: "varchar", length: 100 })
   role!: string;
 
-  @Column({ type: "varchar", nullable: true })
+  @Column({ type: "varchar", nullable: true, default: '/images/default-avatar.svg' })
   image!: string;
 
   @Column({ type: "varchar", length: 20, nullable: true })

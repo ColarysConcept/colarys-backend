@@ -4,6 +4,10 @@ const express_1 = require("express");
 const PresenceController_1 = require("../controllers/PresenceController");
 const router = (0, express_1.Router)();
 const presenceController = new PresenceController_1.PresenceController();
+router.get('/', (req, res) => {
+    console.log('GET /presences/ appelé');
+    presenceController.getAllPresences(req, res);
+});
 router.post('/entree', (req, res) => {
     console.log('POST /presences/entree appelé avec body:', req.body);
     presenceController.pointageEntree(req, res);

@@ -15,9 +15,9 @@ const initDatabase = async () => {
     
     if (!adminExists) {
       const adminUser = userRepository.create({
-        name: 'Admin',
+        name: 'Stagiaire Vola',
         email: 'ressource.prod@gmail.com',
-        password: 'password123', // ⚠️ À changer après
+        password: 'stage25', // ⚠️ À changer après
         role: 'admin'
       });
       
