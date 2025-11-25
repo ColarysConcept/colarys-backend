@@ -11,21 +11,36 @@ export class AgentColarysService {
     this.agentRepository = AppDataSource.getRepository(AgentColarys);
   }
 
+  // private async ensureInitialized() {
+  //   if (!this.agentRepository) {
+  //     if (!AppDataSource.isInitialized) {
+  //       await AppDataSource.initialize();
+  //     }
+  //     this.agentRepository = AppDataSource.getRepository(AgentColarys);
+  //   }
+  // }
 
-  async getAllAgents(): Promise<AgentColarys[]> {
-    try {
-      console.log("🔄 Service: Getting all agents from database");
-      const agents = await this.agentRepository.find({
-        order: { nom: "ASC", prenom: "ASC" }
-      });
-      console.log(`✅ Service: Found ${agents.length} agents`);
-      return agents;
-    } catch (error) {
-      console.error("❌ Service Error in getAllAgents:", error);
-      throw new Error("Erreur lors de la récupération des agents");
+// Dans AgentColarysService.ts (backend)
+async getAllAgents(): Promise<AgentColarys[]> {
+  try {
+    console.log("🔄 Service: Getting all agents from database");
+    
+    // ✅ VÉRIFIER LA CONNEXION BD
+    if (!this.agentRepository) {
+      throw new Error('Repository non initialisé');
     }
+    
+    const agents = await this.agentRepository.find({
+      order: { nom: "ASC", prenom: "ASC" }
+    });
+    
+    console.log(`✅ Service: Found ${agents.length} agents`);
+    return agents;
+  } catch (error) {
+    console.error("❌ Service Error in getAllAgents:", error);
+    throw new Error("Erreur lors de la récupération des agents: " + error.message);
   }
-
+}
   async getAgentById(id: number): Promise<AgentColarys> {
     // await this.ensureInitialized();
     

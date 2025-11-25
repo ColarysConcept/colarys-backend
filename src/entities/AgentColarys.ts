@@ -17,8 +17,12 @@ export class AgentColarys {
   @Column({ type: "varchar", length: 100 })
   role!: string;
 
-  @Column({ type: "varchar", nullable: true, default: '/images/default-avatar.svg' })
+  @Column({ type: "varchar", nullable: true })
   image!: string;
+
+  // 🔥 NOUVEAU CHAMP POUR STOCKER L'ID PUBLIC CLOUDINARY
+  @Column({ type: "varchar", nullable: true })
+  imagePublicId!: string;
 
   @Column({ type: "varchar", length: 20, nullable: true })
   contact!: string;
@@ -37,5 +41,13 @@ export class AgentColarys {
 
   getNomComplet(): string {
     return `${this.nom} ${this.prenom}`;
+  }
+
+  // 🔥 METHODE POUR OBTENIR L'URL DE L'IMAGE (AVEC FALLBACK)
+  getDisplayImage(): string {
+    if (this.image) {
+      return this.image; // URL Cloudinary
+    }
+    return '/default-avatar.png'; // Image par défaut
   }
 }
