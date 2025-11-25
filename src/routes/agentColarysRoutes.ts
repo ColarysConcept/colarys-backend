@@ -35,6 +35,8 @@ const upload = multer({
 
 // Routes principales
 router.get("/", AgentColarysController.getAllAgents);
+router.get("/health", AgentColarysController.healthCheck);
+router.get("/search", AgentColarysController.searchAgents);
 router.get("/:id", AgentColarysController.getAgentById);
 router.post("/", upload.single('image'), AgentColarysController.createAgent);
 router.put("/:id", upload.single('image'), AgentColarysController.updateAgent);

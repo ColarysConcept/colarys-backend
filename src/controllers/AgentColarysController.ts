@@ -1,8 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { AgentColarysService } from "../services/AgentColarysService";
 import { ValidationError, NotFoundError } from "../middleware/errorMiddleware";
-import fs from 'fs';
-import path from 'path';
 
 const agentService = new AgentColarysService();
 
@@ -13,21 +11,16 @@ export class AgentColarysController {
       console.log("🔄 Controller: Getting all agents");
       const agents = await agentService.getAllAgents();
       
-      // ✅ CORRECTION : Format de réponse standardisé
-      res.json({
-        success: true,
-        data: agents,
-        count: agents.length,
-        message: `${agents.length} agents récupérés avec succès`
-      });
+      // ✅ FORMAT DE RÉPONSE CORRIGÉ
+      res.json(agents); // ✅ Retourne directement le tableau
+      
     } catch (error: any) {
       console.error("❌ Controller Error getting all agents:", error);
       
-      // ✅ CORRECTION : Gestion d'erreur améliorée
       res.status(500).json({
         success: false,
         error: "Erreur lors du chargement des agents",
-        message: process.env.NODE_ENV === 'development' ? error.message : 'Erreur serveur'
+        message: error.message
       });
     }
   }
@@ -36,20 +29,29 @@ export class AgentColarysController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
-        throw new ValidationError("ID invalide");
+        return res.status(400).json({
+          success: false,
+          error: "ID invalide"
+        });
       }
       
       console.log(`🔄 Controller: Getting agent with ID: ${id}`);
       const agent = await agentService.getAgentById(id);
       
-      res.json({
-        success: true,
-        data: agent
-      });
+      if (!agent) {
+        return res.status(404).json({
+          success: false,
+          error: "Agent non trouvé"
+        });
+      }
+      
+      // ✅ RETOUR DIRECT DE L'AGENT
+      res.json(agent);
+      
     } catch (error: any) {
       console.error("❌ Controller Error getting agent by ID:", error);
       
-      if (error instanceof NotFoundError) {
+      if (error.message.includes("non trouvé") || error.message.includes("not found")) {
         res.status(404).json({
           success: false,
           error: "Agent non trouvé"
@@ -57,7 +59,8 @@ export class AgentColarysController {
       } else {
         res.status(500).json({
           success: false,
-          error: "Erreur lors de la récupération de l'agent"
+          error: "Erreur lors de la récupération de l'agent",
+          message: error.message
         });
       }
     }
@@ -67,23 +70,8 @@ export class AgentColarysController {
     try {
       const agentData = req.body;
       
-      // ✅ CORRECTION : Gestion sécurisée des uploads Vercel
-      if (req.file) {
-        if (process.env.VERCEL) {
-          // Sur Vercel : stocker en mémoire ou utiliser un service cloud
-          console.log('⚠️ Upload fichier ignoré sur Vercel - utilisation image par défaut');
-          agentData.image = '/images/default-avatar.svg';
-        } else {
-          // En local : sauvegarder le fichier
-          agentData.image = `/uploads/${req.file.filename}`;
-        }
-      } else if (req.body.image) {
-        // Si une URL d'image est fournie, l'utiliser directement
-        agentData.image = req.body.image;
-      } else {
-        // Image par défaut
-        agentData.image = '/images/default-avatar.svg';
-      }
+      // ✅ IMAGE PAR DÉFAUT POUR TOUS LES AGENTS
+      agentData.image = '/images/default-avatar.svg';
       
       console.log("🔄 Controller: Creating new agent", { 
         ...agentData, 
@@ -92,22 +80,9 @@ export class AgentColarysController {
       
       const newAgent = await agentService.createAgent(agentData);
       
-      res.status(201).json({
-        success: true,
-        message: "Agent créé avec succès",
-        data: newAgent
-      });
-    } catch (error: any) {
-      // ✅ CORRECTION : Nettoyage sécurisé des fichiers uploadés
-      if (req.file && !process.env.VERCEL) {
-        try {
-          fs.unlinkSync(req.file.path);
-          console.log('🗑️ Fichier uploadé nettoyé après erreur');
-        } catch (fsError) {
-          console.error('❌ Erreur nettoyage fichier:', fsError);
-        }
-      }
+      res.status(201).json(newAgent); // ✅ Retour direct
       
+    } catch (error: any) {
       console.error("❌ Controller Error creating agent:", error);
       
       res.status(400).json({
@@ -122,37 +97,16 @@ export class AgentColarysController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
-        throw new ValidationError("ID invalide");
+        return res.status(400).json({
+          success: false,
+          error: "ID invalide"
+        });
       }
       
       const agentData = req.body;
       
-      // ✅ CORRECTION : Récupération sécurisée de l'agent existant
-      let existingAgent;
-      try {
-        existingAgent = await agentService.getAgentById(id);
-      } catch (error) {
-        throw new NotFoundError("Agent non trouvé");
-      }
-      
-      let oldImagePath: string | null = null;
-      
-      // ✅ CORRECTION : Gestion conditionnelle des fichiers
-      if (!process.env.VERCEL && existingAgent && existingAgent.image && existingAgent.image.startsWith('/uploads/')) {
-        oldImagePath = path.join(__dirname, '../public', existingAgent.image);
-      }
-      
-      // Gérer l'upload d'image
-      if (req.file) {
-        if (process.env.VERCEL) {
-          agentData.image = '/images/default-avatar.svg';
-        } else {
-          agentData.image = `/uploads/${req.file.filename}`;
-        }
-      } else if (req.body.image) {
-        agentData.image = req.body.image;
-      }
-      // Si aucune nouvelle image n'est fournie, conserver l'ancienne
+      // ✅ TOUJOURS UTILISER L'IMAGE PAR DÉFAUT SUR VERCEL
+      agentData.image = '/images/default-avatar.svg';
       
       console.log(`🔄 Controller: Updating agent ${id}`, { 
         ...agentData, 
@@ -161,37 +115,22 @@ export class AgentColarysController {
       
       const updatedAgent = await agentService.updateAgent(id, agentData);
       
-      // ✅ CORRECTION : Suppression sécurisée de l'ancienne image
-      if (req.file && !process.env.VERCEL && oldImagePath && fs.existsSync(oldImagePath)) {
-        try {
-          fs.unlinkSync(oldImagePath);
-          console.log('🗑️ Ancienne image supprimée');
-        } catch (fsError) {
-          console.error('❌ Erreur suppression ancienne image:', fsError);
-        }
+      if (!updatedAgent) {
+        return res.status(404).json({
+          success: false,
+          error: "Agent non trouvé"
+        });
       }
       
-      res.json({
-        success: true,
-        message: "Agent modifié avec succès",
-        data: updatedAgent
-      });
+      res.json(updatedAgent); // ✅ Retour direct
+      
     } catch (error: any) {
-      // ✅ CORRECTION : Nettoyage sécurisé
-      if (req.file && !process.env.VERCEL) {
-        try {
-          fs.unlinkSync(req.file.path);
-        } catch (fsError) {
-          console.error('❌ Erreur nettoyage fichier:', fsError);
-        }
-      }
-      
       console.error("❌ Controller Error updating agent:", error);
       
-      if (error instanceof NotFoundError) {
+      if (error.message.includes("non trouvé") || error.message.includes("not found")) {
         res.status(404).json({
           success: false,
-          error: error.message
+          error: "Agent non trouvé"
         });
       } else {
         res.status(400).json({
@@ -203,98 +142,59 @@ export class AgentColarysController {
     }
   }
 
-  static async deleteAgent(req: Request, res: Response, next: NextFunction) {
-    try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) {
-        throw new ValidationError("ID invalide");
-      }
-      
-      // ✅ CORRECTION : Récupération et suppression sécurisées
-      let imagePath: string | null = null;
-      
-      if (!process.env.VERCEL) {
-        try {
-          const agent = await agentService.getAgentById(id);
-          if (agent.image && agent.image.startsWith('/uploads/')) {
-            imagePath = path.join(__dirname, '../public', agent.image);
-          }
-        } catch (error) {
-          // Si l'agent n'existe pas, on continue quand même
-          console.log('⚠️ Agent non trouvé pour suppression image');
-        }
-      }
-      
-      console.log(`🔄 Controller: Deleting agent ${id}`);
-      await agentService.deleteAgent(id);
-      
-      // ✅ CORRECTION : Suppression sécurisée de l'image
-      if (imagePath && fs.existsSync(imagePath)) {
-        try {
-          fs.unlinkSync(imagePath);
-          console.log('🗑️ Image agent supprimée');
-        } catch (fsError) {
-          console.error('❌ Erreur suppression image:', fsError);
-        }
-      }
-      
-      res.json({
-        success: true,
-        message: "Agent supprimé avec succès"
+ static async deleteAgent(req: Request, res: Response, next: NextFunction) {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({
+        success: false,
+        error: "ID invalide"
       });
-    } catch (error: any) {
-      console.error("❌ Controller Error deleting agent:", error);
-      
-      if (error instanceof NotFoundError) {
-        res.status(404).json({
-          success: false,
-          error: error.message
-        });
-      } else {
-        res.status(500).json({
-          success: false,
-          error: "Erreur lors de la suppression de l'agent",
-          message: error.message
-        });
-      }
+    }
+    
+    console.log(`🔄 Controller: Deleting agent ${id}`);
+    
+    // ✅ CORRECTION : Appel simple sans vérification de résultat
+    await agentService.deleteAgent(id);
+    
+    res.json({
+      success: true,
+      message: "Agent supprimé avec succès"
+    });
+    
+  } catch (error: any) {
+    console.error("❌ Controller Error deleting agent:", error);
+    
+    if (error.message.includes("non trouvé") || error.message.includes("not found")) {
+      res.status(404).json({
+        success: false,
+        error: "Agent non trouvé"
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: "Erreur lors de la suppression de l'agent",
+        message: error.message
+      });
     }
   }
+}
 
-  // Endpoint pour uploader une image seule
+  // ✅ ENDPOINT SIMPLIFIÉ - TOUJOURS RETOURNER L'AVATAR PAR DÉFAUT
   static async uploadImage(req: Request, res: Response, next: NextFunction) {
     try {
-      if (!req.file) {
-        throw new ValidationError("Aucun fichier uploadé");
-      }
+      console.log("🔄 Upload image endpoint called");
       
-      let imageUrl: string;
-      
-      // ✅ CORRECTION : Gestion Vercel vs Local
-      if (process.env.VERCEL) {
-        console.log('⚠️ Upload image ignoré sur Vercel');
-        imageUrl = '/images/default-avatar.svg';
-      } else {
-        imageUrl = `/uploads/${req.file.filename}`;
-      }
-      
+      // ✅ SUR VERCEL, ON RETOURNE TOUJOURS L'AVATAR PAR DÉFAUT
       res.json({
         success: true,
-        message: "Image uploadée avec succès",
+        message: "Image upload simulé - avatar par défaut utilisé",
         data: {
-          imageUrl: imageUrl,
-          filename: req.file.filename
+          imageUrl: '/images/default-avatar.svg',
+          filename: 'default-avatar.svg'
         }
       });
     } catch (error: any) {
-      // ✅ CORRECTION : Nettoyage sécurisé
-      if (req.file && !process.env.VERCEL) {
-        try {
-          fs.unlinkSync(req.file.path);
-        } catch (fsError) {
-          console.error('❌ Erreur nettoyage fichier:', fsError);
-        }
-      }
-      
       console.error("❌ Controller Error uploading image:", error);
       
       res.status(400).json({
@@ -305,12 +205,11 @@ export class AgentColarysController {
     }
   }
 
-  // ✅ CORRECTION : Ajout d'un endpoint de santé pour les agents
+  // ✅ ENDPOINT DE SANTÉ SIMPLIFIÉ
   static async healthCheck(_req: Request, res: Response) {
     try {
       console.log("🔍 Health check agents endpoint");
       
-      // Test simple de la base de données
       const agents = await agentService.getAllAgents();
       
       res.json({
@@ -325,6 +224,44 @@ export class AgentColarysController {
       res.status(500).json({
         success: false,
         error: "Service agents non disponible",
+        message: error.message
+      });
+    }
+  }
+
+  // ✅ NOUVEL ENDPOINT : RECHERCHE D'AGENTS
+  static async searchAgents(req: Request, res: Response) {
+    try {
+      const { query } = req.query;
+      
+      console.log(`🔍 Searching agents with query: ${query}`);
+      
+      if (!query || typeof query !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: "Paramètre de recherche manquant"
+        });
+      }
+      
+      const allAgents = await agentService.getAllAgents();
+      
+      // ✅ RECHERCHE SIMPLE DANS TOUS LES CHAMPS
+      const filteredAgents = allAgents.filter(agent => 
+        agent.nom?.toLowerCase().includes(query.toLowerCase()) ||
+        agent.prenom?.toLowerCase().includes(query.toLowerCase()) ||
+        agent.matricule?.toLowerCase().includes(query.toLowerCase()) ||
+        agent.mail?.toLowerCase().includes(query.toLowerCase()) ||
+        agent.role?.toLowerCase().includes(query.toLowerCase())
+      );
+      
+      res.json(filteredAgents); // ✅ Retour direct du tableau
+      
+    } catch (error: any) {
+      console.error("❌ Controller Error searching agents:", error);
+      
+      res.status(500).json({
+        success: false,
+        error: "Erreur lors de la recherche des agents",
         message: error.message
       });
     }
