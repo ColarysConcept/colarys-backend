@@ -1,5 +1,5 @@
-// src/controllers/AuthController.ts
-import { Request, Response } from 'express';
+import { Request, Response } from "express";
+import { AuthService } from "../services/Auth/AuthService";
 
 export class AuthController {
   async login(req: Request, res: Response): Promise<void> {
@@ -8,47 +8,25 @@ export class AuthController {
       
       console.log('🔐 Login attempt:', { email });
       
-      // ✅ CORRECTION : Logique d'authentification basique
-      // Remplacez ceci par votre vraie logique d'authentification
-      if (email && password) {
-        // Réponse de succès temporaire
-        res.json({
-          success: true,
-          message: 'Login successful',
-          token: 'jwt-token-here-' + Date.now(),
-          user: {
-            id: 1,
-            email: email,
-            name: 'Utilisateur de test'
-          }
-        });
-      } else {
-        res.status(401).json({
-          success: false,
-          error: 'Email et mot de passe requis'
-        });
-      }
-    } catch (error) {
+      // ✅ UTILISATION RÉELLE DU SERVICE
+      const authResult = await AuthService.login(email, password);
+      
+      // ✅ Réponse de succès AVEC VRAIES DONNÉES
+      res.json({
+        success: true,
+        message: 'Login successful',
+        token: authResult.token, // Vrai token JWT
+        user: authResult.user    // Vrai utilisateur de la base
+      });
+      
+    } catch (error: any) {
       console.error('❌ Login error:', error);
-      res.status(500).json({
+      
+      // ✅ Gestion propre des erreurs
+      res.status(401).json({
         success: false,
-        error: 'Erreur serveur lors de l\'authentification'
+        error: error.message || 'Email ou mot de passe incorrect'
       });
     }
   }
-
-  // ✅ OPTIONNEL : Ajoutez ces méthodes plus tard si besoin
-  /*
-  async register(req: Request, res: Response): Promise<void> {
-    // Implémentez l'inscription plus tard
-  }
-
-  async logout(req: Request, res: Response): Promise<void> {
-    // Implémentez la déconnexion plus tard
-  }
-
-  async getCurrentUser(req: Request, res: Response): Promise<void> {
-    // Implémentez la récupération de l'utilisateur courant plus tard
-  }
-  */
 }

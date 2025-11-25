@@ -53,7 +53,8 @@ app.use(cors({
       'http://localhost:5173', 
       'http://localhost:3000', 
       'http://localhost:8080',
-      'https://colarys-frontend.vercel.app' // URL de production principale
+      'https://colarys-frontend.vercel.app',
+      'https://*.vercel.app'
     ];
     
     // Autoriser toutes les URLs Vercel (.vercel.app)
