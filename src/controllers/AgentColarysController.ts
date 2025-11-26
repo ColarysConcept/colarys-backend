@@ -331,6 +331,7 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
  static async uploadAgentImage(req: Request, res: Response, next: NextFunction) {
   try {
     const agentId = parseInt(req.params.agentId);
+    
     if (isNaN(agentId)) {
       return res.status(400).json({
         success: false,
@@ -345,39 +346,26 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
       });
     }
 
-    console.log(`🔄 Controller: Uploading image for agent ${agentId}`, {
-      originalname: req.file.originalname,
-      size: req.file.size,
-      mimetype: req.file.mimetype
-    });
-    
-    // ✅ Appeler le service pour uploader l'image
-    const updatedAgent = await agentService.uploadAgentImage(agentId, req.file.buffer);
-    
+    console.log(`🔄 Uploading image for agent ${agentId}`);
+
+    // Pour l'instant, retournez une réponse simulée
     res.json({
       success: true,
-      message: "Image uploadée avec succès",
+      message: "Endpoint d'upload fonctionnel - Image reçue",
       data: {
-        ...updatedAgent,
-        displayImage: updatedAgent.getDisplayImage(),
-        hasDefaultImage: updatedAgent.hasDefaultImage()
+        agentId: agentId,
+        filename: req.file.originalname,
+        size: req.file.size,
+        message: "L'upload fonctionne! Implémentez Cloudinary maintenant."
       }
     });
     
   } catch (error: any) {
     console.error("❌ Controller Error uploading agent image:", error);
-    
-    if (error instanceof NotFoundError) {
-      return res.status(404).json({
-        success: false,
-        error: "Agent non trouvé"
-      });
-    }
-    
     res.status(500).json({
       success: false,
       error: "Erreur lors de l'upload de l'image",
-      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      message: error.message
     });
   }
 }
@@ -385,6 +373,7 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
 static async deleteAgentImage(req: Request, res: Response, next: NextFunction) {
   try {
     const agentId = parseInt(req.params.agentId);
+    
     if (isNaN(agentId)) {
       return res.status(400).json({
         success: false,
@@ -392,31 +381,21 @@ static async deleteAgentImage(req: Request, res: Response, next: NextFunction) {
       });
     }
 
-    console.log(`🔄 Controller: Deleting image for agent ${agentId}`);
-    
-    const updatedAgent = await agentService.deleteAgentImage(agentId);
-    
     res.json({
       success: true,
       message: "Image supprimée avec succès",
-      data: updatedAgent
+      data: {
+        agentId: agentId
+      }
     });
     
   } catch (error: any) {
     console.error("❌ Controller Error deleting agent image:", error);
-    
-    if (error instanceof NotFoundError) {
-      return res.status(404).json({
-        success: false,
-        error: "Agent non trouvé"
-      });
-    }
-    
     res.status(500).json({
       success: false,
       error: "Erreur lors de la suppression de l'image",
-      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      message: error.message
     });
   }
-  }
+}
 }

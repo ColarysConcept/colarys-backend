@@ -1,24 +1,26 @@
-// src/routes/agentColarysRoutes.ts
 import { Router } from "express";
 import { AgentColarysController } from "../controllers/AgentColarysController";
-import { upload } from "../config/multer"; // ✅ Import depuis le nouveau fichier
+import { upload } from "../config/multer";
 
 const router = Router();
 
-// Routes existantes
+// ========== ROUTES SANS PARAMÈTRES ==========
 router.get("/", AgentColarysController.getAllAgents);
 router.get("/search", AgentColarysController.searchAgents);
 router.get("/health/check", AgentColarysController.healthCheck);
-router.get("/:id", AgentColarysController.getAgentById);
-router.post("/", AgentColarysController.createAgent);
-router.put("/:id", AgentColarysController.updateAgent);
-router.delete("/:id", AgentColarysController.deleteAgent);
+router.get("/search/agents", AgentColarysController.searchAgents);
 
-// ✅ Route upload avec Multer
+router.post("/", AgentColarysController.createAgent);
+router.post("/upload-image", AgentColarysController.uploadImage);
+
+// ========== ROUTES AVEC PARAMÈTRES SPÉCIFIQUES ==========
+// ✅ IMPORTANT: Ces routes doivent être AVANT les routes :id génériques
 router.post("/:agentId/upload-image", upload.single('image'), AgentColarysController.uploadAgentImage);
 router.delete("/:agentId/image", AgentColarysController.deleteAgentImage);
 
-// Route de recherche
-router.get("/search/agents", AgentColarysController.searchAgents);
+// ========== ROUTES AVEC PARAMÈTRES GÉNÉRIQUES ==========
+router.get("/:id", AgentColarysController.getAgentById);
+router.put("/:id", AgentColarysController.updateAgent);
+router.delete("/:id", AgentColarysController.deleteAgent);
 
 export default router;
