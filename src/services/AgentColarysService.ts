@@ -3,39 +3,37 @@ import { AgentColarys } from "../entities/AgentColarys";
 import { NotFoundError, ValidationError } from "../middleware/errorMiddleware";
 import { Repository } from "typeorm"; // Import ajouté
 import { CloudinaryService } from "./CloudinaryService";
+import { SupabaseStorageService } from "./SupabaseStorageService";
 
 export class AgentColarysService {
   private agentRepository: Repository<AgentColarys>;
-  private cloudinaryService: CloudinaryService;
+  // private cloudinaryService: CloudinaryService;
+    private storageService: SupabaseStorageService;
 
   constructor() {
     // Initialisation directe si la DataSource est déjà initialisée
     this.agentRepository = AppDataSource.getRepository(AgentColarys);
-    this.cloudinaryService = new CloudinaryService();
+    // this.cloudinaryService = new CloudinaryService();
+      this.storageService = new SupabaseStorageService();
   }
 
 
 // Dans AgentColarysService.ts (backend)
 async getAllAgents(): Promise<AgentColarys[]> {
-  try {
-    console.log("🔄 Service: Getting all agents from database");
-    
-    // ✅ VÉRIFIER LA CONNEXION BD
-    if (!this.agentRepository) {
-      throw new Error('Repository non initialisé');
+    try {
+      console.log("🔄 Service: Getting all agents from database");
+      
+      const agents = await this.agentRepository.find({
+        order: { nom: "ASC", prenom: "ASC" }
+      });
+      
+      console.log(`✅ Service: Found ${agents.length} agents`);
+      return agents;
+    } catch (error) {
+      console.error("❌ Service Error in getAllAgents:", error);
+      throw new Error("Erreur lors de la récupération des agents: " + error.message);
     }
-    
-    const agents = await this.agentRepository.find({
-      order: { nom: "ASC", prenom: "ASC" }
-    });
-    
-    console.log(`✅ Service: Found ${agents.length} agents`);
-    return agents;
-  } catch (error) {
-    console.error("❌ Service Error in getAllAgents:", error);
-    throw new Error("Erreur lors de la récupération des agents: " + error.message);
   }
-}
   async getAgentById(id: number): Promise<AgentColarys> {
     // await this.ensureInitialized();
     
@@ -131,24 +129,20 @@ async getAllAgents(): Promise<AgentColarys[]> {
       
       const agent = await this.getAgentById(agentId);
       
-      // Supprimer l'ancienne image de Cloudinary si elle existe
-      if (agent.imagePublicId) {
-        try {
-          await this.cloudinaryService.deleteImage(agent.imagePublicId);
-          console.log(`✅ Old image deleted: ${agent.imagePublicId}`);
-        } catch (error) {
-          console.warn('⚠️ Could not delete old image:', error);
-        }
+      // Supprimer l'ancienne image si elle existe
+      if (agent.imagePublicId) { // On utilise imagePublicId pour stocker le filePath Supabase
+        await this.storageService.deleteAgentImage(agent.imagePublicId);
       }
 
-      // Uploader la nouvelle image sur Cloudinary
-      console.log('📤 Uploading new image to Cloudinary...');
-      const { url, publicId } = await this.cloudinaryService.uploadImage(fileBuffer);
-      console.log(`✅ New image uploaded: ${url}`);
+      // Uploader la nouvelle image sur Supabase
+      const { url, filePath } = await this.storageService.uploadAgentImage(
+        fileBuffer, 
+        agent.matricule
+      );
 
-      // Mettre à jour l'agent avec la nouvelle image
+      // Mettre à jour l'agent
       agent.image = url;
-      agent.imagePublicId = publicId;
+      agent.imagePublicId = filePath; // On stocke le filePath Supabase
       
       const updatedAgent = await this.agentRepository.save(agent);
       console.log(`✅ Agent ${agentId} image updated in database`);
@@ -160,12 +154,14 @@ async getAllAgents(): Promise<AgentColarys[]> {
     }
   }
 
+
 async deleteAgentImage(agentId: number): Promise<AgentColarys> {
     try {
       const agent = await this.getAgentById(agentId);
       
+      // Supprimer l'image de Supabase
       if (agent.imagePublicId) {
-        await this.cloudinaryService.deleteImage(agent.imagePublicId);
+        await this.storageService.deleteAgentImage(agent.imagePublicId);
       }
       
       // Réinitialiser à l'image par défaut

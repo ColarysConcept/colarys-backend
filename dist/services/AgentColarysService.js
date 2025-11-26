@@ -4,18 +4,15 @@ exports.AgentColarysService = void 0;
 const data_source_1 = require("../config/data-source");
 const AgentColarys_1 = require("../entities/AgentColarys");
 const errorMiddleware_1 = require("../middleware/errorMiddleware");
-const CloudinaryService_1 = require("./CloudinaryService");
+const SupabaseStorageService_1 = require("./SupabaseStorageService");
 class AgentColarysService {
     constructor() {
         this.agentRepository = data_source_1.AppDataSource.getRepository(AgentColarys_1.AgentColarys);
-        this.cloudinaryService = new CloudinaryService_1.CloudinaryService();
+        this.storageService = new SupabaseStorageService_1.SupabaseStorageService();
     }
     async getAllAgents() {
         try {
             console.log("🔄 Service: Getting all agents from database");
-            if (!this.agentRepository) {
-                throw new Error('Repository non initialisé');
-            }
             const agents = await this.agentRepository.find({
                 order: { nom: "ASC", prenom: "ASC" }
             });
@@ -107,19 +104,11 @@ class AgentColarysService {
             console.log(`🔄 Uploading image for agent ${agentId}`);
             const agent = await this.getAgentById(agentId);
             if (agent.imagePublicId) {
-                try {
-                    await this.cloudinaryService.deleteImage(agent.imagePublicId);
-                    console.log(`✅ Old image deleted: ${agent.imagePublicId}`);
-                }
-                catch (error) {
-                    console.warn('⚠️ Could not delete old image:', error);
-                }
+                await this.storageService.deleteAgentImage(agent.imagePublicId);
             }
-            console.log('📤 Uploading new image to Cloudinary...');
-            const { url, publicId } = await this.cloudinaryService.uploadImage(fileBuffer);
-            console.log(`✅ New image uploaded: ${url}`);
+            const { url, filePath } = await this.storageService.uploadAgentImage(fileBuffer, agent.matricule);
             agent.image = url;
-            agent.imagePublicId = publicId;
+            agent.imagePublicId = filePath;
             const updatedAgent = await this.agentRepository.save(agent);
             console.log(`✅ Agent ${agentId} image updated in database`);
             return updatedAgent;
@@ -133,7 +122,7 @@ class AgentColarysService {
         try {
             const agent = await this.getAgentById(agentId);
             if (agent.imagePublicId) {
-                await this.cloudinaryService.deleteImage(agent.imagePublicId);
+                await this.storageService.deleteAgentImage(agent.imagePublicId);
             }
             agent.image = '/images/default-avatar.svg';
             agent.imagePublicId = null;

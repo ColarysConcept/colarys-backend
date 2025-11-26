@@ -274,15 +274,13 @@ class AgentColarysController {
                     error: "Aucun fichier image fourni"
                 });
             }
-            console.log(`🔄 Uploading image for agent ${agentId}`);
+            console.log(`🔄 Uploading real image for agent ${agentId}`);
+            const updatedAgent = await agentService.uploadAgentImage(agentId, req.file.buffer);
             res.json({
                 success: true,
-                message: "Endpoint d'upload fonctionnel - Image reçue",
+                message: "Image uploadée avec succès",
                 data: {
-                    agentId: agentId,
-                    filename: req.file.originalname,
-                    size: req.file.size,
-                    message: "L'upload fonctionne! Implémentez Cloudinary maintenant."
+                    agent: Object.assign(Object.assign({}, updatedAgent), { displayImage: updatedAgent.getDisplayImage(), hasDefaultImage: updatedAgent.hasDefaultImage() })
                 }
             });
         }
@@ -304,11 +302,12 @@ class AgentColarysController {
                     error: "ID agent invalide"
                 });
             }
+            const updatedAgent = await agentService.deleteAgentImage(agentId);
             res.json({
                 success: true,
                 message: "Image supprimée avec succès",
                 data: {
-                    agentId: agentId
+                    agent: Object.assign(Object.assign({}, updatedAgent), { displayImage: updatedAgent.getDisplayImage(), hasDefaultImage: updatedAgent.hasDefaultImage() })
                 }
             });
         }

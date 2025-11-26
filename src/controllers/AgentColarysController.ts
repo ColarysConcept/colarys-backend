@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { AgentColarysService } from "../services/AgentColarysService";
 import { ValidationError, NotFoundError } from "../middleware/errorMiddleware";
+import { upload } from '../config/multer';
 
 const agentService = new AgentColarysService();
 
@@ -329,73 +330,85 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
 
   // 🔥 NOUVELLE MÉTHODE POUR UPLOADER DES IMAGES RÉELLES
  static async uploadAgentImage(req: Request, res: Response, next: NextFunction) {
-  try {
-    const agentId = parseInt(req.params.agentId);
-    
-    if (isNaN(agentId)) {
-      return res.status(400).json({
-        success: false,
-        error: "ID agent invalide"
-      });
-    }
-
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        error: "Aucun fichier image fourni"
-      });
-    }
-
-    console.log(`🔄 Uploading image for agent ${agentId}`);
-
-    // Pour l'instant, retournez une réponse simulée
-    res.json({
-      success: true,
-      message: "Endpoint d'upload fonctionnel - Image reçue",
-      data: {
-        agentId: agentId,
-        filename: req.file.originalname,
-        size: req.file.size,
-        message: "L'upload fonctionne! Implémentez Cloudinary maintenant."
+    try {
+      const agentId = parseInt(req.params.agentId);
+      
+      if (isNaN(agentId)) {
+        return res.status(400).json({
+          success: false,
+          error: "ID agent invalide"
+        });
       }
-    });
-    
-  } catch (error: any) {
-    console.error("❌ Controller Error uploading agent image:", error);
-    res.status(500).json({
-      success: false,
-      error: "Erreur lors de l'upload de l'image",
-      message: error.message
-    });
+
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          error: "Aucun fichier image fourni"
+        });
+      }
+
+      console.log(`🔄 Uploading real image for agent ${agentId}`);
+
+      // Utiliser le service avec Supabase
+      const updatedAgent = await agentService.uploadAgentImage(
+        agentId, 
+        req.file.buffer
+      );
+
+      res.json({
+        success: true,
+        message: "Image uploadée avec succès",
+        data: {
+          agent: {
+            ...updatedAgent,
+            displayImage: updatedAgent.getDisplayImage(),
+            hasDefaultImage: updatedAgent.hasDefaultImage()
+          }
+        }
+      });
+      
+    } catch (error: any) {
+      console.error("❌ Controller Error uploading agent image:", error);
+      res.status(500).json({
+        success: false,
+        error: "Erreur lors de l'upload de l'image",
+        message: error.message
+      });
+    }
   }
-}
 
 static async deleteAgentImage(req: Request, res: Response, next: NextFunction) {
-  try {
-    const agentId = parseInt(req.params.agentId);
-    
-    if (isNaN(agentId)) {
-      return res.status(400).json({
+    try {
+      const agentId = parseInt(req.params.agentId);
+      
+      if (isNaN(agentId)) {
+        return res.status(400).json({
+          success: false,
+          error: "ID agent invalide"
+        });
+      }
+
+      const updatedAgent = await agentService.deleteAgentImage(agentId);
+
+      res.json({
+        success: true,
+        message: "Image supprimée avec succès",
+        data: {
+          agent: {
+            ...updatedAgent,
+            displayImage: updatedAgent.getDisplayImage(),
+            hasDefaultImage: updatedAgent.hasDefaultImage()
+          }
+        }
+      });
+      
+    } catch (error: any) {
+      console.error("❌ Controller Error deleting agent image:", error);
+      res.status(500).json({
         success: false,
-        error: "ID agent invalide"
+        error: "Erreur lors de la suppression de l'image",
+        message: error.message
       });
     }
-
-    res.json({
-      success: true,
-      message: "Image supprimée avec succès",
-      data: {
-        agentId: agentId
-      }
-    });
-    
-  } catch (error: any) {
-    console.error("❌ Controller Error deleting agent image:", error);
-    res.status(500).json({
-      success: false,
-      error: "Erreur lors de la suppression de l'image",
-      message: error.message
-    });
   }
-}
 }
