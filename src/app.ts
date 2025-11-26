@@ -3,7 +3,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
-import { AppDataSource } from "./config/data-source";
+import { AppDataSource ,initializeDatabase} from "./config/data-source";
 import { User } from "./entities/User";
 import userRoutes from "./routes/userRoutes";
 import authRoutes from "./routes/authRoutes";
@@ -234,8 +234,10 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 
 const startServer = async () => {
   try {
-    console.log('🔄 Initializing database connection...');
-    await AppDataSource.initialize();
+    console.log('🔄 Starting server initialization...');
+    
+    // ✅ UTILISER initializeDatabase AU LIEU DE AppDataSource.initialize()
+    await initializeDatabase();
     console.log("📦 Connected to database");
 
     // ✅ CRÉATION OU RÉINITIALISATION UTILISATEUR
@@ -260,22 +262,23 @@ const startServer = async () => {
       console.log('✅ Vercel environment - Serverless function ready');
     }
   } catch (error) {
-    console.error("❌ Database connection failed:", error);
-    // ✅ Log détaillé de l'erreur
+    console.error("❌ Server initialization failed:", error);
+    
+    // ✅ Log détaillé
     if (error instanceof Error) {
       console.error("❌ Error details:", error.message);
       console.error("❌ Error stack:", error.stack);
     }
+    
     // ✅ Ne pas quitter le processus sur Vercel
     if (!process.env.VERCEL) {
       process.exit(1);
     }
   }
 };
-
-// ✅ SUR VERCEL, NOUS DEVONS INITIALISER LA BASE DE DONNÉES
+// ✅ SUR VERCEL, INITIALISER TOUJOURS
 if (process.env.VERCEL) {
-  console.log('🚀 Vercel environment - Initializing database...');
+  console.log('🚀 Vercel environment - Initializing server...');
   startServer().catch(error => {
     console.error('❌ Failed to initialize on Vercel:', error);
   });
