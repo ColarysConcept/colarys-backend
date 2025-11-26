@@ -45,9 +45,13 @@ export class AgentColarys {
 
   // 🔥 METHODE POUR OBTENIR L'URL DE L'IMAGE (AVEC FALLBACK)
   getDisplayImage(): string {
-    if (this.image) {
-      return this.image; // URL Cloudinary
+    if (this.image && !this.image.includes('default-avatar')) {
+      return this.image; // URL Cloudinary réelle
     }
-    return '/default-avatar.png'; // Image par défaut
+    return '/images/default-avatar.svg'; // Image par défaut seulement si pas d'image
+  }
+
+   hasDefaultImage(): boolean {
+    return !this.image || this.image.includes('default-avatar');
   }
 }

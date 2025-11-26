@@ -2,23 +2,18 @@ import { AppDataSource } from "../config/data-source";
 import { AgentColarys } from "../entities/AgentColarys";
 import { NotFoundError, ValidationError } from "../middleware/errorMiddleware";
 import { Repository } from "typeorm"; // Import ajouté
+import { CloudinaryService } from "./CloudinaryService";
 
 export class AgentColarysService {
   private agentRepository: Repository<AgentColarys>;
+  private cloudinaryService: CloudinaryService;
 
   constructor() {
     // Initialisation directe si la DataSource est déjà initialisée
     this.agentRepository = AppDataSource.getRepository(AgentColarys);
+    this.cloudinaryService = new CloudinaryService();
   }
 
-  // private async ensureInitialized() {
-  //   if (!this.agentRepository) {
-  //     if (!AppDataSource.isInitialized) {
-  //       await AppDataSource.initialize();
-  //     }
-  //     this.agentRepository = AppDataSource.getRepository(AgentColarys);
-  //   }
-  // }
 
 // Dans AgentColarysService.ts (backend)
 async getAllAgents(): Promise<AgentColarys[]> {
@@ -127,6 +122,60 @@ async getAllAgents(): Promise<AgentColarys[]> {
         throw error;
       }
       throw new Error("Erreur lors de la suppression de l'agent");
+    }
+  }
+
+   async uploadAgentImage(agentId: number, fileBuffer: Buffer): Promise<AgentColarys> {
+    try {
+      console.log(`🔄 Uploading image for agent ${agentId}`);
+      
+      const agent = await this.getAgentById(agentId);
+      
+      // Supprimer l'ancienne image de Cloudinary si elle existe
+      if (agent.imagePublicId) {
+        try {
+          await this.cloudinaryService.deleteImage(agent.imagePublicId);
+          console.log(`✅ Old image deleted: ${agent.imagePublicId}`);
+        } catch (error) {
+          console.warn('⚠️ Could not delete old image:', error);
+        }
+      }
+
+      // Uploader la nouvelle image sur Cloudinary
+      console.log('📤 Uploading new image to Cloudinary...');
+      const { url, publicId } = await this.cloudinaryService.uploadImage(fileBuffer);
+      console.log(`✅ New image uploaded: ${url}`);
+
+      // Mettre à jour l'agent avec la nouvelle image
+      agent.image = url;
+      agent.imagePublicId = publicId;
+      
+      const updatedAgent = await this.agentRepository.save(agent);
+      console.log(`✅ Agent ${agentId} image updated in database`);
+      
+      return updatedAgent;
+    } catch (error) {
+      console.error("❌ Service Error uploading agent image:", error);
+      throw new Error("Erreur lors de l'upload de l'image: " + error.message);
+    }
+  }
+
+async deleteAgentImage(agentId: number): Promise<AgentColarys> {
+    try {
+      const agent = await this.getAgentById(agentId);
+      
+      if (agent.imagePublicId) {
+        await this.cloudinaryService.deleteImage(agent.imagePublicId);
+      }
+      
+      // Réinitialiser à l'image par défaut
+      agent.image = '/images/default-avatar.svg';
+      agent.imagePublicId = null;
+      
+      return await this.agentRepository.save(agent);
+    } catch (error) {
+      console.error("❌ Service Error deleting agent image:", error);
+      throw new Error("Erreur lors de la suppression de l'image: " + error.message);
     }
   }
 }

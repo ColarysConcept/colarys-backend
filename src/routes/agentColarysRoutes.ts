@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { AgentColarysController } from "../controllers/AgentColarysController";
+import { upload } from "../app"; // Import depuis app.ts
 
 const router = Router();
 
-// ✅ Routes principales SANS multer pour Vercel
+// Routes existantes
 router.get("/", AgentColarysController.getAllAgents);
 router.get("/search", AgentColarysController.searchAgents);
 router.get("/health/check", AgentColarysController.healthCheck);
@@ -12,10 +13,11 @@ router.post("/", AgentColarysController.createAgent);
 router.put("/:id", AgentColarysController.updateAgent);
 router.delete("/:id", AgentColarysController.deleteAgent);
 
-// Dans src/routes/agentColarysRoutes.ts - AJOUTER CETTE ROUTE
-router.get("/search/agents", AgentColarysController.searchAgents);
+// ✅ NOUVELLES ROUTES POUR LES IMAGES RÉELLES
+router.post("/:agentId/upload-image", upload.single('image'), AgentColarysController.uploadAgentImage);
+router.delete("/:agentId/image", AgentColarysController.deleteAgentImage);
 
-// ✅ Route upload simplifiée (sans multer)
-router.post("/upload-image", AgentColarysController.uploadImage);
+// Route de recherche
+router.get("/search/agents", AgentColarysController.searchAgents);
 
 export default router;
