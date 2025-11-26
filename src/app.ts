@@ -198,6 +198,69 @@ app.get(`${API_PREFIX}/health`, async (_req, res) => {
   }
 });
 
+// Route de test de connexion DB - À ajouter avant les autres routes
+app.get(`${API_PREFIX}/db-test`, async (_req, res) => {
+  try {
+    console.log('🔧 Testing database connection...');
+    
+    // Test 1: Statut de base
+    const dbStatus = {
+      initialized: AppDataSource.isInitialized,
+      environment: process.env.NODE_ENV,
+      host: process.env.POSTGRES_HOST ? '***' : 'MISSING',
+      database: process.env.POSTGRES_DB ? '***' : 'MISSING',
+      user: process.env.POSTGRES_USER ? '***' : 'MISSING',
+      port: process.env.POSTGRES_PORT
+    };
+
+    // Test 2: Tentative de connexion
+    let connectionTest = "Not attempted";
+    let entities = [];
+    
+    if (!AppDataSource.isInitialized) {
+      console.log('🔄 Attempting to initialize database...');
+      const { initializeDatabase } = require("./config/data-source");
+      const connected = await initializeDatabase();
+      
+      if (connected) {
+        connectionTest = "SUCCESS - Connected via test";
+        entities = AppDataSource.entityMetadatas.map(e => e.name);
+      } else {
+        connectionTest = "FAILED - Could not initialize";
+      }
+    } else {
+      try {
+        await AppDataSource.query('SELECT 1');
+        connectionTest = "SUCCESS - Already connected";
+        entities = AppDataSource.entityMetadatas.map(e => e.name);
+      } catch (error) {
+        connectionTest = `FAILED - Query error: ${error.message}`;
+      }
+    }
+
+    res.json({
+      success: true,
+      database: {
+        status: dbStatus,
+        connectionTest: connectionTest,
+        entities: entities,
+        isInitialized: AppDataSource.isInitialized
+      },
+      environment: {
+        nodeEnv: process.env.NODE_ENV,
+        vercel: !!process.env.VERCEL
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: "DB test failed",
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
 // Mount toutes les routes
 console.log('📋 Mounting API routes...');
 
@@ -275,15 +338,26 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 
 const startServer = async () => {
   try {
-    console.log('🚀 Starting Colarys API Server...');
+    console.log('🚀 Starting Colarys API Server on Vercel...');
     
-    // ✅ TENTATIVE FORCÉE DE CONNEXION DB
-    await initializeDatabaseWithRetry(3);
+    // ✅ INITIALISATION FORCÉE DE LA DB
+    console.log('🔄 Force initializing database...');
+    const { initializeDatabase } = require("./config/data-source");
     
-    if (!AppDataSource.isInitialized) {
-      console.warn('⚠️ Database connection failed - Running in limited mode');
-    } else {
-      console.log("✅ All services initialized");
+    let dbConnected = false;
+    let retryCount = 0;
+    
+    while (!dbConnected && retryCount < 2) {
+      dbConnected = await initializeDatabase();
+      if (!dbConnected) {
+        retryCount++;
+        console.log(`🔄 Retry ${retryCount}/2 in 3s...`);
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+    }
+    
+    if (dbConnected) {
+      console.log("✅ Database connected successfully");
       
       // Création utilisateur seulement si DB connectée
       try {
@@ -292,19 +366,15 @@ const startServer = async () => {
       } catch (userError) {
         console.warn('⚠️ Default user setup failed:', userError);
       }
+    } else {
+      console.warn('⚠️ Database connection failed - Running in limited mode');
     }
 
+    console.log("✅ Server initialization completed");
+    
   } catch (error) {
     console.error("❌ Server initialization failed:", error);
   }
 };
-// ✅ SUR VERCEL, INITIALISER TOUJOURS
-if (process.env.VERCEL) {
-  console.log('🚀 Vercel environment - Initializing server...');
-  startServer().catch(error => {
-    console.error('❌ Failed to initialize on Vercel:', error);
-  });
-} else {
-  startServer();
-}
+
 export default app;

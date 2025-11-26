@@ -175,6 +175,64 @@ app.get(`${API_PREFIX}/health`, async (_req, res) => {
         });
     }
 });
+app.get(`${API_PREFIX}/db-test`, async (_req, res) => {
+    try {
+        console.log('🔧 Testing database connection...');
+        const dbStatus = {
+            initialized: data_source_1.AppDataSource.isInitialized,
+            environment: process.env.NODE_ENV,
+            host: process.env.POSTGRES_HOST ? '***' : 'MISSING',
+            database: process.env.POSTGRES_DB ? '***' : 'MISSING',
+            user: process.env.POSTGRES_USER ? '***' : 'MISSING',
+            port: process.env.POSTGRES_PORT
+        };
+        let connectionTest = "Not attempted";
+        let entities = [];
+        if (!data_source_1.AppDataSource.isInitialized) {
+            console.log('🔄 Attempting to initialize database...');
+            const { initializeDatabase } = require("./config/data-source");
+            const connected = await initializeDatabase();
+            if (connected) {
+                connectionTest = "SUCCESS - Connected via test";
+                entities = data_source_1.AppDataSource.entityMetadatas.map(e => e.name);
+            }
+            else {
+                connectionTest = "FAILED - Could not initialize";
+            }
+        }
+        else {
+            try {
+                await data_source_1.AppDataSource.query('SELECT 1');
+                connectionTest = "SUCCESS - Already connected";
+                entities = data_source_1.AppDataSource.entityMetadatas.map(e => e.name);
+            }
+            catch (error) {
+                connectionTest = `FAILED - Query error: ${error.message}`;
+            }
+        }
+        res.json({
+            success: true,
+            database: {
+                status: dbStatus,
+                connectionTest: connectionTest,
+                entities: entities,
+                isInitialized: data_source_1.AppDataSource.isInitialized
+            },
+            environment: {
+                nodeEnv: process.env.NODE_ENV,
+                vercel: !!process.env.VERCEL
+            }
+        });
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            error: "DB test failed",
+            message: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+});
 console.log('📋 Mounting API routes...');
 app.use(`${API_PREFIX}/auth`, authRoutes_1.default);
 console.log('✅ Mounted: /api/auth');
@@ -230,13 +288,21 @@ app.use((err, _req, res, _next) => {
 });
 const startServer = async () => {
     try {
-        console.log('🚀 Starting Colarys API Server...');
-        await initializeDatabaseWithRetry(3);
-        if (!data_source_1.AppDataSource.isInitialized) {
-            console.warn('⚠️ Database connection failed - Running in limited mode');
+        console.log('🚀 Starting Colarys API Server on Vercel...');
+        console.log('🔄 Force initializing database...');
+        const { initializeDatabase } = require("./config/data-source");
+        let dbConnected = false;
+        let retryCount = 0;
+        while (!dbConnected && retryCount < 2) {
+            dbConnected = await initializeDatabase();
+            if (!dbConnected) {
+                retryCount++;
+                console.log(`🔄 Retry ${retryCount}/2 in 3s...`);
+                await new Promise(resolve => setTimeout(resolve, 3000));
+            }
         }
-        else {
-            console.log("✅ All services initialized");
+        if (dbConnected) {
+            console.log("✅ Database connected successfully");
             try {
                 await createDefaultUser();
                 console.log("✅ Default user check completed");
@@ -245,18 +311,13 @@ const startServer = async () => {
                 console.warn('⚠️ Default user setup failed:', userError);
             }
         }
+        else {
+            console.warn('⚠️ Database connection failed - Running in limited mode');
+        }
+        console.log("✅ Server initialization completed");
     }
     catch (error) {
         console.error("❌ Server initialization failed:", error);
     }
 };
-if (process.env.VERCEL) {
-    console.log('🚀 Vercel environment - Initializing server...');
-    startServer().catch(error => {
-        console.error('❌ Failed to initialize on Vercel:', error);
-    });
-}
-else {
-    startServer();
-}
 exports.default = app;
