@@ -230,18 +230,36 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 
 // ========== DÉMARRAGE CONDITIONNEL ==========
 
-// ========== DÉMARRAGE CONDITIONNEL ==========
 
 const startServer = async () => {
   try {
-    console.log('🔄 Starting server initialization...');
+    console.log('🚀 Starting Colarys API Server...');
     
-    // ✅ UTILISER initializeDatabase AU LIEU DE AppDataSource.initialize()
-    await initializeDatabase();
-    console.log("📦 Connected to database");
+    // ✅ INITIALISATION DE LA BASE DE DONNÉES AVEC GESTION D'ERREUR AMÉLIORÉE
+    const dbConnected = await initializeDatabase();
+    
+    if (!dbConnected) {
+      console.error('❌ CRITICAL: Database connection failed');
+      
+      // En production, on continue sans base de données mais on log l'erreur
+      if (process.env.NODE_ENV === 'production') {
+        console.log('⚠️ Continuing without database in production mode');
+      } else {
+        // En développement, on arrête
+        throw new Error('Database connection failed');
+      }
+    } else {
+      console.log("📦 Database connected successfully");
+      
+      // ✅ CRÉATION OU RÉINITIALISATION UTILISATEUR (seulement si BD connectée)
+      try {
+        await createDefaultUser();
+        console.log("✅ Default user check completed");
+      } catch (userError) {
+        console.warn('⚠️ Default user setup failed:', userError);
+      }
+    }
 
-    // ✅ CRÉATION OU RÉINITIALISATION UTILISATEUR
-    await createDefaultUser();
     console.log("✅ All services initialized");
 
     // ✅ Seulement en local
@@ -264,13 +282,10 @@ const startServer = async () => {
   } catch (error) {
     console.error("❌ Server initialization failed:", error);
     
-    // ✅ Log détaillé
     if (error instanceof Error) {
       console.error("❌ Error details:", error.message);
-      console.error("❌ Error stack:", error.stack);
     }
     
-    // ✅ Ne pas quitter le processus sur Vercel
     if (!process.env.VERCEL) {
       process.exit(1);
     }
