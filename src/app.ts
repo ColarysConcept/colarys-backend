@@ -230,8 +230,11 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 
 // ========== DÉMARRAGE CONDITIONNEL ==========
 
+// ========== DÉMARRAGE CONDITIONNEL ==========
+
 const startServer = async () => {
   try {
+    console.log('🔄 Initializing database connection...');
     await AppDataSource.initialize();
     console.log("📦 Connected to database");
 
@@ -258,17 +261,25 @@ const startServer = async () => {
     }
   } catch (error) {
     console.error("❌ Database connection failed:", error);
+    // ✅ Log détaillé de l'erreur
+    if (error instanceof Error) {
+      console.error("❌ Error details:", error.message);
+      console.error("❌ Error stack:", error.stack);
+    }
+    // ✅ Ne pas quitter le processus sur Vercel
     if (!process.env.VERCEL) {
       process.exit(1);
     }
   }
 };
 
-// ✅ Démarrage conditionnel
-if (!process.env.VERCEL) {
-  startServer();
+// ✅ SUR VERCEL, NOUS DEVONS INITIALISER LA BASE DE DONNÉES
+if (process.env.VERCEL) {
+  console.log('🚀 Vercel environment - Initializing database...');
+  startServer().catch(error => {
+    console.error('❌ Failed to initialize on Vercel:', error);
+  });
 } else {
-  console.log('🚀 Vercel Serverless - App exported without starting server');
+  startServer();
 }
-
 export default app;
