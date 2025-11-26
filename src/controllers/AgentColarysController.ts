@@ -328,7 +328,7 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
   }
 
   // 🔥 NOUVELLE MÉTHODE POUR UPLOADER DES IMAGES RÉELLES
-  static async uploadAgentImage(req: Request, res: Response, next: NextFunction) {
+ static async uploadAgentImage(req: Request, res: Response, next: NextFunction) {
   try {
     const agentId = parseInt(req.params.agentId);
     if (isNaN(agentId)) {
@@ -351,6 +351,7 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
       mimetype: req.file.mimetype
     });
     
+    // ✅ Appeler le service pour uploader l'image
     const updatedAgent = await agentService.uploadAgentImage(agentId, req.file.buffer);
     
     res.json({

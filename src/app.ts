@@ -1,11 +1,8 @@
 import "reflect-metadata";
 import express from "express";
-import path from "path";
 import cors from "cors";
 import dotenv from "dotenv";
-import multer from 'multer';
 import bcrypt from "bcryptjs";
-import fs from "fs"; // ✅ AJOUT IMPORT MANQUANT
 import { AppDataSource } from "./config/data-source";
 import { User } from "./entities/User";
 import userRoutes from "./routes/userRoutes";
@@ -20,16 +17,11 @@ import { errorMiddleware } from "./middleware/errorMiddleware";
 import agentColarysRoutes from "./routes/agentColarysRoutes";
 import colarysRoutes from "./routes/colarysRoutes";
 
-// Au début de app.ts, ajoutez :
-if (process.env.VERCEL) {
-  console.log('🔧 Vercel environment detected - disabling file logging');
-  // Si vous utilisez un logger qui écrit dans des fichiers, désactivez-le
-}
+console.log('🚀 Starting Colarys API Server...');
 
 dotenv.config();
 
-console.log('🚀 Starting Colarys API Server...');
-
+// Vérification des variables d'environnement
 const requiredEnvVars = [
   'JWT_SECRET',
   'POSTGRES_HOST', 
@@ -46,10 +38,9 @@ requiredEnvVars.forEach(envVar => {
 const API_PREFIX = "/api";
 const app = express();
 
-// Configuration CORS dynamique pour Vercel
+// Configuration CORS
 app.use(cors({
   origin: (origin, callback) => {
-    // Autoriser les URLs localhost pour le développement
     const allowedOrigins = [
       'http://localhost:5173', 
       'http://localhost:3000', 
@@ -58,12 +49,9 @@ app.use(cors({
       'https://*.vercel.app'
     ];
     
-    // Autoriser toutes les URLs Vercel (.vercel.app)
     if (origin && origin.endsWith('.vercel.app')) {
       callback(null, true);
-    } 
-    // Autoriser les origines spécifiques
-    else if (!origin || allowedOrigins.includes(origin)) {
+    } else if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
@@ -82,55 +70,6 @@ app.use((req, _res, next) => {
   next();
 });
 
-// ✅ CORRECTION : Configuration Multer pour Vercel
-let storage;
-
-if (process.env.VERCEL) {
-  // ✅ Sur Vercel : utiliser memoryStorage (pas de fichiers physiques)
-  console.log('🔧 Vercel environment - using memory storage');
-  storage = multer.memoryStorage();
-} else {
-  // ✅ En local : utiliser diskStorage normal
-  console.log('🔧 Local environment - using disk storage');
-  storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-      const uploadDir = path.join(__dirname, '../public/uploads/');
-      // Créer le dossier s'il n'existe pas
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
-      }
-      cb(null, uploadDir);
-    },
-    filename: (_req, file, cb) => {
-      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-      const fileExtension = path.extname(file.originalname);
-      cb(null, 'agent-' + uniqueSuffix + fileExtension);
-    }
-  });
-}
-
-const fileFilter = (
-  req: express.Request,
-  file: Express.Multer.File,
-  cb: multer.FileFilterCallback
-) => {
-  if (file.mimetype.startsWith('image/')) {
-    cb(null, true);
-  } else {
-    cb(new Error('Seules les images sont autorisées!'));
-  }
-};
-
-const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 5 * 1024 * 1024,
-  }
-});
-
-export { upload };
-
 // ========== FONCTIONS UTILITAIRES ==========
 
 const resetUserPassword = async () => {
@@ -143,7 +82,6 @@ const resetUserPassword = async () => {
     });
     
     if (existingUser) {
-      // ✅ UTILISER LE VRAI MOT DE PASSE "stage25"
       const hashedPassword = await bcrypt.hash('stage25', 10);
       existingUser.password = hashedPassword;
       await userRepository.save(existingUser);
@@ -177,7 +115,6 @@ const createDefaultUser = async () => {
       console.log('✅ Utilisateur par défaut créé en base de données');
     } else {
       console.log('✅ Utilisateur existe déjà en base');
-      // Réinitialiser le mot de passe de l'utilisateur existant
       await resetUserPassword();
     }
   } catch (error: any) {
@@ -321,7 +258,6 @@ const startServer = async () => {
     }
   } catch (error) {
     console.error("❌ Database connection failed:", error);
-    // ✅ Ne pas quitter le processus sur Vercel
     if (!process.env.VERCEL) {
       process.exit(1);
     }

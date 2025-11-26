@@ -1,6 +1,7 @@
+// src/routes/agentColarysRoutes.ts
 import { Router } from "express";
 import { AgentColarysController } from "../controllers/AgentColarysController";
-import { upload } from "../app"; // Import depuis app.ts
+import { upload } from "../config/multer"; // ✅ Import depuis le nouveau fichier
 
 const router = Router();
 
@@ -13,7 +14,7 @@ router.post("/", AgentColarysController.createAgent);
 router.put("/:id", AgentColarysController.updateAgent);
 router.delete("/:id", AgentColarysController.deleteAgent);
 
-// ✅ NOUVELLES ROUTES POUR LES IMAGES RÉELLES
+// ✅ Route upload avec Multer
 router.post("/:agentId/upload-image", upload.single('image'), AgentColarysController.uploadAgentImage);
 router.delete("/:agentId/image", AgentColarysController.deleteAgentImage);
 

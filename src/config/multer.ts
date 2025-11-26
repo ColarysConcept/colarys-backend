@@ -1,10 +1,12 @@
+// config/multer.ts
 import multer from 'multer';
+import { Request } from 'express';
 
 // Configuration pour Vercel (memory storage)
 const storage = multer.memoryStorage();
 
 const fileFilter = (
-  req: Express.Request,
+  req: Request,
   file: Express.Multer.File,
   cb: multer.FileFilterCallback
 ) => {
