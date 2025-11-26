@@ -17,6 +17,21 @@ import { errorMiddleware } from "./middleware/errorMiddleware";
 import agentColarysRoutes from "./routes/agentColarysRoutes";
 import colarysRoutes from "./routes/colarysRoutes";
 
+// Vérification des variables critiques pour Vercel
+if (process.env.VERCEL) {
+  console.log('🚀 Vercel Environment Detected');
+  console.log('🔧 Checking required environment variables...');
+  
+  const requiredVars = ['POSTGRES_HOST', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DB'];
+  const missingVars = requiredVars.filter(varName => !process.env[varName]);
+  
+  if (missingVars.length > 0) {
+    console.error('❌ MISSING REQUIRED ENV VARS:', missingVars);
+  } else {
+    console.log('✅ All required environment variables are present');
+  }
+}
+
 console.log('🚀 Starting Colarys API Server...');
 
 dotenv.config();
