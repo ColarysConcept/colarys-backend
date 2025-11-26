@@ -338,43 +338,25 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 
 const startServer = async () => {
   try {
-    console.log('🚀 Starting Colarys API Server on Vercel...');
+    console.log('🚀 Starting server on Vercel...');
     
-    // ✅ INITIALISATION FORCÉE DE LA DB
-    console.log('🔄 Force initializing database...');
-    const { initializeDatabase } = require("./config/data-source");
-    
-    let dbConnected = false;
-    let retryCount = 0;
-    
-    while (!dbConnected && retryCount < 2) {
-      dbConnected = await initializeDatabase();
-      if (!dbConnected) {
-        retryCount++;
-        console.log(`🔄 Retry ${retryCount}/2 in 3s...`);
-        await new Promise(resolve => setTimeout(resolve, 3000));
-      }
+    // ✅ INITIALISATION DB SIMPLIFIÉE ET SÉCURISÉE
+    try {
+      const { initializeDatabase } = require("./config/data-source");
+      await initializeDatabase();
+    } catch (dbError) {
+      console.warn('⚠️ Database initialization failed, continuing without DB:', dbError.message);
     }
     
-    if (dbConnected) {
-      console.log("✅ Database connected successfully");
-      
-      // Création utilisateur seulement si DB connectée
-      try {
-        await createDefaultUser();
-        console.log("✅ Default user check completed");
-      } catch (userError) {
-        console.warn('⚠️ Default user setup failed:', userError);
-      }
-    } else {
-      console.warn('⚠️ Database connection failed - Running in limited mode');
-    }
+    console.log("✅ Server ready");
 
-    console.log("✅ Server initialization completed");
-    
   } catch (error) {
-    console.error("❌ Server initialization failed:", error);
+    console.error("❌ Server startup error:", error);
   }
 };
 
+// Démarrage conditionnel
+if (require.main === module || process.env.VERCEL) {
+  startServer();
+}
 export default app;

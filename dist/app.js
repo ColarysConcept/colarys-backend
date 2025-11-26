@@ -288,36 +288,21 @@ app.use((err, _req, res, _next) => {
 });
 const startServer = async () => {
     try {
-        console.log('🚀 Starting Colarys API Server on Vercel...');
-        console.log('🔄 Force initializing database...');
-        const { initializeDatabase } = require("./config/data-source");
-        let dbConnected = false;
-        let retryCount = 0;
-        while (!dbConnected && retryCount < 2) {
-            dbConnected = await initializeDatabase();
-            if (!dbConnected) {
-                retryCount++;
-                console.log(`🔄 Retry ${retryCount}/2 in 3s...`);
-                await new Promise(resolve => setTimeout(resolve, 3000));
-            }
+        console.log('🚀 Starting server on Vercel...');
+        try {
+            const { initializeDatabase } = require("./config/data-source");
+            await initializeDatabase();
         }
-        if (dbConnected) {
-            console.log("✅ Database connected successfully");
-            try {
-                await createDefaultUser();
-                console.log("✅ Default user check completed");
-            }
-            catch (userError) {
-                console.warn('⚠️ Default user setup failed:', userError);
-            }
+        catch (dbError) {
+            console.warn('⚠️ Database initialization failed, continuing without DB:', dbError.message);
         }
-        else {
-            console.warn('⚠️ Database connection failed - Running in limited mode');
-        }
-        console.log("✅ Server initialization completed");
+        console.log("✅ Server ready");
     }
     catch (error) {
-        console.error("❌ Server initialization failed:", error);
+        console.error("❌ Server startup error:", error);
     }
 };
+if (require.main === module || process.env.VERCEL) {
+    startServer();
+}
 exports.default = app;

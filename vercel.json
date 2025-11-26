@@ -16,11 +16,12 @@
       "dest": "/api/debug-db.js"
     },
     {
+      "src": "/api/(.*)",
+      "dest": "/dist/app.js"
+    },
+    {
       "src": "/(.*)",
       "dest": "/dist/app.js"
     }
-  ],
-  "env": {
-    "NODE_ENV": "production"
-  }
+  ]
 }

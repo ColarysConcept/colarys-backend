@@ -1,18 +1,12 @@
-// src/config/data-source.ts - VERSION DEBUG
+// src/config/data-source.ts - VERSION STABLE
 import { DataSource } from "typeorm";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-console.log('🔧 Database configuration check - VERCEL:', {
-  host: process.env.POSTGRES_HOST ? '***' : 'MISSING',
-  user: process.env.POSTGRES_USER ? '***' : 'MISSING',
-  database: process.env.POSTGRES_DB ? '***' : 'MISSING',
-  port: process.env.POSTGRES_PORT,
-  nodeEnv: process.env.NODE_ENV,
-  vercel: !!process.env.VERCEL
-});
+console.log('🔧 Database config - Checking environment variables...');
 
+// Configuration de base sans initialisation immédiate
 export const AppDataSource = new DataSource({
   type: "postgres",
   host: process.env.POSTGRES_HOST,
@@ -20,61 +14,51 @@ export const AppDataSource = new DataSource({
   username: process.env.POSTGRES_USER,
   password: process.env.POSTGRES_PASSWORD,
   database: process.env.POSTGRES_DB,
-  entities: [__dirname + "/../entities/*.{js,ts}"],
-  synchronize: false, // ⚠️ IMPORTANT: false en production
+  
+  // IMPORTANT: Utiliser le glob pattern pour les entités
+  entities: [__dirname + "/../entities/*.js"],
+  
+  // DÉSACTIVER synchronize en production
+  synchronize: false,
   logging: false,
-  ssl: true, // ✅ Supabase require SSL
+  
+  // SSL pour Supabase
+  ssl: true,
   extra: {
     ssl: {
       rejectUnauthorized: false
-    },
-    max: 5,
-    connectionTimeoutMillis: 10000,
-    idleTimeoutMillis: 30000,
+    }
   }
 });
 
+// Initialisation sécurisée
 export const initializeDatabase = async (): Promise<boolean> => {
   if (AppDataSource.isInitialized) {
-    console.log('✅ Database already initialized');
     return true;
   }
 
   try {
-    console.log('🔄 Starting database initialization on Vercel...');
-    console.log('🔧 Connection details:', {
-      host: process.env.POSTGRES_HOST,
-      port: process.env.POSTGRES_PORT,
-      database: process.env.POSTGRES_DB,
-      username: process.env.POSTGRES_USER,
-      ssl: true
-    });
-
-    await AppDataSource.initialize();
-    console.log('✅ Database connected successfully on Vercel!');
+    console.log('🔄 Initializing database...');
     
-    // Test de la connexion
-    try {
-      const result = await AppDataSource.query('SELECT version()');
-      console.log('✅ Database version test successful');
-      return true;
-    } catch (queryError) {
-      console.error('❌ Database test query failed:', queryError);
+    // Vérification des variables critiques
+    const required = ['POSTGRES_HOST', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DB'];
+    const missing = required.filter(key => !process.env[key]);
+    
+    if (missing.length > 0) {
+      console.error('❌ Missing environment variables:', missing);
       return false;
     }
+
+    await AppDataSource.initialize();
+    console.log('✅ Database connected successfully');
+    return true;
     
   } catch (error: any) {
-    console.error('❌ Database initialization FAILED on Vercel:');
-    console.error('❌ Error name:', error.name);
-    console.error('❌ Error code:', error.code);
-    console.error('❌ Error message:', error.message);
+    console.error('❌ Database initialization failed:');
+    console.error('Error:', error.message);
     
-    if (error.code === '28P01') {
-      console.error('❌ AUTHENTICATION FAILED - Check username/password');
-    } else if (error.code === 'ENOTFOUND') {
-      console.error('❌ HOST NOT FOUND - Check POSTGRES_HOST');
-    } else if (error.code === 'ECONNREFUSED') {
-      console.error('❌ CONNECTION REFUSED - Check port/host');
+    if (error.code) {
+      console.error('Error code:', error.code);
     }
     
     return false;
