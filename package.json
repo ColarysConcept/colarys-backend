@@ -8,7 +8,7 @@
     "build": "tsc",
     "start": "node dist/app.js",
     "init-db": "ts-node src/scripts/initDatabase.ts",
-    "vercel-build": "npm run build && npm run init-db",
+    "vercel-build": "npm run build",
     "vercel-dev": "npm run build"
   },
   "dependencies": {
