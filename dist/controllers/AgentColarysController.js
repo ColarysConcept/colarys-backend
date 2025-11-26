@@ -2,14 +2,15 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AgentColarysController = void 0;
 const AgentColarysService_1 = require("../services/AgentColarysService");
-const errorMiddleware_1 = require("../middleware/errorMiddleware");
-const agentService = new AgentColarysService_1.AgentColarysService();
 class AgentColarysController {
-    static async getAllAgents(_req, res, next) {
+    static async getAllAgents(_req, res) {
         try {
             console.log("🔄 Controller: Getting all agents");
+            const agentService = new AgentColarysService_1.AgentColarysService();
             const agents = await agentService.getAllAgents();
-            const agentsWithFormattedImages = agents.map(agent => (Object.assign(Object.assign({}, agent), { displayImage: agent.getDisplayImage(), hasDefaultImage: agent.hasDefaultImage() })));
+            const agentsWithFormattedImages = agents.map(agent => (Object.assign(Object.assign({}, agent), { displayImage: agent.image && !agent.image.includes('default-avatar')
+                    ? agent.image
+                    : '/images/default-avatar.svg', hasDefaultImage: !agent.image || agent.image.includes('default-avatar') })));
             res.json({
                 success: true,
                 data: agentsWithFormattedImages,
@@ -18,14 +19,21 @@ class AgentColarysController {
         }
         catch (error) {
             console.error("❌ Controller Error getting all agents:", error);
+            if (error.message.includes("Database")) {
+                return res.status(503).json({
+                    success: false,
+                    error: "Database unavailable",
+                    message: "Service temporarily unavailable"
+                });
+            }
             res.status(500).json({
                 success: false,
                 error: "Erreur serveur lors du chargement des agents",
-                message: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message
+                message: error.message
             });
         }
     }
-    static async getAgentById(req, res, next) {
+    static async getAgentById(req, res) {
         try {
             const id = parseInt(req.params.id);
             if (isNaN(id)) {
@@ -35,8 +43,11 @@ class AgentColarysController {
                 });
             }
             console.log(`🔄 Controller: Getting agent with ID: ${id}`);
+            const agentService = new AgentColarysService_1.AgentColarysService();
             const agent = await agentService.getAgentById(id);
-            const agentWithFormattedImage = Object.assign(Object.assign({}, agent), { displayImage: agent.getDisplayImage(), hasDefaultImage: agent.hasDefaultImage() });
+            const agentWithFormattedImage = Object.assign(Object.assign({}, agent), { displayImage: agent.image && !agent.image.includes('default-avatar')
+                    ? agent.image
+                    : '/images/default-avatar.svg', hasDefaultImage: !agent.image || agent.image.includes('default-avatar') });
             res.json({
                 success: true,
                 data: agentWithFormattedImage
@@ -44,7 +55,7 @@ class AgentColarysController {
         }
         catch (error) {
             console.error("❌ Controller Error getting agent by ID:", error);
-            if (error instanceof errorMiddleware_1.NotFoundError || error.message.includes("non trouvé")) {
+            if (error.message.includes("non trouvé") || error.message.includes("not found")) {
                 return res.status(404).json({
                     success: false,
                     error: "Agent non trouvé"
@@ -53,13 +64,14 @@ class AgentColarysController {
             res.status(500).json({
                 success: false,
                 error: "Erreur lors de la récupération de l'agent",
-                message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+                message: error.message
             });
         }
     }
-    static async createAgent(req, res, next) {
+    static async createAgent(req, res) {
         try {
             const agentData = req.body;
+            const agentService = new AgentColarysService_1.AgentColarysService();
             if (!agentData.image || agentData.image.includes('default-avatar')) {
                 agentData.image = '/images/default-avatar.svg';
             }
@@ -72,7 +84,9 @@ class AgentColarysController {
                 image: agentData.image
             });
             const newAgent = await agentService.createAgent(agentData);
-            const agentWithFormattedImage = Object.assign(Object.assign({}, newAgent), { displayImage: newAgent.getDisplayImage(), hasDefaultImage: newAgent.hasDefaultImage() });
+            const agentWithFormattedImage = Object.assign(Object.assign({}, newAgent), { displayImage: newAgent.image && !newAgent.image.includes('default-avatar')
+                    ? newAgent.image
+                    : '/images/default-avatar.svg', hasDefaultImage: !newAgent.image || newAgent.image.includes('default-avatar') });
             res.status(201).json({
                 success: true,
                 message: "Agent créé avec succès",
@@ -81,20 +95,26 @@ class AgentColarysController {
         }
         catch (error) {
             console.error("❌ Controller Error creating agent:", error);
-            if (error instanceof errorMiddleware_1.ValidationError) {
+            if (error.message.includes("existe déjà") || error.message.includes("already exists")) {
                 return res.status(400).json({
                     success: false,
-                    error: error.message
+                    error: "Le matricule ou l'email existe déjà"
+                });
+            }
+            if (error.message.includes("champs obligatoires") || error.message.includes("required")) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Tous les champs obligatoires doivent être remplis"
                 });
             }
             res.status(500).json({
                 success: false,
                 error: "Erreur lors de la création de l'agent",
-                message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+                message: error.message
             });
         }
     }
-    static async updateAgent(req, res, next) {
+    static async updateAgent(req, res) {
         try {
             const id = parseInt(req.params.id);
             if (isNaN(id)) {
@@ -104,6 +124,7 @@ class AgentColarysController {
                 });
             }
             const agentData = req.body;
+            const agentService = new AgentColarysService_1.AgentColarysService();
             if (!agentData.image) {
                 delete agentData.image;
                 delete agentData.imagePublicId;
@@ -121,7 +142,9 @@ class AgentColarysController {
                 image: agentData.image
             });
             const updatedAgent = await agentService.updateAgent(id, agentData);
-            const agentWithFormattedImage = Object.assign(Object.assign({}, updatedAgent), { displayImage: updatedAgent.getDisplayImage(), hasDefaultImage: updatedAgent.hasDefaultImage() });
+            const agentWithFormattedImage = Object.assign(Object.assign({}, updatedAgent), { displayImage: updatedAgent.image && !updatedAgent.image.includes('default-avatar')
+                    ? updatedAgent.image
+                    : '/images/default-avatar.svg', hasDefaultImage: !updatedAgent.image || updatedAgent.image.includes('default-avatar') });
             res.json({
                 success: true,
                 message: "Agent modifié avec succès",
@@ -130,26 +153,26 @@ class AgentColarysController {
         }
         catch (error) {
             console.error("❌ Controller Error updating agent:", error);
-            if (error instanceof errorMiddleware_1.NotFoundError) {
+            if (error.message.includes("non trouvé") || error.message.includes("not found")) {
                 return res.status(404).json({
                     success: false,
                     error: "Agent non trouvé"
                 });
             }
-            if (error instanceof errorMiddleware_1.ValidationError) {
+            if (error.message.includes("existe déjà") || error.message.includes("already exists")) {
                 return res.status(400).json({
                     success: false,
-                    error: error.message
+                    error: "Le matricule ou l'email existe déjà pour un autre agent"
                 });
             }
             res.status(500).json({
                 success: false,
                 error: "Erreur lors de la modification de l'agent",
-                message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+                message: error.message
             });
         }
     }
-    static async deleteAgent(req, res, next) {
+    static async deleteAgent(req, res) {
         try {
             const id = parseInt(req.params.id);
             if (isNaN(id)) {
@@ -159,6 +182,7 @@ class AgentColarysController {
                 });
             }
             console.log(`🔄 Controller: Deleting agent ${id}`);
+            const agentService = new AgentColarysService_1.AgentColarysService();
             await agentService.deleteAgent(id);
             res.json({
                 success: true,
@@ -167,7 +191,7 @@ class AgentColarysController {
         }
         catch (error) {
             console.error("❌ Controller Error deleting agent:", error);
-            if (error instanceof errorMiddleware_1.NotFoundError) {
+            if (error.message.includes("non trouvé") || error.message.includes("not found")) {
                 return res.status(404).json({
                     success: false,
                     error: "Agent non trouvé"
@@ -176,11 +200,11 @@ class AgentColarysController {
             res.status(500).json({
                 success: false,
                 error: "Erreur lors de la suppression de l'agent",
-                message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+                message: error.message
             });
         }
     }
-    static async uploadImage(req, res, next) {
+    static async uploadImage(req, res) {
         try {
             console.log("🔄 Upload image endpoint called");
             res.json({
@@ -204,6 +228,7 @@ class AgentColarysController {
     static async healthCheck(_req, res) {
         try {
             console.log("🔍 Health check agents endpoint");
+            const agentService = new AgentColarysService_1.AgentColarysService();
             const agents = await agentService.getAllAgents();
             res.json({
                 success: true,
@@ -235,6 +260,7 @@ class AgentColarysController {
                     error: "Paramètre de recherche manquant"
                 });
             }
+            const agentService = new AgentColarysService_1.AgentColarysService();
             const allAgents = await agentService.getAllAgents();
             const filteredAgents = allAgents.filter(agent => {
                 var _a, _b, _c, _d, _e;
@@ -244,9 +270,12 @@ class AgentColarysController {
                     ((_d = agent.mail) === null || _d === void 0 ? void 0 : _d.toLowerCase().includes(query.toLowerCase())) ||
                     ((_e = agent.role) === null || _e === void 0 ? void 0 : _e.toLowerCase().includes(query.toLowerCase()));
             });
+            const agentsWithFormattedImages = filteredAgents.map(agent => (Object.assign(Object.assign({}, agent), { displayImage: agent.image && !agent.image.includes('default-avatar')
+                    ? agent.image
+                    : '/images/default-avatar.svg', hasDefaultImage: !agent.image || agent.image.includes('default-avatar') })));
             res.json({
                 success: true,
-                data: filteredAgents,
+                data: agentsWithFormattedImages,
                 count: filteredAgents.length
             });
         }
@@ -255,11 +284,11 @@ class AgentColarysController {
             res.status(500).json({
                 success: false,
                 error: "Erreur lors de la recherche des agents",
-                message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+                message: error.message
             });
         }
     }
-    static async uploadAgentImage(req, res, next) {
+    static async uploadAgentImage(req, res) {
         try {
             const agentId = parseInt(req.params.agentId);
             if (isNaN(agentId)) {
@@ -275,12 +304,16 @@ class AgentColarysController {
                 });
             }
             console.log(`🔄 Uploading real image for agent ${agentId}`);
+            const agentService = new AgentColarysService_1.AgentColarysService();
             const updatedAgent = await agentService.uploadAgentImage(agentId, req.file.buffer);
+            const agentWithFormattedImage = Object.assign(Object.assign({}, updatedAgent), { displayImage: updatedAgent.image && !updatedAgent.image.includes('default-avatar')
+                    ? updatedAgent.image
+                    : '/images/default-avatar.svg', hasDefaultImage: !updatedAgent.image || updatedAgent.image.includes('default-avatar') });
             res.json({
                 success: true,
                 message: "Image uploadée avec succès",
                 data: {
-                    agent: Object.assign(Object.assign({}, updatedAgent), { displayImage: updatedAgent.getDisplayImage(), hasDefaultImage: updatedAgent.hasDefaultImage() })
+                    agent: agentWithFormattedImage
                 }
             });
         }
@@ -293,7 +326,7 @@ class AgentColarysController {
             });
         }
     }
-    static async deleteAgentImage(req, res, next) {
+    static async deleteAgentImage(req, res) {
         try {
             const agentId = parseInt(req.params.agentId);
             if (isNaN(agentId)) {
@@ -302,12 +335,16 @@ class AgentColarysController {
                     error: "ID agent invalide"
                 });
             }
+            const agentService = new AgentColarysService_1.AgentColarysService();
             const updatedAgent = await agentService.deleteAgentImage(agentId);
+            const agentWithFormattedImage = Object.assign(Object.assign({}, updatedAgent), { displayImage: updatedAgent.image && !updatedAgent.image.includes('default-avatar')
+                    ? updatedAgent.image
+                    : '/images/default-avatar.svg', hasDefaultImage: !updatedAgent.image || updatedAgent.image.includes('default-avatar') });
             res.json({
                 success: true,
                 message: "Image supprimée avec succès",
                 data: {
-                    agent: Object.assign(Object.assign({}, updatedAgent), { displayImage: updatedAgent.getDisplayImage(), hasDefaultImage: updatedAgent.hasDefaultImage() })
+                    agent: agentWithFormattedImage
                 }
             });
         }

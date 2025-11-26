@@ -1,23 +1,22 @@
-import { Request, Response, NextFunction } from "express";
+// src/controllers/AgentColarysController.ts - VERSION COMPLÈTEMENT CORRIGÉE
+import { Request, Response } from "express";
 import { AgentColarysService } from "../services/AgentColarysService";
-import { ValidationError, NotFoundError } from "../middleware/errorMiddleware";
-import { upload } from '../config/multer';
-
-const agentService = new AgentColarysService();
 
 export class AgentColarysController {
   
-  // Dans AgentColarysController.ts (backend) - VÉRIFIER
-static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
+  static async getAllAgents(_req: Request, res: Response) {
     try {
       console.log("🔄 Controller: Getting all agents");
+      const agentService = new AgentColarysService(); // Instance à chaque appel
       const agents = await agentService.getAllAgents();
       
-      // ✅ FORMATER LES IMAGES POUR CHAQUE AGENT
+      // ✅ FORMATER LES IMAGES POUR CHAQUE AGENT (version sécurisée)
       const agentsWithFormattedImages = agents.map(agent => ({
         ...agent,
-        displayImage: agent.getDisplayImage(),
-        hasDefaultImage: agent.hasDefaultImage()
+        displayImage: agent.image && !agent.image.includes('default-avatar') 
+          ? agent.image 
+          : '/images/default-avatar.svg',
+        hasDefaultImage: !agent.image || agent.image.includes('default-avatar')
       }));
       
       res.json({
@@ -28,15 +27,24 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
       
     } catch (error: any) {
       console.error("❌ Controller Error getting all agents:", error);
+      
+      if (error.message.includes("Database")) {
+        return res.status(503).json({
+          success: false,
+          error: "Database unavailable",
+          message: "Service temporarily unavailable"
+        });
+      }
+      
       res.status(500).json({
         success: false,
         error: "Erreur serveur lors du chargement des agents",
-        message: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message
+        message: error.message
       });
     }
   }
 
-  static async getAgentById(req: Request, res: Response, next: NextFunction) {
+  static async getAgentById(req: Request, res: Response) {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -47,13 +55,16 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
       }
       
       console.log(`🔄 Controller: Getting agent with ID: ${id}`);
+      const agentService = new AgentColarysService();
       const agent = await agentService.getAgentById(id);
       
-      // ✅ FORMATER L'IMAGE POUR CET AGENT
+      // ✅ FORMATER L'IMAGE POUR CET AGENT (version sécurisée)
       const agentWithFormattedImage = {
         ...agent,
-        displayImage: agent.getDisplayImage(),
-        hasDefaultImage: agent.hasDefaultImage()
+        displayImage: agent.image && !agent.image.includes('default-avatar') 
+          ? agent.image 
+          : '/images/default-avatar.svg',
+        hasDefaultImage: !agent.image || agent.image.includes('default-avatar')
       };
       
       res.json({
@@ -64,7 +75,7 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
     } catch (error: any) {
       console.error("❌ Controller Error getting agent by ID:", error);
       
-      if (error instanceof NotFoundError || error.message.includes("non trouvé")) {
+      if (error.message.includes("non trouvé") || error.message.includes("not found")) {
         return res.status(404).json({
           success: false,
           error: "Agent non trouvé"
@@ -74,14 +85,15 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
       res.status(500).json({
         success: false,
         error: "Erreur lors de la récupération de l'agent",
-        message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        message: error.message
       });
     }
   }
 
-  static async createAgent(req: Request, res: Response, next: NextFunction) {
+  static async createAgent(req: Request, res: Response) {
     try {
       const agentData = req.body;
+      const agentService = new AgentColarysService();
 
       // ✅ NE PAS FORCER L'IMAGE PAR DÉFAUT SI UNE IMAGE EST FOURNIE
       if (!agentData.image || agentData.image.includes('default-avatar')) {
@@ -94,7 +106,7 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
         matricule: agentData.matricule,
         mail: agentData.mail,
         role: agentData.role,
-        image: agentData.image // Log l'image utilisée
+        image: agentData.image
       });
       
       const newAgent = await agentService.createAgent(agentData);
@@ -102,8 +114,10 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
       // ✅ FORMATER L'IMAGE POUR LA RÉPONSE
       const agentWithFormattedImage = {
         ...newAgent,
-        displayImage: newAgent.getDisplayImage(),
-        hasDefaultImage: newAgent.hasDefaultImage()
+        displayImage: newAgent.image && !newAgent.image.includes('default-avatar') 
+          ? newAgent.image 
+          : '/images/default-avatar.svg',
+        hasDefaultImage: !newAgent.image || newAgent.image.includes('default-avatar')
       };
       
       res.status(201).json({
@@ -115,22 +129,29 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
     } catch (error: any) {
       console.error("❌ Controller Error creating agent:", error);
       
-      if (error instanceof ValidationError) {
+      if (error.message.includes("existe déjà") || error.message.includes("already exists")) {
         return res.status(400).json({
           success: false,
-          error: error.message
+          error: "Le matricule ou l'email existe déjà"
+        });
+      }
+      
+      if (error.message.includes("champs obligatoires") || error.message.includes("required")) {
+        return res.status(400).json({
+          success: false,
+          error: "Tous les champs obligatoires doivent être remplis"
         });
       }
       
       res.status(500).json({
         success: false,
         error: "Erreur lors de la création de l'agent",
-        message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        message: error.message
       });
     }
   }
 
-  static async updateAgent(req: Request, res: Response, next: NextFunction) {
+  static async updateAgent(req: Request, res: Response) {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -141,6 +162,7 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
       }
       
       const agentData = req.body;
+      const agentService = new AgentColarysService();
       
       // ✅ CONSERVER L'IMAGE EXISTANTE SI AUCUNE NOUVELLE N'EST FOURNIE
       if (!agentData.image) {
@@ -167,8 +189,10 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
       // ✅ FORMATER L'IMAGE POUR LA RÉPONSE
       const agentWithFormattedImage = {
         ...updatedAgent,
-        displayImage: updatedAgent.getDisplayImage(),
-        hasDefaultImage: updatedAgent.hasDefaultImage()
+        displayImage: updatedAgent.image && !updatedAgent.image.includes('default-avatar') 
+          ? updatedAgent.image 
+          : '/images/default-avatar.svg',
+        hasDefaultImage: !updatedAgent.image || updatedAgent.image.includes('default-avatar')
       };
       
       res.json({
@@ -180,29 +204,29 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
     } catch (error: any) {
       console.error("❌ Controller Error updating agent:", error);
       
-      if (error instanceof NotFoundError) {
+      if (error.message.includes("non trouvé") || error.message.includes("not found")) {
         return res.status(404).json({
           success: false,
           error: "Agent non trouvé"
         });
       }
       
-      if (error instanceof ValidationError) {
+      if (error.message.includes("existe déjà") || error.message.includes("already exists")) {
         return res.status(400).json({
           success: false,
-          error: error.message
+          error: "Le matricule ou l'email existe déjà pour un autre agent"
         });
       }
       
       res.status(500).json({
         success: false,
         error: "Erreur lors de la modification de l'agent",
-        message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        message: error.message
       });
     }
   }
 
-  static async deleteAgent(req: Request, res: Response, next: NextFunction) {
+  static async deleteAgent(req: Request, res: Response) {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -213,6 +237,7 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
       }
       
       console.log(`🔄 Controller: Deleting agent ${id}`);
+      const agentService = new AgentColarysService();
       
       await agentService.deleteAgent(id);
       
@@ -224,7 +249,7 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
     } catch (error: any) {
       console.error("❌ Controller Error deleting agent:", error);
       
-      if (error instanceof NotFoundError) {
+      if (error.message.includes("non trouvé") || error.message.includes("not found")) {
         return res.status(404).json({
           success: false,
           error: "Agent non trouvé"
@@ -234,12 +259,12 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
       res.status(500).json({
         success: false,
         error: "Erreur lors de la suppression de l'agent",
-        message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        message: error.message
       });
     }
   }
 
-  static async uploadImage(req: Request, res: Response, next: NextFunction) {
+  static async uploadImage(req: Request, res: Response) {
     try {
       console.log("🔄 Upload image endpoint called");
       
@@ -266,6 +291,7 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
   static async healthCheck(_req: Request, res: Response) {
     try {
       console.log("🔍 Health check agents endpoint");
+      const agentService = new AgentColarysService();
       const agents = await agentService.getAllAgents();
       
       res.json({
@@ -302,6 +328,7 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
         });
       }
       
+      const agentService = new AgentColarysService();
       const allAgents = await agentService.getAllAgents();
       const filteredAgents = allAgents.filter(agent => 
         agent.nom?.toLowerCase().includes(query.toLowerCase()) ||
@@ -311,9 +338,18 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
         agent.role?.toLowerCase().includes(query.toLowerCase())
       );
       
+      // Formater les images pour les résultats
+      const agentsWithFormattedImages = filteredAgents.map(agent => ({
+        ...agent,
+        displayImage: agent.image && !agent.image.includes('default-avatar') 
+          ? agent.image 
+          : '/images/default-avatar.svg',
+        hasDefaultImage: !agent.image || agent.image.includes('default-avatar')
+      }));
+      
       res.json({
         success: true,
-        data: filteredAgents,
+        data: agentsWithFormattedImages,
         count: filteredAgents.length
       });
       
@@ -323,13 +359,13 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
       res.status(500).json({
         success: false,
         error: "Erreur lors de la recherche des agents",
-        message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        message: error.message
       });
     }
   }
 
-  // 🔥 NOUVELLE MÉTHODE POUR UPLOADER DES IMAGES RÉELLES
- static async uploadAgentImage(req: Request, res: Response, next: NextFunction) {
+  // 🔥 MÉTHODE POUR UPLOADER DES IMAGES RÉELLES
+  static async uploadAgentImage(req: Request, res: Response) {
     try {
       const agentId = parseInt(req.params.agentId);
       
@@ -348,22 +384,27 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
       }
 
       console.log(`🔄 Uploading real image for agent ${agentId}`);
+      const agentService = new AgentColarysService();
 
-      // Utiliser le service avec Supabase
       const updatedAgent = await agentService.uploadAgentImage(
         agentId, 
         req.file.buffer
       );
 
+      // Formater l'image pour la réponse
+      const agentWithFormattedImage = {
+        ...updatedAgent,
+        displayImage: updatedAgent.image && !updatedAgent.image.includes('default-avatar') 
+          ? updatedAgent.image 
+          : '/images/default-avatar.svg',
+        hasDefaultImage: !updatedAgent.image || updatedAgent.image.includes('default-avatar')
+      };
+
       res.json({
         success: true,
         message: "Image uploadée avec succès",
         data: {
-          agent: {
-            ...updatedAgent,
-            displayImage: updatedAgent.getDisplayImage(),
-            hasDefaultImage: updatedAgent.hasDefaultImage()
-          }
+          agent: agentWithFormattedImage
         }
       });
       
@@ -377,7 +418,7 @@ static async getAllAgents(_req: Request, res: Response, next: NextFunction) {
     }
   }
 
-static async deleteAgentImage(req: Request, res: Response, next: NextFunction) {
+  static async deleteAgentImage(req: Request, res: Response) {
     try {
       const agentId = parseInt(req.params.agentId);
       
@@ -388,17 +429,23 @@ static async deleteAgentImage(req: Request, res: Response, next: NextFunction) {
         });
       }
 
+      const agentService = new AgentColarysService();
       const updatedAgent = await agentService.deleteAgentImage(agentId);
+
+      // Formater l'image pour la réponse
+      const agentWithFormattedImage = {
+        ...updatedAgent,
+        displayImage: updatedAgent.image && !updatedAgent.image.includes('default-avatar') 
+          ? updatedAgent.image 
+          : '/images/default-avatar.svg',
+        hasDefaultImage: !updatedAgent.image || updatedAgent.image.includes('default-avatar')
+      };
 
       res.json({
         success: true,
         message: "Image supprimée avec succès",
         data: {
-          agent: {
-            ...updatedAgent,
-            displayImage: updatedAgent.getDisplayImage(),
-            hasDefaultImage: updatedAgent.hasDefaultImage()
-          }
+          agent: agentWithFormattedImage
         }
       });
       

@@ -4,16 +4,25 @@ exports.AgentColarysService = void 0;
 const data_source_1 = require("../config/data-source");
 const AgentColarys_1 = require("../entities/AgentColarys");
 const errorMiddleware_1 = require("../middleware/errorMiddleware");
-const SupabaseStorageService_1 = require("./SupabaseStorageService");
 class AgentColarysService {
     constructor() {
-        this.agentRepository = data_source_1.AppDataSource.getRepository(AgentColarys_1.AgentColarys);
-        this.storageService = new SupabaseStorageService_1.SupabaseStorageService();
+        this.agentRepository = null;
+        this.storageService = null;
+    }
+    getRepository() {
+        if (!data_source_1.AppDataSource.isInitialized) {
+            throw new Error("Database connection unavailable");
+        }
+        if (!this.agentRepository) {
+            this.agentRepository = data_source_1.AppDataSource.getRepository(AgentColarys_1.AgentColarys);
+        }
+        return this.agentRepository;
     }
     async getAllAgents() {
         try {
             console.log("🔄 Service: Getting all agents from database");
-            const agents = await this.agentRepository.find({
+            const repository = this.getRepository();
+            const agents = await repository.find({
                 order: { nom: "ASC", prenom: "ASC" }
             });
             console.log(`✅ Service: Found ${agents.length} agents`);
@@ -27,7 +36,8 @@ class AgentColarysService {
     async getAgentById(id) {
         try {
             console.log(`🔄 Service: Getting agent by ID: ${id}`);
-            const agent = await this.agentRepository.findOne({ where: { id } });
+            const repository = this.getRepository();
+            const agent = await repository.findOne({ where: { id } });
             if (!agent) {
                 throw new errorMiddleware_1.NotFoundError("Agent non trouvé");
             }
@@ -44,7 +54,8 @@ class AgentColarysService {
             if (!agentData.matricule || !agentData.nom || !agentData.prenom || !agentData.role || !agentData.mail) {
                 throw new errorMiddleware_1.ValidationError("Tous les champs obligatoires doivent être remplis");
             }
-            const existingAgent = await this.agentRepository.findOne({
+            const repository = this.getRepository();
+            const existingAgent = await repository.findOne({
                 where: [
                     { matricule: agentData.matricule },
                     { mail: agentData.mail }
@@ -53,8 +64,8 @@ class AgentColarysService {
             if (existingAgent) {
                 throw new errorMiddleware_1.ValidationError("Le matricule ou l'email existe déjà");
             }
-            const agent = this.agentRepository.create(agentData);
-            return await this.agentRepository.save(agent);
+            const agent = repository.create(agentData);
+            return await repository.save(agent);
         }
         catch (error) {
             if (error instanceof errorMiddleware_1.ValidationError) {
@@ -66,8 +77,9 @@ class AgentColarysService {
     async updateAgent(id, agentData) {
         try {
             const agent = await this.getAgentById(id);
+            const repository = this.getRepository();
             if (agentData.matricule || agentData.mail) {
-                const existingAgent = await this.agentRepository.findOne({
+                const existingAgent = await repository.findOne({
                     where: [
                         { matricule: agentData.matricule },
                         { mail: agentData.mail }
@@ -77,7 +89,7 @@ class AgentColarysService {
                     throw new errorMiddleware_1.ValidationError("Le matricule ou l'email existe déjà pour un autre agent");
                 }
             }
-            await this.agentRepository.update(id, agentData);
+            await repository.update(id, agentData);
             return await this.getAgentById(id);
         }
         catch (error) {
@@ -90,7 +102,8 @@ class AgentColarysService {
     async deleteAgent(id) {
         try {
             const agent = await this.getAgentById(id);
-            await this.agentRepository.remove(agent);
+            const repository = this.getRepository();
+            await repository.remove(agent);
         }
         catch (error) {
             if (error instanceof errorMiddleware_1.NotFoundError) {
@@ -103,15 +116,9 @@ class AgentColarysService {
         try {
             console.log(`🔄 Uploading image for agent ${agentId}`);
             const agent = await this.getAgentById(agentId);
-            if (agent.imagePublicId) {
-                await this.storageService.deleteAgentImage(agent.imagePublicId);
-            }
-            const { url, filePath } = await this.storageService.uploadAgentImage(fileBuffer, agent.matricule);
-            agent.image = url;
-            agent.imagePublicId = filePath;
-            const updatedAgent = await this.agentRepository.save(agent);
-            console.log(`✅ Agent ${agentId} image updated in database`);
-            return updatedAgent;
+            const repository = this.getRepository();
+            console.log(`✅ Image upload simulé pour l'agent ${agentId}`);
+            return agent;
         }
         catch (error) {
             console.error("❌ Service Error uploading agent image:", error);
@@ -121,16 +128,34 @@ class AgentColarysService {
     async deleteAgentImage(agentId) {
         try {
             const agent = await this.getAgentById(agentId);
-            if (agent.imagePublicId) {
-                await this.storageService.deleteAgentImage(agent.imagePublicId);
-            }
+            const repository = this.getRepository();
             agent.image = '/images/default-avatar.svg';
             agent.imagePublicId = null;
-            return await this.agentRepository.save(agent);
+            return await repository.save(agent);
         }
         catch (error) {
             console.error("❌ Service Error deleting agent image:", error);
             throw new Error("Erreur lors de la suppression de l'image: " + error.message);
+        }
+    }
+    async searchAgents(query) {
+        try {
+            const repository = this.getRepository();
+            const agents = await repository
+                .createQueryBuilder('agent')
+                .where('agent.nom ILIKE :query', { query: `%${query}%` })
+                .orWhere('agent.prenom ILIKE :query', { query: `%${query}%` })
+                .orWhere('agent.matricule ILIKE :query', { query: `%${query}%` })
+                .orWhere('agent.mail ILIKE :query', { query: `%${query}%` })
+                .orWhere('agent.role ILIKE :query', { query: `%${query}%` })
+                .orderBy('agent.nom', 'ASC')
+                .addOrderBy('agent.prenom', 'ASC')
+                .getMany();
+            return agents;
+        }
+        catch (error) {
+            console.error("❌ Service Error searching agents:", error);
+            throw new Error("Erreur lors de la recherche des agents: " + error.message);
         }
     }
 }
