@@ -4,13 +4,18 @@ exports.AgentColarysService = void 0;
 const data_source_1 = require("../config/data-source");
 const AgentColarys_1 = require("../entities/AgentColarys");
 const errorMiddleware_1 = require("../middleware/errorMiddleware");
+const CloudinaryService_1 = require("./CloudinaryService");
 class AgentColarysService {
     constructor() {
         this.agentRepository = data_source_1.AppDataSource.getRepository(AgentColarys_1.AgentColarys);
+        this.cloudinaryService = new CloudinaryService_1.CloudinaryService();
     }
     async getAllAgents() {
         try {
             console.log("🔄 Service: Getting all agents from database");
+            if (!this.agentRepository) {
+                throw new Error('Repository non initialisé');
+            }
             const agents = await this.agentRepository.find({
                 order: { nom: "ASC", prenom: "ASC" }
             });
@@ -27,7 +32,7 @@ class AgentColarysService {
             console.log(`🔄 Service: Getting agent by ID: ${id}`);
             const agent = await this.agentRepository.findOne({ where: { id } });
             if (!agent) {
-                throw new errorMiddleware_1.NotFoundError(`Agent avec l'ID ${id} non trouvé`);
+                throw new errorMiddleware_1.NotFoundError("Agent non trouvé");
             }
             console.log(`✅ Service: Found agent: ${agent.nom} ${agent.prenom}`);
             return agent;
@@ -39,10 +44,8 @@ class AgentColarysService {
     }
     async createAgent(agentData) {
         try {
-            const requiredFields = ['matricule', 'nom', 'prenom', 'role', 'mail'];
-            const missingFields = requiredFields.filter(field => !agentData[field]);
-            if (missingFields.length > 0) {
-                throw new errorMiddleware_1.ValidationError(`Champs obligatoires manquants: ${missingFields.join(', ')}`);
+            if (!agentData.matricule || !agentData.nom || !agentData.prenom || !agentData.role || !agentData.mail) {
+                throw new errorMiddleware_1.ValidationError("Tous les champs obligatoires doivent être remplis");
             }
             const existingAgent = await this.agentRepository.findOne({
                 where: [
@@ -51,67 +54,94 @@ class AgentColarysService {
                 ]
             });
             if (existingAgent) {
-                if (existingAgent.matricule === agentData.matricule) {
-                    throw new errorMiddleware_1.ValidationError(`Un agent avec le matricule ${agentData.matricule} existe déjà`);
-                }
-                if (existingAgent.mail === agentData.mail) {
-                    throw new errorMiddleware_1.ValidationError(`Un agent avec l'email ${agentData.mail} existe déjà`);
-                }
-            }
-            if (!agentData.image) {
-                agentData.image = '/images/default-avatar.svg';
+                throw new errorMiddleware_1.ValidationError("Le matricule ou l'email existe déjà");
             }
             const agent = this.agentRepository.create(agentData);
-            const savedAgent = await this.agentRepository.save(agent);
-            console.log(`✅ Service: Agent créé avec ID: ${savedAgent.id}`);
-            return savedAgent;
+            return await this.agentRepository.save(agent);
         }
         catch (error) {
-            console.error("❌ Service Error in createAgent:", error);
-            throw error;
+            if (error instanceof errorMiddleware_1.ValidationError) {
+                throw error;
+            }
+            throw new Error("Erreur lors de la création de l'agent");
         }
     }
     async updateAgent(id, agentData) {
         try {
-            const existingAgent = await this.getAgentById(id);
+            const agent = await this.getAgentById(id);
             if (agentData.matricule || agentData.mail) {
-                const duplicateAgent = await this.agentRepository.findOne({
+                const existingAgent = await this.agentRepository.findOne({
                     where: [
                         { matricule: agentData.matricule },
                         { mail: agentData.mail }
                     ]
                 });
-                if (duplicateAgent && duplicateAgent.id !== id) {
-                    if (duplicateAgent.matricule === agentData.matricule) {
-                        throw new errorMiddleware_1.ValidationError(`Un autre agent avec le matricule ${agentData.matricule} existe déjà`);
-                    }
-                    if (duplicateAgent.mail === agentData.mail) {
-                        throw new errorMiddleware_1.ValidationError(`Un autre agent avec l'email ${agentData.mail} existe déjà`);
-                    }
+                if (existingAgent && existingAgent.id !== id) {
+                    throw new errorMiddleware_1.ValidationError("Le matricule ou l'email existe déjà pour un autre agent");
                 }
             }
-            if (!agentData.image) {
-                agentData.image = '/images/default-avatar.svg';
-            }
             await this.agentRepository.update(id, agentData);
-            const updatedAgent = await this.getAgentById(id);
-            console.log(`✅ Service: Agent ${id} mis à jour`);
-            return updatedAgent;
+            return await this.getAgentById(id);
         }
         catch (error) {
-            console.error("❌ Service Error in updateAgent:", error);
-            throw error;
+            if (error instanceof errorMiddleware_1.NotFoundError || error instanceof errorMiddleware_1.ValidationError) {
+                throw error;
+            }
+            throw new Error("Erreur lors de la modification de l'agent");
         }
     }
     async deleteAgent(id) {
         try {
             const agent = await this.getAgentById(id);
             await this.agentRepository.remove(agent);
-            console.log(`✅ Service: Agent ${id} supprimé`);
         }
         catch (error) {
-            console.error("❌ Service Error in deleteAgent:", error);
-            throw error;
+            if (error instanceof errorMiddleware_1.NotFoundError) {
+                throw error;
+            }
+            throw new Error("Erreur lors de la suppression de l'agent");
+        }
+    }
+    async uploadAgentImage(agentId, fileBuffer) {
+        try {
+            console.log(`🔄 Uploading image for agent ${agentId}`);
+            const agent = await this.getAgentById(agentId);
+            if (agent.imagePublicId) {
+                try {
+                    await this.cloudinaryService.deleteImage(agent.imagePublicId);
+                    console.log(`✅ Old image deleted: ${agent.imagePublicId}`);
+                }
+                catch (error) {
+                    console.warn('⚠️ Could not delete old image:', error);
+                }
+            }
+            console.log('📤 Uploading new image to Cloudinary...');
+            const { url, publicId } = await this.cloudinaryService.uploadImage(fileBuffer);
+            console.log(`✅ New image uploaded: ${url}`);
+            agent.image = url;
+            agent.imagePublicId = publicId;
+            const updatedAgent = await this.agentRepository.save(agent);
+            console.log(`✅ Agent ${agentId} image updated in database`);
+            return updatedAgent;
+        }
+        catch (error) {
+            console.error("❌ Service Error uploading agent image:", error);
+            throw new Error("Erreur lors de l'upload de l'image: " + error.message);
+        }
+    }
+    async deleteAgentImage(agentId) {
+        try {
+            const agent = await this.getAgentById(agentId);
+            if (agent.imagePublicId) {
+                await this.cloudinaryService.deleteImage(agent.imagePublicId);
+            }
+            agent.image = '/images/default-avatar.svg';
+            agent.imagePublicId = null;
+            return await this.agentRepository.save(agent);
+        }
+        catch (error) {
+            console.error("❌ Service Error deleting agent image:", error);
+            throw new Error("Erreur lors de la suppression de l'image: " + error.message);
         }
     }
 }

@@ -9,9 +9,10 @@ class AgentColarysController {
         try {
             console.log("🔄 Controller: Getting all agents");
             const agents = await agentService.getAllAgents();
+            const agentsWithFormattedImages = agents.map(agent => (Object.assign(Object.assign({}, agent), { displayImage: agent.getDisplayImage(), hasDefaultImage: agent.hasDefaultImage() })));
             res.json({
                 success: true,
-                data: agents,
+                data: agentsWithFormattedImages,
                 count: agents.length
             });
         }
@@ -20,7 +21,7 @@ class AgentColarysController {
             res.status(500).json({
                 success: false,
                 error: "Erreur serveur lors du chargement des agents",
-                message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+                message: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message
             });
         }
     }
@@ -35,9 +36,10 @@ class AgentColarysController {
             }
             console.log(`🔄 Controller: Getting agent with ID: ${id}`);
             const agent = await agentService.getAgentById(id);
+            const agentWithFormattedImage = Object.assign(Object.assign({}, agent), { displayImage: agent.getDisplayImage(), hasDefaultImage: agent.hasDefaultImage() });
             res.json({
                 success: true,
-                data: agent
+                data: agentWithFormattedImage
             });
         }
         catch (error) {
@@ -58,19 +60,23 @@ class AgentColarysController {
     static async createAgent(req, res, next) {
         try {
             const agentData = req.body;
-            agentData.image = '/images/default-avatar.svg';
+            if (!agentData.image || agentData.image.includes('default-avatar')) {
+                agentData.image = '/images/default-avatar.svg';
+            }
             console.log("🔄 Controller: Creating new agent", {
                 nom: agentData.nom,
                 prenom: agentData.prenom,
                 matricule: agentData.matricule,
                 mail: agentData.mail,
-                role: agentData.role
+                role: agentData.role,
+                image: agentData.image
             });
             const newAgent = await agentService.createAgent(agentData);
+            const agentWithFormattedImage = Object.assign(Object.assign({}, newAgent), { displayImage: newAgent.getDisplayImage(), hasDefaultImage: newAgent.hasDefaultImage() });
             res.status(201).json({
                 success: true,
                 message: "Agent créé avec succès",
-                data: newAgent
+                data: agentWithFormattedImage
             });
         }
         catch (error) {
@@ -98,21 +104,28 @@ class AgentColarysController {
                 });
             }
             const agentData = req.body;
-            if (!agentData.image || agentData.image.includes('default-avatar')) {
+            if (!agentData.image) {
+                delete agentData.image;
+                delete agentData.imagePublicId;
+            }
+            else if (agentData.image.includes('default-avatar')) {
                 agentData.image = '/images/default-avatar.svg';
+                agentData.imagePublicId = null;
             }
             console.log(`🔄 Controller: Updating agent ${id}`, {
                 nom: agentData.nom,
                 prenom: agentData.prenom,
                 matricule: agentData.matricule,
                 mail: agentData.mail,
-                role: agentData.role
+                role: agentData.role,
+                image: agentData.image
             });
             const updatedAgent = await agentService.updateAgent(id, agentData);
+            const agentWithFormattedImage = Object.assign(Object.assign({}, updatedAgent), { displayImage: updatedAgent.getDisplayImage(), hasDefaultImage: updatedAgent.hasDefaultImage() });
             res.json({
                 success: true,
                 message: "Agent modifié avec succès",
-                data: updatedAgent
+                data: agentWithFormattedImage
             });
         }
         catch (error) {
@@ -243,6 +256,68 @@ class AgentColarysController {
                 success: false,
                 error: "Erreur lors de la recherche des agents",
                 message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+            });
+        }
+    }
+    static async uploadAgentImage(req, res, next) {
+        try {
+            const agentId = parseInt(req.params.agentId);
+            if (isNaN(agentId)) {
+                return res.status(400).json({
+                    success: false,
+                    error: "ID agent invalide"
+                });
+            }
+            if (!req.file) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Aucun fichier image fourni"
+                });
+            }
+            console.log(`🔄 Uploading image for agent ${agentId}`);
+            res.json({
+                success: true,
+                message: "Endpoint d'upload fonctionnel - Image reçue",
+                data: {
+                    agentId: agentId,
+                    filename: req.file.originalname,
+                    size: req.file.size,
+                    message: "L'upload fonctionne! Implémentez Cloudinary maintenant."
+                }
+            });
+        }
+        catch (error) {
+            console.error("❌ Controller Error uploading agent image:", error);
+            res.status(500).json({
+                success: false,
+                error: "Erreur lors de l'upload de l'image",
+                message: error.message
+            });
+        }
+    }
+    static async deleteAgentImage(req, res, next) {
+        try {
+            const agentId = parseInt(req.params.agentId);
+            if (isNaN(agentId)) {
+                return res.status(400).json({
+                    success: false,
+                    error: "ID agent invalide"
+                });
+            }
+            res.json({
+                success: true,
+                message: "Image supprimée avec succès",
+                data: {
+                    agentId: agentId
+                }
+            });
+        }
+        catch (error) {
+            console.error("❌ Controller Error deleting agent image:", error);
+            res.status(500).json({
+                success: false,
+                error: "Erreur lors de la suppression de l'image",
+                message: error.message
             });
         }
     }

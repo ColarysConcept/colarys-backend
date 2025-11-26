@@ -17,6 +17,33 @@ import { errorMiddleware } from "./middleware/errorMiddleware";
 import agentColarysRoutes from "./routes/agentColarysRoutes";
 import colarysRoutes from "./routes/colarysRoutes";
 
+// Dans app.ts - après les imports
+const initializeDatabaseWithRetry = async (maxRetries = 3): Promise<boolean> => {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`🔄 Database connection attempt ${attempt}/${maxRetries}`);
+      
+      const { initializeDatabase } = require("./config/data-source");
+      const connected = await initializeDatabase();
+      
+      if (connected) {
+        console.log('✅ Database connected successfully');
+        return true;
+      }
+    } catch (error) {
+      console.error(`❌ Database connection attempt ${attempt} failed:`, error.message);
+    }
+    
+    if (attempt < maxRetries) {
+      console.log(`⏳ Waiting 5 seconds before retry...`);
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+  }
+  
+  console.error('❌ All database connection attempts failed');
+  return false;
+};
+
 // Vérification des variables critiques pour Vercel
 if (process.env.VERCEL) {
   console.log('🚀 Vercel Environment Detected');
@@ -250,23 +277,15 @@ const startServer = async () => {
   try {
     console.log('🚀 Starting Colarys API Server...');
     
-    // ✅ INITIALISATION DE LA BASE DE DONNÉES AVEC GESTION D'ERREUR AMÉLIORÉE
-    const dbConnected = await initializeDatabase();
+    // ✅ TENTATIVE FORCÉE DE CONNEXION DB
+    await initializeDatabaseWithRetry(3);
     
-    if (!dbConnected) {
-      console.error('❌ CRITICAL: Database connection failed');
-      
-      // En production, on continue sans base de données mais on log l'erreur
-      if (process.env.NODE_ENV === 'production') {
-        console.log('⚠️ Continuing without database in production mode');
-      } else {
-        // En développement, on arrête
-        throw new Error('Database connection failed');
-      }
+    if (!AppDataSource.isInitialized) {
+      console.warn('⚠️ Database connection failed - Running in limited mode');
     } else {
-      console.log("📦 Database connected successfully");
+      console.log("✅ All services initialized");
       
-      // ✅ CRÉATION OU RÉINITIALISATION UTILISATEUR (seulement si BD connectée)
+      // Création utilisateur seulement si DB connectée
       try {
         await createDefaultUser();
         console.log("✅ Default user check completed");
@@ -275,35 +294,8 @@ const startServer = async () => {
       }
     }
 
-    console.log("✅ All services initialized");
-
-    // ✅ Seulement en local
-    if (!process.env.VERCEL) {
-      const PORT = process.env.PORT || 3000;
-      app.listen(PORT, () => {
-        console.log(`🚀 Server running on http://localhost:${PORT}`);
-        console.log(`🔗 Test these URLs:`);
-        console.log(`   http://localhost:${PORT}/`);
-        console.log(`   http://localhost:${PORT}/api/health`);
-        console.log(`   http://localhost:${PORT}/api/users`);
-        console.log(`   http://localhost:${PORT}/api/agents`);
-        console.log(`   http://localhost:${PORT}/api/agents-colarys`);
-        console.log(`🌐 CORS enabled for: http://localhost:5173`);
-        console.log(`⚡ Environment: ${process.env.NODE_ENV || 'development'}`);
-      });
-    } else {
-      console.log('✅ Vercel environment - Serverless function ready');
-    }
   } catch (error) {
     console.error("❌ Server initialization failed:", error);
-    
-    if (error instanceof Error) {
-      console.error("❌ Error details:", error.message);
-    }
-    
-    if (!process.env.VERCEL) {
-      process.exit(1);
-    }
   }
 };
 // ✅ SUR VERCEL, INITIALISER TOUJOURS

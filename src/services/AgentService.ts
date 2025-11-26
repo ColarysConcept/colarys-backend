@@ -3,28 +3,45 @@ import { AppDataSource } from "../config/data-source";
 import { Agent } from "../entities/Agent";
 
 export class AgentService {
-  private agentRepository = AppDataSource.getRepository(Agent);
+  private agentRepository;
 
   constructor() {
-    this.agentRepository = AppDataSource.getRepository(Agent);
+    // Ne pas initialiser le repository immédiatement
+    this.agentRepository = null;
+  }
+
+  // Méthode pour obtenir le repository (avec vérification de la DB)
+  private getRepository() {
+    if (!AppDataSource.isInitialized) {
+      throw new Error("Database connection unavailable");
+    }
+    
+    if (!this.agentRepository) {
+      this.agentRepository = AppDataSource.getRepository(Agent);
+    }
+    
+    return this.agentRepository;
   }
 
   async createAgent(agentData: Partial<Agent>): Promise<Agent> {
-    const agent = this.agentRepository.create(agentData);
-    return await this.agentRepository.save(agent);
+    const repository = this.getRepository();
+    const agent = repository.create(agentData);
+    return await repository.save(agent);
   }
 
   async findAgentByMatricule(matricule: string | null): Promise<Agent | null> {
     if (!matricule) return null;
-    return await this.agentRepository.findOne({
+    
+    const repository = this.getRepository();
+    return await repository.findOne({
       where: { matricule },
       relations: ["presences"]
     });
   }
 
-  // NOUVELLE MÉTHODE : Recherche par nom et prénom
   async findAgentByNomPrenom(nom: string, prenom: string): Promise<Agent | null> {
-    return await this.agentRepository.findOne({
+    const repository = this.getRepository();
+    return await repository.findOne({
       where: { 
         nom: nom,
         prenom: prenom 
@@ -37,16 +54,21 @@ export class AgentService {
     if (!matricule) {
       throw new Error("Matricule requis pour mise à jour");
     }
+    
+    const repository = this.getRepository();
     const agent = await this.findAgentByMatricule(matricule);
+    
     if (!agent) {
       throw new Error("Agent non trouvé");
     }
+    
     agent.signature = signature;
-    return await this.agentRepository.save(agent);
+    return await repository.save(agent);
   }
 
   async getAllAgents(): Promise<Agent[]> {
-    return await this.agentRepository.find({
+    const repository = this.getRepository();
+    return await repository.find({
       relations: ["presences"],
       order: { nom: "ASC" }
     });
@@ -54,27 +76,29 @@ export class AgentService {
 
   async getAgentByMatricule(matricule: string | null): Promise<Agent | null> {
     if (!matricule) return null;
-    return await this.agentRepository.findOne({ 
+    
+    const repository = this.getRepository();
+    return await repository.findOne({ 
       where: { matricule } 
     });
   }
 
-//Recherche multiple par nom et prénom
-async findAgentsByNomPrenom(nom?: string, prenom?: string): Promise<Agent[]> {
-  const queryBuilder = this.agentRepository.createQueryBuilder('agent');
-  
-  if (nom) {
-    queryBuilder.andWhere('agent.nom ILIKE :nom', { nom: `%${nom}%` });
+  async findAgentsByNomPrenom(nom?: string, prenom?: string): Promise<Agent[]> {
+    const repository = this.getRepository();
+    const queryBuilder = repository.createQueryBuilder('agent');
+    
+    if (nom) {
+      queryBuilder.andWhere('agent.nom ILIKE :nom', { nom: `%${nom}%` });
+    }
+    
+    if (prenom) {
+      queryBuilder.andWhere('agent.prenom ILIKE :prenom', { prenom: `%${prenom}%` });
+    }
+    
+    return await queryBuilder
+      .leftJoinAndSelect('agent.presences', 'presences')
+      .orderBy('agent.nom', 'ASC')
+      .addOrderBy('agent.prenom', 'ASC')
+      .getMany();
   }
-  
-  if (prenom) {
-    queryBuilder.andWhere('agent.prenom ILIKE :prenom', { prenom: `%${prenom}%` });
-  }
-  
-  return await queryBuilder
-    .leftJoinAndSelect('agent.presences', 'presences')
-    .orderBy('agent.nom', 'ASC')
-    .addOrderBy('agent.prenom', 'ASC')
-    .getMany();
-}
 }

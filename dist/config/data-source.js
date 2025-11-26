@@ -15,22 +15,18 @@ const DetailPresence_1 = require("../entities/DetailPresence");
 const Trashpresence_1 = require("../entities/Trashpresence");
 const AgentColarys_1 = require("../entities/AgentColarys");
 dotenv_1.default.config();
-console.log('🔧 Database configuration:', {
-    host: process.env.POSTGRES_HOST,
+console.log('🔧 Database configuration check:', {
+    host: process.env.POSTGRES_HOST ? '***' : 'MISSING',
     port: process.env.POSTGRES_PORT,
-    user: process.env.POSTGRES_USER,
-    database: process.env.POSTGRES_DB,
-    nodeEnv: process.env.NODE_ENV
+    user: process.env.POSTGRES_USER ? '***' : 'MISSING',
+    database: process.env.POSTGRES_DB ? '***' : 'MISSING',
+    nodeEnv: process.env.NODE_ENV,
+    vercel: !!process.env.VERCEL
 });
-const requiredEnvVars = ['POSTGRES_HOST', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DB'];
-const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
-if (missingEnvVars.length > 0) {
-    console.warn('⚠️ Missing environment variables:', missingEnvVars);
-}
 exports.AppDataSource = new typeorm_1.DataSource({
     type: "postgres",
     host: process.env.POSTGRES_HOST,
-    port: parseInt(process.env.POSTGRES_PORT || "5432"),
+    port: parseInt(process.env.POSTGRES_PORT || "6543"),
     username: process.env.POSTGRES_USER,
     password: process.env.POSTGRES_PASSWORD,
     database: process.env.POSTGRES_DB,
@@ -44,28 +40,47 @@ exports.AppDataSource = new typeorm_1.DataSource({
         Trashpresence_1.Trashpresence,
         AgentColarys_1.AgentColarys
     ],
-    synchronize: true,
+    synchronize: process.env.NODE_ENV === 'development',
     logging: process.env.NODE_ENV === 'development',
-    migrations: [],
-    subscribers: [],
-    ssl: process.env.NODE_ENV === 'production',
+    ssl: process.env.NODE_ENV === 'production' ? {
+        rejectUnauthorized: false
+    } : false,
     extra: {
-        ssl: process.env.NODE_ENV === 'production' ? {
-            rejectUnauthorized: false
-        } : undefined
+        max: 5,
+        connectionTimeoutMillis: 10000,
+        idleTimeoutMillis: 30000,
     }
 });
+let isInitializing = false;
 const initializeDatabase = async () => {
+    if (exports.AppDataSource.isInitialized) {
+        console.log('✅ Database already initialized');
+        return true;
+    }
     try {
-        if (!exports.AppDataSource.isInitialized) {
-            await exports.AppDataSource.initialize();
-            console.log('✅ Database connection established');
+        console.log('🔄 Starting database initialization...');
+        const requiredVars = ['POSTGRES_HOST', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DB'];
+        const missingVars = requiredVars.filter(varName => !process.env[varName]);
+        if (missingVars.length > 0) {
+            console.error('❌ Missing required environment variables:', missingVars);
+            return false;
         }
-        return exports.AppDataSource;
+        console.log('🔧 Attempting to connect to database...');
+        await exports.AppDataSource.initialize();
+        console.log('✅ Database connected successfully!');
+        try {
+            await exports.AppDataSource.query('SELECT 1');
+            console.log('✅ Database test query successful');
+        }
+        catch (testError) {
+            console.warn('⚠️ Database test query failed:', testError);
+        }
+        return true;
     }
     catch (error) {
-        console.error('❌ Database connection failed:', error.message);
-        throw error;
+        console.error('❌ Database initialization FAILED:', error.message);
+        console.error('❌ Error details:', error);
+        return false;
     }
 };
 exports.initializeDatabase = initializeDatabase;

@@ -5,23 +5,34 @@ const data_source_1 = require("../config/data-source");
 const Agent_1 = require("../entities/Agent");
 class AgentService {
     constructor() {
-        this.agentRepository = data_source_1.AppDataSource.getRepository(Agent_1.Agent);
-        this.agentRepository = data_source_1.AppDataSource.getRepository(Agent_1.Agent);
+        this.agentRepository = null;
+    }
+    getRepository() {
+        if (!data_source_1.AppDataSource.isInitialized) {
+            throw new Error("Database connection unavailable");
+        }
+        if (!this.agentRepository) {
+            this.agentRepository = data_source_1.AppDataSource.getRepository(Agent_1.Agent);
+        }
+        return this.agentRepository;
     }
     async createAgent(agentData) {
-        const agent = this.agentRepository.create(agentData);
-        return await this.agentRepository.save(agent);
+        const repository = this.getRepository();
+        const agent = repository.create(agentData);
+        return await repository.save(agent);
     }
     async findAgentByMatricule(matricule) {
         if (!matricule)
             return null;
-        return await this.agentRepository.findOne({
+        const repository = this.getRepository();
+        return await repository.findOne({
             where: { matricule },
             relations: ["presences"]
         });
     }
     async findAgentByNomPrenom(nom, prenom) {
-        return await this.agentRepository.findOne({
+        const repository = this.getRepository();
+        return await repository.findOne({
             where: {
                 nom: nom,
                 prenom: prenom
@@ -33,15 +44,17 @@ class AgentService {
         if (!matricule) {
             throw new Error("Matricule requis pour mise à jour");
         }
+        const repository = this.getRepository();
         const agent = await this.findAgentByMatricule(matricule);
         if (!agent) {
             throw new Error("Agent non trouvé");
         }
         agent.signature = signature;
-        return await this.agentRepository.save(agent);
+        return await repository.save(agent);
     }
     async getAllAgents() {
-        return await this.agentRepository.find({
+        const repository = this.getRepository();
+        return await repository.find({
             relations: ["presences"],
             order: { nom: "ASC" }
         });
@@ -49,12 +62,14 @@ class AgentService {
     async getAgentByMatricule(matricule) {
         if (!matricule)
             return null;
-        return await this.agentRepository.findOne({
+        const repository = this.getRepository();
+        return await repository.findOne({
             where: { matricule }
         });
     }
     async findAgentsByNomPrenom(nom, prenom) {
-        const queryBuilder = this.agentRepository.createQueryBuilder('agent');
+        const repository = this.getRepository();
+        const queryBuilder = repository.createQueryBuilder('agent');
         if (nom) {
             queryBuilder.andWhere('agent.nom ILIKE :nom', { nom: `%${nom}%` });
         }

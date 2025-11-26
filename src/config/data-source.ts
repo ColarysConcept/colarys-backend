@@ -1,6 +1,7 @@
 import { DataSource } from "typeorm";
 import dotenv from "dotenv";
 
+// Import des entités avec chemins absolus
 import { User } from "../entities/User";
 import { Agent } from "../entities/Agent";
 import { HistoAgents } from "../entities/HistoAgents";
@@ -9,6 +10,8 @@ import { Presence } from "../entities/Presence";
 import { DetailPresence } from "../entities/DetailPresence";
 import { Trashpresence } from "../entities/Trashpresence";
 import { AgentColarys } from "../entities/AgentColarys";
+
+import * as entities from "../entities";
 
 dotenv.config();
 
@@ -21,7 +24,7 @@ console.log('🔧 Database configuration check:', {
   vercel: !!process.env.VERCEL
 });
 
-// ✅ CONFIGURATION SPÉCIFIQUE POUR SUPABASE + VERCELL
+// ✅ CONFIGURATION AMÉLIORÉE POUR VERCELL + SUPABASE
 export const AppDataSource = new DataSource({
   type: "postgres",
   host: process.env.POSTGRES_HOST,
@@ -40,22 +43,21 @@ export const AppDataSource = new DataSource({
     AgentColarys
   ],
   // ⚠️ IMPORTANT: Désactiver synchronize en production
-  synchronize: process.env.NODE_ENV !== 'production',
+   synchronize: process.env.NODE_ENV === 'development',
   logging: process.env.NODE_ENV === 'development',
-  migrations: [],
-  subscribers: [],
+  
   // ✅ CONFIGURATION SSL POUR SUPABASE
   ssl: process.env.NODE_ENV === 'production' ? {
     rejectUnauthorized: false
   } : false,
+  
   // ✅ CONFIGURATION POOL POUR SERVERLESS
   extra: {
-    max: 1,
+    max: 5,
     connectionTimeoutMillis: 10000,
     idleTimeoutMillis: 30000,
   }
 });
-
 // ✅ INITIALISATION SIMPLIFIÉE ET ROBUSTE
 let isInitializing = false;
 
@@ -64,13 +66,6 @@ export const initializeDatabase = async (): Promise<boolean> => {
     console.log('✅ Database already initialized');
     return true;
   }
-
-  if (isInitializing) {
-    console.log('🔄 Database initialization already in progress...');
-    return false;
-  }
-
-  isInitializing = true;
 
   try {
     console.log('🔄 Starting database initialization...');
@@ -81,7 +76,7 @@ export const initializeDatabase = async (): Promise<boolean> => {
     
     if (missingVars.length > 0) {
       console.error('❌ Missing required environment variables:', missingVars);
-      throw new Error(`Missing environment variables: ${missingVars.join(', ')}`);
+      return false;
     }
 
     console.log('🔧 Attempting to connect to database...');
@@ -89,38 +84,18 @@ export const initializeDatabase = async (): Promise<boolean> => {
     
     console.log('✅ Database connected successfully!');
     
-    // Test de la connexion avec une requête simple
+    // Test de la connexion
     try {
       await AppDataSource.query('SELECT 1');
       console.log('✅ Database test query successful');
     } catch (testError) {
-      console.warn('⚠️ Database test query failed, but connection established:', testError);
+      console.warn('⚠️ Database test query failed:', testError);
     }
     
     return true;
   } catch (error: any) {
     console.error('❌ Database initialization FAILED:', error.message);
     console.error('❌ Error details:', error);
-    
-    // Log des informations de connexion (sans le mot de passe)
-    console.log('🔧 Connection details:', {
-      host: process.env.POSTGRES_HOST,
-      port: process.env.POSTGRES_PORT,
-      username: process.env.POSTGRES_USER,
-      database: process.env.POSTGRES_DB,
-      ssl: process.env.NODE_ENV === 'production'
-    });
-    
     return false;
-  } finally {
-    isInitializing = false;
   }
-};
-
-// ✅ FONCTION POUR OBTENIR LE STATUT
-export const getDatabaseStatus = () => {
-  return {
-    initialized: AppDataSource.isInitialized,
-    isInitializing: isInitializing
-  };
 };
