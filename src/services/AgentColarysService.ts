@@ -1,5 +1,5 @@
-// src/services/AgentColarysService.ts - VERSION COMPLÈTEMENT CORRIGÉE
-import { AppDataSource } from "../config/data-source";
+// src/services/AgentColarysService.ts - VERSION COMPLÈTE CORRIGÉE
+import { AppDataSource, ensureDatabaseConnection } from "../config/data-source";
 import { AgentColarys } from "../entities/AgentColarys";
 import { NotFoundError, ValidationError } from "../middleware/errorMiddleware";
 import { Repository } from "typeorm";
@@ -13,17 +13,18 @@ export class AgentColarysService {
     this.cloudinaryService = new CloudinaryService();
   }
 
-  // Méthode pour obtenir le repository (avec vérification robuste)
-  private getRepository(): Repository<AgentColarys> {
+  // ✅ MÉTHODE CORRIGÉE : Ajouter 'async' et 'await'
+  private async getRepository(): Promise<Repository<AgentColarys>> {
     try {
-      if (!AppDataSource.isInitialized) {
-        console.error('❌ Database not initialized in getRepository()');
+      // S'assurer que la DB est connectée (AJOUT IMPORTANT)
+      const isConnected = await ensureDatabaseConnection();
+      
+      if (!isConnected) {
         throw new Error("Database connection unavailable");
       }
       
       if (!this.agentRepository) {
         this.agentRepository = AppDataSource.getRepository(AgentColarys);
-        console.log('✅ AgentColarys repository initialized');
       }
       
       return this.agentRepository;
@@ -37,7 +38,8 @@ export class AgentColarysService {
     try {
       console.log("🔄 Service: Getting all agents from database");
       
-      const repository = this.getRepository();
+      // ✅ CORRECTION : Ajouter 'await' ici
+      const repository = await this.getRepository();
       
       const agents = await repository.find({
         order: { nom: "ASC", prenom: "ASC" }
@@ -54,7 +56,9 @@ export class AgentColarysService {
   async getAgentById(id: number): Promise<AgentColarys> {
     try {
       console.log(`🔄 Service: Getting agent by ID: ${id}`);
-      const repository = this.getRepository();
+      
+      // ✅ CORRECTION : Ajouter 'await' ici
+      const repository = await this.getRepository();
       const agent = await repository.findOne({ where: { id } });
       
       if (!agent) {
@@ -76,7 +80,8 @@ export class AgentColarysService {
         throw new ValidationError("Tous les champs obligatoires (matricule, nom, prénom, rôle, mail) doivent être remplis");
       }
 
-      const repository = this.getRepository();
+      // ✅ CORRECTION : Ajouter 'await' ici
+      const repository = await this.getRepository();
 
       // Vérification des doublons
       const existingAgent = await repository.findOne({
@@ -127,7 +132,9 @@ export class AgentColarysService {
   async updateAgent(id: number, agentData: Partial<AgentColarys>): Promise<AgentColarys> {
     try {
       const agent = await this.getAgentById(id);
-      const repository = this.getRepository();
+      
+      // ✅ CORRECTION : Ajouter 'await' ici
+      const repository = await this.getRepository();
       
       // Vérification des doublons (uniquement si matricule ou mail sont modifiés)
       if (agentData.matricule || agentData.mail) {
@@ -181,7 +188,9 @@ export class AgentColarysService {
   async deleteAgent(id: number): Promise<void> {
     try {
       const agent = await this.getAgentById(id);
-      const repository = this.getRepository();
+      
+      // ✅ CORRECTION : Ajouter 'await' ici
+      const repository = await this.getRepository();
       
       console.log(`🔄 Deleting agent ${id}: ${agent.nom} ${agent.prenom}`);
       
@@ -212,7 +221,9 @@ export class AgentColarysService {
       console.log(`🔄 Service: Uploading real image for agent ${agentId}`);
       
       const agent = await this.getAgentById(agentId);
-      const repository = this.getRepository();
+      
+      // ✅ CORRECTION : Ajouter 'await' ici
+      const repository = await this.getRepository();
       
       // Supprimer l'ancienne image de Cloudinary si elle existe
       if (agent.imagePublicId && agent.imagePublicId !== 'default-avatar') {
@@ -254,7 +265,9 @@ export class AgentColarysService {
       console.log(`🔄 Service: Deleting image for agent ${agentId}`);
       
       const agent = await this.getAgentById(agentId);
-      const repository = this.getRepository();
+      
+      // ✅ CORRECTION : Ajouter 'await' ici
+      const repository = await this.getRepository();
       
       // Supprimer l'image de Cloudinary si elle existe et n'est pas l'avatar par défaut
       if (agent.imagePublicId && agent.imagePublicId !== 'default-avatar') {
@@ -291,7 +304,8 @@ export class AgentColarysService {
         return await this.getAllAgents();
       }
       
-      const repository = this.getRepository();
+      // ✅ CORRECTION : Ajouter 'await' ici
+      const repository = await this.getRepository();
       
       const searchQuery = `%${query.trim()}%`;
       const agents = await repository
@@ -317,7 +331,8 @@ export class AgentColarysService {
   // Méthode utilitaire pour vérifier la santé du service
   async healthCheck(): Promise<{ status: string; agentsCount: number }> {
     try {
-      const repository = this.getRepository();
+      // ✅ CORRECTION : Ajouter 'await' ici
+      const repository = await this.getRepository();
       const agentsCount = await repository.count();
       
       return {
