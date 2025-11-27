@@ -233,6 +233,49 @@ app.get(`${API_PREFIX}/db-test`, async (_req, res) => {
         });
     }
 });
+app.get(`${API_PREFIX}/debug-entities`, async (_req, res) => {
+    try {
+        console.log('🔧 Debug entities endpoint called');
+        const dbStatus = {
+            initialized: data_source_1.AppDataSource.isInitialized,
+            entityCount: data_source_1.AppDataSource.entityMetadatas.length,
+            entities: data_source_1.AppDataSource.entityMetadatas.map(meta => ({
+                name: meta.name,
+                tableName: meta.tableName,
+                columns: meta.columns.map(col => col.propertyName)
+            }))
+        };
+        const agentColarysInfo = data_source_1.AppDataSource.entityMetadatas.find(meta => meta.name === 'AgentColarys' || meta.tableName === 'agents_colarys');
+        res.json({
+            success: true,
+            debug: {
+                timestamp: new Date().toISOString(),
+                database: dbStatus,
+                agentColarys: agentColarysInfo ? {
+                    found: true,
+                    name: agentColarysInfo.name,
+                    tableName: agentColarysInfo.tableName,
+                    columnCount: agentColarysInfo.columns.length
+                } : {
+                    found: false,
+                    message: "AgentColarys entity not found in TypeORM metadata"
+                },
+                environment: {
+                    nodeEnv: process.env.NODE_ENV,
+                    vercel: !!process.env.VERCEL
+                }
+            }
+        });
+    }
+    catch (error) {
+        console.error('❌ Debug entities error:', error);
+        res.status(500).json({
+            success: false,
+            error: "Debug failed",
+            message: error.message
+        });
+    }
+});
 console.log('📋 Mounting API routes...');
 app.use(`${API_PREFIX}/auth`, authRoutes_1.default);
 console.log('✅ Mounted: /api/auth');
