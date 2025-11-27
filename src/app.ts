@@ -3,7 +3,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
-import { AppDataSource ,initializeDatabase} from "./config/data-source";
+import { AppDataSource, initializeDatabase } from "./config/data-source";
 import { User } from "./entities/User";
 import userRoutes from "./routes/userRoutes";
 import authRoutes from "./routes/authRoutes";
@@ -16,48 +16,6 @@ import planningRoutes from "./routes/planningRoutes";
 import { errorMiddleware } from "./middleware/errorMiddleware";
 import agentColarysRoutes from "./routes/agentColarysRoutes";
 import colarysRoutes from "./routes/colarysRoutes";
-
-// Dans app.ts - après les imports
-const initializeDatabaseWithRetry = async (maxRetries = 3): Promise<boolean> => {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      console.log(`🔄 Database connection attempt ${attempt}/${maxRetries}`);
-      
-      const { initializeDatabase } = require("./config/data-source");
-      const connected = await initializeDatabase();
-      
-      if (connected) {
-        console.log('✅ Database connected successfully');
-        return true;
-      }
-    } catch (error) {
-      console.error(`❌ Database connection attempt ${attempt} failed:`, error.message);
-    }
-    
-    if (attempt < maxRetries) {
-      console.log(`⏳ Waiting 5 seconds before retry...`);
-      await new Promise(resolve => setTimeout(resolve, 5000));
-    }
-  }
-  
-  console.error('❌ All database connection attempts failed');
-  return false;
-};
-
-// Vérification des variables critiques pour Vercel
-if (process.env.VERCEL) {
-  console.log('🚀 Vercel Environment Detected');
-  console.log('🔧 Checking required environment variables...');
-  
-  const requiredVars = ['POSTGRES_HOST', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DB'];
-  const missingVars = requiredVars.filter(varName => !process.env[varName]);
-  
-  if (missingVars.length > 0) {
-    console.error('❌ MISSING REQUIRED ENV VARS:', missingVars);
-  } else {
-    console.log('✅ All required environment variables are present');
-  }
-}
 
 console.log('🚀 Starting Colarys API Server...');
 
@@ -164,7 +122,7 @@ const createDefaultUser = async () => {
   }
 };
 
-// ========== ROUTES ==========
+// ========== ROUTES DE BASE ==========
 
 // Route racine
 app.get('/', (_req, res) => {
@@ -173,7 +131,8 @@ app.get('/', (_req, res) => {
     version: "2.0.0",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    platform: process.env.VERCEL ? 'Vercel' : 'Local'
+    platform: process.env.VERCEL ? 'Vercel' : 'Local',
+    database: AppDataSource.isInitialized ? "Connected" : "Disconnected"
   });
 });
 
@@ -198,12 +157,11 @@ app.get(`${API_PREFIX}/health`, async (_req, res) => {
   }
 });
 
-// Route de test de connexion DB - À ajouter avant les autres routes
+// Route de test de connexion DB
 app.get(`${API_PREFIX}/db-test`, async (_req, res) => {
   try {
     console.log('🔧 Testing database connection...');
     
-    // Test 1: Statut de base
     const dbStatus = {
       initialized: AppDataSource.isInitialized,
       environment: process.env.NODE_ENV,
@@ -213,25 +171,31 @@ app.get(`${API_PREFIX}/db-test`, async (_req, res) => {
       port: process.env.POSTGRES_PORT
     };
 
-    // Test 2: Tentative de connexion
     let connectionTest = "Not attempted";
-    let entities = [];
+    let entities: string[] = [];
     
     if (!AppDataSource.isInitialized) {
       console.log('🔄 Attempting to initialize database...');
-      const { initializeDatabase } = require("./config/data-source");
       const connected = await initializeDatabase();
       
       if (connected) {
         connectionTest = "SUCCESS - Connected via test";
         entities = AppDataSource.entityMetadatas.map(e => e.name);
+        
+        // Test query
+        try {
+          await AppDataSource.query('SELECT 1 as test');
+          connectionTest += " (Query OK)";
+        } catch (queryError) {
+          connectionTest += ` (Query failed: ${queryError.message})`;
+        }
       } else {
         connectionTest = "FAILED - Could not initialize";
       }
     } else {
       try {
         await AppDataSource.query('SELECT 1');
-        connectionTest = "SUCCESS - Already connected";
+        connectionTest = "SUCCESS - Already connected (Query OK)";
         entities = AppDataSource.entityMetadatas.map(e => e.name);
       } catch (error) {
         connectionTest = `FAILED - Query error: ${error.message}`;
@@ -261,7 +225,7 @@ app.get(`${API_PREFIX}/db-test`, async (_req, res) => {
   }
 });
 
-// Dans app.ts - AVANT les autres routes API
+// Route de debug des entités
 app.get(`${API_PREFIX}/debug-entities`, async (_req, res) => {
   try {
     console.log('🔧 Debug entities endpoint called');
@@ -311,7 +275,8 @@ app.get(`${API_PREFIX}/debug-entities`, async (_req, res) => {
   }
 });
 
-// Mount toutes les routes
+// ========== MOUNT DES ROUTES API ==========
+
 console.log('📋 Mounting API routes...');
 
 app.use(`${API_PREFIX}/auth`, authRoutes);
@@ -356,9 +321,12 @@ app.use('*', (req, res) => {
     success: false,
     error: "Endpoint not found", 
     requestedUrl: req.originalUrl,
+    database: AppDataSource.isInitialized ? "Connected" : "Disconnected",
     availableRoutes: [
       "/",
       "/api/health",
+      "/api/db-test",
+      "/api/debug-entities",
       "/api/auth",
       "/api/users",
       "/api/agents",
@@ -379,26 +347,41 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   res.status(500).json({ 
     success: false,
     error: "Internal server error",
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
+    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong',
+    database: AppDataSource.isInitialized ? "Connected" : "Disconnected"
   });
 });
 
 // ========== DÉMARRAGE CONDITIONNEL ==========
 
-
 const startServer = async () => {
   try {
-    console.log('🚀 Starting server on Vercel...');
+    console.log('🚀 Starting server initialization...');
     
-    // ✅ INITIALISATION DB SIMPLIFIÉE ET SÉCURISÉE
+    // ✅ INITIALISATION DB AVEC GESTION D'ERREUR ROBUSTE
     try {
-      const { initializeDatabase } = require("./config/data-source");
-      await initializeDatabase();
+      console.log('🔄 Database initialization started...');
+      const connected = await initializeDatabase();
+      
+      if (connected) {
+        console.log('✅ Database connected successfully');
+        
+        // Créer l'utilisateur par défaut
+        try {
+          await createDefaultUser();
+        } catch (userError) {
+          console.warn('⚠️ Default user creation failed:', userError.message);
+        }
+      } else {
+        console.warn('⚠️ Database connection failed, running in limited mode');
+      }
     } catch (dbError) {
-      console.warn('⚠️ Database initialization failed, continuing without DB:', dbError.message);
+      console.error('❌ Database initialization error:', dbError.message);
+      console.warn('⚠️ Continuing without database connection');
     }
     
-    console.log("✅ Server ready");
+    console.log("✅ Server ready and listening for requests");
+    console.log("📊 Database status:", AppDataSource.isInitialized ? "CONNECTED" : "DISCONNECTED");
 
   } catch (error) {
     console.error("❌ Server startup error:", error);
@@ -409,4 +392,5 @@ const startServer = async () => {
 if (require.main === module || process.env.VERCEL) {
   startServer();
 }
+
 export default app;

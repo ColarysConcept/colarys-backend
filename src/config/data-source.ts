@@ -10,17 +10,17 @@ import { Role } from "../entities/Role";
 import { Presence } from "../entities/Presence";
 import { DetailPresence } from "../entities/DetailPresence";
 import { Trashpresence } from "../entities/Trashpresence";
-import { AgentColarys } from "../entities/AgentColarys"; // 👈 IMPORT EXPLICITE
+import { AgentColarys } from "../entities/AgentColarys";
 
 dotenv.config();
 
 console.log('🔧 Database configuration - Loading entities...');
 
-// ✅ CONFIGURATION AVEC ENTITÉS EXPLICITES
+// ✅ CONFIGURATION AVEC ENTITÉS EXPLICITES POUR SUPABASE
 export const AppDataSource = new DataSource({
   type: "postgres",
   host: process.env.POSTGRES_HOST,
-  port: parseInt(process.env.POSTGRES_PORT || "6543"),
+  port: parseInt(process.env.POSTGRES_PORT || "5432"),
   username: process.env.POSTGRES_USER,
   password: process.env.POSTGRES_PASSWORD,
   database: process.env.POSTGRES_DB,
@@ -34,20 +34,17 @@ export const AppDataSource = new DataSource({
     Presence,
     DetailPresence,
     Trashpresence,
-    AgentColarys // 👈 DOIT ÊTRE INCLUS ICI
+    AgentColarys
   ],
   
-  // ⚠️ IMPORTANT: synchronize true pour créer les tables manquantes
-  synchronize: true, // ✅ TEMPORAIREMENT TRUE POUR CRÉER LA TABLE
-  logging: true, // ✅ ACTIVER LES LOGS POUR LE DEBUG
+  // ⚠️ IMPORTANT: synchronize false en production
+  synchronize: process.env.NODE_ENV === 'development',
+  logging: process.env.NODE_ENV === 'development',
   
   // ✅ CONFIGURATION SSL POUR SUPABASE
-  ssl: process.env.NODE_ENV === 'production',
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
   extra: {
-    ssl: {
-      rejectUnauthorized: false
-    },
-    max: 5,
+    max: 10,
     connectionTimeoutMillis: 10000,
     idleTimeoutMillis: 30000,
   }
@@ -76,7 +73,15 @@ export const initializeDatabase = async (): Promise<boolean> => {
       return false;
     }
 
-    console.log('🔧 Attempting to connect to database...');
+    console.log('🔧 Database configuration:', {
+      host: process.env.POSTGRES_HOST,
+      port: process.env.POSTGRES_PORT,
+      database: process.env.POSTGRES_DB,
+      user: process.env.POSTGRES_USER ? '***' : 'MISSING',
+      ssl: process.env.NODE_ENV === 'production'
+    });
+
+    console.log('🔌 Attempting to connect to database...');
     await AppDataSource.initialize();
     
     console.log('✅ Database connected successfully!');
@@ -100,13 +105,30 @@ export const initializeDatabase = async (): Promise<boolean> => {
       console.error('❌ AgentColarys entity NOT found in metadata');
     }
     
+    // Test de connexion avec une requête simple
+    try {
+      const result = await AppDataSource.query('SELECT version() as version');
+      console.log('✅ Database version:', result[0]?.version);
+    } catch (queryError) {
+      console.warn('⚠️ Database query test failed:', queryError.message);
+    }
+    
     return true;
   } catch (error: any) {
     console.error('❌ Database initialization FAILED:');
     console.error('Error message:', error.message);
     console.error('Error code:', error.code);
-    console.error('Error stack:', error.stack);
     
+    // Logs détaillés pour le debug
+    if (error.code === 'ECONNREFUSED') {
+      console.error('🔌 Connection refused - Check host/port');
+    } else if (error.code === '28P01') {
+      console.error('🔑 Authentication failed - Check username/password');
+    } else if (error.code === '3D000') {
+      console.error('🗄️ Database does not exist - Check database name');
+    }
+    
+    console.error('Full error:', error);
     return false;
   }
 };
