@@ -5,17 +5,17 @@ import { upload } from '../config/multer';
 
 const router = Router();
 
-// Routes existantes...
+// Routes principales AVEC support multipart pour les images
 router.get('/', AgentColarysController.getAllAgents);
 router.get('/:id', AgentColarysController.getAgentById);
-router.post('/', AgentColarysController.createAgent);
-router.put('/:id', AgentColarysController.updateAgent);
+router.post('/', upload.single('image'), AgentColarysController.createAgent); // ✅ Ajouter multer ici
+router.put('/:id', upload.single('image'), AgentColarysController.updateAgent); // ✅ Ajouter multer ici
 router.delete('/:id', AgentColarysController.deleteAgent);
 
-// 🔥 NOUVELLES ROUTES POUR LES IMAGES
+// Routes spécifiques pour les images
 router.post(
   '/:agentId/upload-image',
-  upload.single('image'), // Middleware multer pour gérer le fichier
+  upload.single('image'),
   AgentColarysController.uploadAgentImage
 );
 
@@ -23,5 +23,8 @@ router.delete(
   '/:agentId/delete-image',
   AgentColarysController.deleteAgentImage
 );
+
+// Route de recherche
+router.get('/search/query', AgentColarysController.searchAgents);
 
 export default router;

@@ -1,6 +1,7 @@
 // src/controllers/AgentColarysController.ts - VERSION COMPLÈTEMENT CORRIGÉE
 import { Request, Response } from "express";
 import { AgentColarysService } from "../services/AgentColarysService";
+import { AgentColarys } from "../entities/AgentColarys";
 
 export class AgentColarysController {
   
@@ -91,66 +92,93 @@ export class AgentColarysController {
   }
 
   static async createAgent(req: Request, res: Response) {
-    try {
-      const agentData = req.body;
-      const agentService = new AgentColarysService();
-
-      // ✅ NE PAS FORCER L'IMAGE PAR DÉFAUT SI UNE IMAGE EST FOURNIE
-      if (!agentData.image || agentData.image.includes('default-avatar')) {
-        agentData.image = '/images/default-avatar.svg';
-      }
-      
-      console.log("🔄 Controller: Creating new agent", { 
-        nom: agentData.nom,
-        prenom: agentData.prenom,
-        matricule: agentData.matricule,
-        mail: agentData.mail,
-        role: agentData.role,
-        image: agentData.image
-      });
-      
-      const newAgent = await agentService.createAgent(agentData);
-      
-      // ✅ FORMATER L'IMAGE POUR LA RÉPONSE
-      const agentWithFormattedImage = {
-        ...newAgent,
-        displayImage: newAgent.image && !newAgent.image.includes('default-avatar') 
-          ? newAgent.image 
-          : '/images/default-avatar.svg',
-        hasDefaultImage: !newAgent.image || newAgent.image.includes('default-avatar')
+  try {
+    let agentData: Partial<AgentColarys>;
+    
+    // Vérifier si c'est un FormData (upload d'image)
+    if (req.headers['content-type']?.includes('multipart/form-data')) {
+      agentData = {
+        matricule: req.body.matricule,
+        nom: req.body.nom,
+        prenom: req.body.prenom,
+        role: req.body.role,
+        mail: req.body.mail,
+        contact: req.body.contact,
+        entreprise: req.body.entreprise || 'Colarys Concept'
       };
       
-      res.status(201).json({
-        success: true,
-        message: "Agent créé avec succès",
-        data: agentWithFormattedImage
-      });
-      
-    } catch (error: any) {
-      console.error("❌ Controller Error creating agent:", error);
-      
-      if (error.message.includes("existe déjà") || error.message.includes("already exists")) {
-        return res.status(400).json({
-          success: false,
-          error: "Le matricule ou l'email existe déjà"
-        });
+      // Si une image est uploadée, elle sera traitée séparément
+      if (req.file) {
+        // Pour la création, on peut uploader l'image après la création de l'agent
+        // ou modifier la logique pour gérer l'upload pendant la création
+        console.log('📸 Image reçue lors de la création, mais non traitée directement');
       }
-      
-      if (error.message.includes("champs obligatoires") || error.message.includes("required")) {
-        return res.status(400).json({
-          success: false,
-          error: "Tous les champs obligatoires doivent être remplis"
-        });
+    } else {
+      // Données JSON normales
+      agentData = req.body;
+    }
+
+    const agentService = new AgentColarysService();
+    
+    console.log("🔄 Controller: Creating new agent", { 
+      nom: agentData.nom,
+      prenom: agentData.prenom,
+      matricule: agentData.matricule,
+      mail: agentData.mail,
+      role: agentData.role
+    });
+    
+    const newAgent = await agentService.createAgent(agentData);
+    
+    // Si une image était fournie lors de la création, l'uploader maintenant
+    if (req.file && newAgent.id) {
+      try {
+        const updatedAgent = await agentService.uploadAgentImage(newAgent.id, req.file.buffer);
+        newAgent.image = updatedAgent.image;
+        newAgent.imagePublicId = updatedAgent.imagePublicId;
+      } catch (uploadError) {
+        console.error("❌ Error uploading image during creation:", uploadError);
+        // Continuer même si l'upload échoue
       }
-      
-      res.status(500).json({
+    }
+    
+    // Formater l'image pour la réponse
+    const agentWithFormattedImage = {
+      ...newAgent,
+      displayImage: newAgent.image,
+      hasDefaultImage: !newAgent.image || newAgent.image.includes('default-avatar')
+    };
+    
+    res.status(201).json({
+      success: true,
+      message: "Agent créé avec succès",
+      data: agentWithFormattedImage
+    });
+    
+  } catch (error: any) {
+    console.error("❌ Controller Error creating agent:", error);
+    
+    if (error.message.includes("existe déjà") || error.message.includes("already exists")) {
+      return res.status(400).json({
         success: false,
-        error: "Erreur lors de la création de l'agent",
-        message: error.message
+        error: "Le matricule ou l'email existe déjà"
       });
     }
+    
+    if (error.message.includes("champs obligatoires") || error.message.includes("required")) {
+      return res.status(400).json({
+        success: false,
+        error: "Tous les champs obligatoires doivent être remplis"
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors de la création de l'agent",
+      message: error.message
+    });
   }
-
+}
   static async updateAgent(req: Request, res: Response) {
     try {
       const id = parseInt(req.params.id);
@@ -365,59 +393,56 @@ export class AgentColarysController {
   }
 
   // 🔥 MÉTHODE POUR UPLOADER DES IMAGES RÉELLES
-  static async uploadAgentImage(req: Request, res: Response) {
-    try {
-      const agentId = parseInt(req.params.agentId);
-      
-      if (isNaN(agentId)) {
-        return res.status(400).json({
-          success: false,
-          error: "ID agent invalide"
-        });
-      }
-
-      if (!req.file) {
-        return res.status(400).json({
-          success: false,
-          error: "Aucun fichier image fourni"
-        });
-      }
-
-      console.log(`🔄 Uploading real image for agent ${agentId}`);
-      const agentService = new AgentColarysService();
-
-      const updatedAgent = await agentService.uploadAgentImage(
-        agentId, 
-        req.file.buffer
-      );
-
-      // Formater l'image pour la réponse
-      const agentWithFormattedImage = {
-        ...updatedAgent,
-        displayImage: updatedAgent.image && !updatedAgent.image.includes('default-avatar') 
-          ? updatedAgent.image 
-          : '/images/default-avatar.svg',
-        hasDefaultImage: !updatedAgent.image || updatedAgent.image.includes('default-avatar')
-      };
-
-      res.json({
-        success: true,
-        message: "Image uploadée avec succès",
-        data: {
-          agent: agentWithFormattedImage
-        }
-      });
-      
-    } catch (error: any) {
-      console.error("❌ Controller Error uploading agent image:", error);
-      res.status(500).json({
+ static async uploadAgentImage(req: Request, res: Response) {
+  try {
+    const agentId = parseInt(req.params.agentId);
+    
+    if (isNaN(agentId)) {
+      return res.status(400).json({
         success: false,
-        error: "Erreur lors de l'upload de l'image",
-        message: error.message
+        error: "ID agent invalide"
       });
     }
-  }
 
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "Aucun fichier image fourni"
+      });
+    }
+
+    console.log(`🔄 Controller: Uploading real image for agent ${agentId}`);
+    const agentService = new AgentColarysService();
+
+    const updatedAgent = await agentService.uploadAgentImage(
+      agentId, 
+      req.file.buffer
+    );
+
+    // Formater l'image pour la réponse
+    const agentWithFormattedImage = {
+      ...updatedAgent,
+      displayImage: updatedAgent.image,
+      hasDefaultImage: !updatedAgent.image || updatedAgent.image.includes('default-avatar')
+    };
+
+    res.json({
+      success: true,
+      message: "Image uploadée avec succès",
+      data: {
+        agent: agentWithFormattedImage
+      }
+    });
+    
+  } catch (error: any) {
+    console.error("❌ Controller Error uploading agent image:", error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors de l'upload de l'image",
+      message: error.message
+    });
+  }
+}
   static async deleteAgentImage(req: Request, res: Response) {
     try {
       const agentId = parseInt(req.params.agentId);

@@ -3,16 +3,16 @@ import { AppDataSource } from "../config/data-source";
 import { AgentColarys } from "../entities/AgentColarys";
 import { NotFoundError, ValidationError } from "../middleware/errorMiddleware";
 import { Repository } from "typeorm";
+import { CloudinaryService } from "./CloudinaryService";
 
 export class AgentColarysService {
   private agentRepository: Repository<AgentColarys> | null = null;
-  private storageService: any = null; // Temporairement désactivé
+  private cloudinaryService: CloudinaryService;
 
   constructor() {
-    // Ne pas initialiser immédiatement - attendre que la DB soit prête
+    this.cloudinaryService = new CloudinaryService();
   }
 
-  // Méthode pour obtenir le repository (avec vérification)
   private getRepository(): Repository<AgentColarys> {
     if (!AppDataSource.isInitialized) {
       throw new Error("Database connection unavailable");
@@ -59,7 +59,7 @@ export class AgentColarysService {
     }
   }
 
-  async createAgent(agentData: Partial<AgentColarys>): Promise<AgentColarys> {
+   async createAgent(agentData: Partial<AgentColarys>): Promise<AgentColarys> {
     try {
       if (!agentData.matricule || !agentData.nom || !agentData.prenom || !agentData.role || !agentData.mail) {
         throw new ValidationError("Tous les champs obligatoires doivent être remplis");
@@ -76,6 +76,12 @@ export class AgentColarysService {
 
       if (existingAgent) {
         throw new ValidationError("Le matricule ou l'email existe déjà");
+      }
+
+      // ✅ FORCER L'IMAGE PAR DÉFAUT SI AUCUNE IMAGE N'EST FOURNIE
+      if (!agentData.image) {
+        agentData.image = '/images/default-avatar.svg';
+        agentData.imagePublicId = 'default-avatar';
       }
 
       const agent = repository.create(agentData);
@@ -106,6 +112,12 @@ export class AgentColarysService {
         }
       }
 
+      // ✅ NE PAS MODIFIER L'IMAGE SI ELLE N'EST PAS FOURNIE DANS LES DONNÉES
+      if (!agentData.image) {
+        delete agentData.image;
+        delete agentData.imagePublicId;
+      }
+
       await repository.update(id, agentData);
       return await this.getAgentById(id);
     } catch (error) {
@@ -129,32 +141,60 @@ export class AgentColarysService {
     }
   }
 
-  async uploadAgentImage(agentId: number, fileBuffer: Buffer): Promise<AgentColarys> {
+   async uploadAgentImage(agentId: number, fileBuffer: Buffer): Promise<AgentColarys> {
     try {
-      console.log(`🔄 Uploading image for agent ${agentId}`);
+      console.log(`🔄 Uploading real image for agent ${agentId}`);
       
       const agent = await this.getAgentById(agentId);
       const repository = this.getRepository();
       
-      // TEMPORAIRE: Retourner l'agent sans modification
-      // La fonctionnalité d'upload sera implémentée plus tard
-      console.log(`✅ Image upload simulé pour l'agent ${agentId}`);
+      // Supprimer l'ancienne image de Cloudinary si elle existe
+      if (agent.imagePublicId && agent.imagePublicId !== 'default-avatar') {
+        try {
+          await this.cloudinaryService.deleteImage(agent.imagePublicId);
+          console.log(`✅ Old image deleted: ${agent.imagePublicId}`);
+        } catch (error) {
+          console.warn("⚠️ Could not delete old image from Cloudinary:", error);
+        }
+      }
       
-      return agent;
+      // Uploader la nouvelle image sur Cloudinary
+      console.log(`📤 Uploading new image to Cloudinary for agent ${agentId}`);
+      const { url, publicId } = await this.cloudinaryService.uploadImage(fileBuffer);
+      
+      // Mettre à jour l'agent avec la nouvelle image Cloudinary
+      agent.image = url;
+      agent.imagePublicId = publicId;
+      
+      const updatedAgent = await repository.save(agent);
+      console.log(`✅ Image uploaded successfully for agent ${agentId}: ${url}`);
+      
+      return updatedAgent;
     } catch (error: any) {
       console.error("❌ Service Error uploading agent image:", error);
       throw new Error("Erreur lors de l'upload de l'image: " + error.message);
     }
   }
 
+
   async deleteAgentImage(agentId: number): Promise<AgentColarys> {
     try {
       const agent = await this.getAgentById(agentId);
       const repository = this.getRepository();
       
+      // Supprimer l'image de Cloudinary si elle existe et n'est pas l'avatar par défaut
+      if (agent.imagePublicId && agent.imagePublicId !== 'default-avatar') {
+        try {
+          await this.cloudinaryService.deleteImage(agent.imagePublicId);
+          console.log(`✅ Image deleted from Cloudinary: ${agent.imagePublicId}`);
+        } catch (error) {
+          console.warn("⚠️ Could not delete image from Cloudinary:", error);
+        }
+      }
+      
       // Réinitialiser à l'image par défaut
       agent.image = '/images/default-avatar.svg';
-      agent.imagePublicId = null;
+      agent.imagePublicId = 'default-avatar';
       
       return await repository.save(agent);
     } catch (error: any) {
@@ -162,6 +202,7 @@ export class AgentColarysService {
       throw new Error("Erreur lors de la suppression de l'image: " + error.message);
     }
   }
+
 
   // Méthode utilitaire pour la recherche
   async searchAgents(query: string): Promise<AgentColarys[]> {
