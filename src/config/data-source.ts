@@ -1,4 +1,4 @@
-// src/config/data-source.ts - VERSION COMPLÈTEMENT CORRIGÉE
+// src/config/data-source.ts - VERSION COMPLÈTE
 import { DataSource } from "typeorm";
 import dotenv from "dotenv";
 
@@ -38,13 +38,13 @@ export const AppDataSource = new DataSource({
   ],
   
   // ⚠️ IMPORTANT: synchronize false en production
-  synchronize: process.env.NODE_ENV === 'development',
-  logging: process.env.NODE_ENV === 'development',
+  synchronize: false,
+  logging: false, // ✅ DÉSACTIVER LES LOGS EN PROD
   
   // ✅ CONFIGURATION SSL POUR SUPABASE
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
   extra: {
-    max: 10,
+    max: 5,
     connectionTimeoutMillis: 10000,
     idleTimeoutMillis: 30000,
   }
@@ -53,11 +53,6 @@ export const AppDataSource = new DataSource({
 export const initializeDatabase = async (): Promise<boolean> => {
   if (AppDataSource.isInitialized) {
     console.log('✅ Database already initialized');
-    
-    // Log des entités chargées
-    const entityNames = AppDataSource.entityMetadatas.map(meta => meta.name);
-    console.log('📋 Currently loaded entities:', entityNames);
-    
     return true;
   }
 
@@ -73,15 +68,7 @@ export const initializeDatabase = async (): Promise<boolean> => {
       return false;
     }
 
-    console.log('🔧 Database configuration:', {
-      host: process.env.POSTGRES_HOST,
-      port: process.env.POSTGRES_PORT,
-      database: process.env.POSTGRES_DB,
-      user: process.env.POSTGRES_USER ? '***' : 'MISSING',
-      ssl: process.env.NODE_ENV === 'production'
-    });
-
-    console.log('🔌 Attempting to connect to database...');
+    console.log('🔧 Attempting to connect to database...');
     await AppDataSource.initialize();
     
     console.log('✅ Database connected successfully!');
@@ -90,45 +77,36 @@ export const initializeDatabase = async (): Promise<boolean> => {
     const entityNames = AppDataSource.entityMetadatas.map(meta => meta.name);
     console.log('📋 Successfully loaded entities:', entityNames);
     
-    // Vérifier spécifiquement AgentColarys
-    const agentColarysMeta = AppDataSource.entityMetadatas.find(
-      meta => meta.name === 'AgentColarys' || meta.tableName === 'agents_colarys'
-    );
-    
-    if (agentColarysMeta) {
-      console.log('✅ AgentColarys entity loaded successfully:', {
-        name: agentColarysMeta.name,
-        tableName: agentColarysMeta.tableName,
-        columns: agentColarysMeta.columns.map(col => col.propertyName)
-      });
-    } else {
-      console.error('❌ AgentColarys entity NOT found in metadata');
-    }
-    
-    // Test de connexion avec une requête simple
-    try {
-      const result = await AppDataSource.query('SELECT version() as version');
-      console.log('✅ Database version:', result[0]?.version);
-    } catch (queryError) {
-      console.warn('⚠️ Database query test failed:', queryError.message);
-    }
-    
     return true;
   } catch (error: any) {
     console.error('❌ Database initialization FAILED:');
     console.error('Error message:', error.message);
     console.error('Error code:', error.code);
     
-    // Logs détaillés pour le debug
-    if (error.code === 'ECONNREFUSED') {
-      console.error('🔌 Connection refused - Check host/port');
-    } else if (error.code === '28P01') {
-      console.error('🔑 Authentication failed - Check username/password');
-    } else if (error.code === '3D000') {
-      console.error('🗄️ Database does not exist - Check database name');
+    return false;
+  }
+};
+
+// ✅ AJOUTEZ CETTE FONCTION À LA FIN DU FICHIER
+export const ensureDatabaseConnection = async (): Promise<boolean> => {
+  try {
+    if (AppDataSource.isInitialized) {
+      // Tester si la connexion est toujours active
+      try {
+        await AppDataSource.query('SELECT 1');
+        console.log('✅ Database connection verified');
+        return true;
+      } catch (error) {
+        console.log('🔄 Connection test failed, reconnecting...');
+        await AppDataSource.destroy();
+      }
     }
     
-    console.error('Full error:', error);
+    // Se reconnecter
+    console.log('🔄 Reconnecting to database...');
+    return await initializeDatabase();
+  } catch (error) {
+    console.error('❌ ensureDatabaseConnection failed:', error);
     return false;
   }
 };

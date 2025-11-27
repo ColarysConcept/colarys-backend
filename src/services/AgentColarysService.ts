@@ -1,5 +1,5 @@
-// src/services/AgentColarysService.ts - VERSION COMPLÈTE CORRIGÉE
-import { AppDataSource, ensureDatabaseConnection } from "../config/data-source";
+// src/services/AgentColarysService.ts - VERSION SIMPLIFIÉE
+import { AppDataSource, initializeDatabase } from "../config/data-source";
 import { AgentColarys } from "../entities/AgentColarys";
 import { NotFoundError, ValidationError } from "../middleware/errorMiddleware";
 import { Repository } from "typeorm";
@@ -13,13 +13,16 @@ export class AgentColarysService {
     this.cloudinaryService = new CloudinaryService();
   }
 
-  // ✅ MÉTHODE CORRIGÉE : Ajouter 'async' et 'await'
+  // ✅ VERSION SIMPLIFIÉE SANS ensureDatabaseConnection
   private async getRepository(): Promise<Repository<AgentColarys>> {
     try {
-      // S'assurer que la DB est connectée (AJOUT IMPORTANT)
-      const isConnected = await ensureDatabaseConnection();
+      // Toujours essayer de se connecter
+      if (!AppDataSource.isInitialized) {
+        console.log('🔄 Database not initialized, connecting...');
+        await initializeDatabase();
+      }
       
-      if (!isConnected) {
+      if (!AppDataSource.isInitialized) {
         throw new Error("Database connection unavailable");
       }
       
