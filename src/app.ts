@@ -16,6 +16,7 @@ import planningRoutes from "./routes/planningRoutes";
 import { errorMiddleware } from "./middleware/errorMiddleware";
 import agentColarysRoutes from "./routes/agentColarysRoutes";
 import colarysRoutes from "./routes/colarysRoutes";
+import debugRoutes from './routes/debugRoutes';
 
 console.log('🚀 Starting Colarys API Server...');
 
@@ -308,6 +309,9 @@ console.log('✅ Mounted: /api/agents-colarys');
 
 app.use(`${API_PREFIX}/colarys`, colarysRoutes);
 console.log('✅ Mounted: /api/colarys');
+
+app.use(`${API_PREFIX}/debug`, debugRoutes);
+console.log('✅ Mounted: /api/debug');
 
 console.log('📋 All routes mounted successfully');
 
