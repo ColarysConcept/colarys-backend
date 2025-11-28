@@ -1,14 +1,11 @@
 {
-    "name": "colarys-backend",
-    "version": "1.0.0",
-    "main": "dist/app.js",
-    "type": "commonjs",
+    "main": "dist/app-minimal.js",
     "scripts": {
-       "dev": "ts-node-dev --respawn --transpile-only src/app-minimal.ts",
-    "build": "tsc src/app-minimal.ts --outDir dist --esModuleInterop --skipLibCheck",
-    "start": "node dist/app-minimal.js",
-    "vercel-build": "npm run build",
-    "build:minimal": "tsc src/app-minimal.ts --outDir dist --esModuleInterop --skipLibCheck"
+        "dev": "ts-node-dev --respawn --transpile-only src/app-minimal.ts",
+        "build": "tsc src/app-minimal.ts --outDir dist --target ES2020 --module CommonJS --esModuleInterop --skipLibCheck",
+        "start": "node dist/app-minimal.js",
+        "vercel-build": "npm run build",
+        "build:manual": "rm -rf dist && mkdir -p dist && npx tsc src/app-minimal.ts --outDir dist --target ES2020 --module CommonJS --esModuleInterop --skipLibCheck && cp package.json dist/"
     },
     "dependencies": {
         "@supabase/supabase-js": "^2.86.0",
