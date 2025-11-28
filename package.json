@@ -5,10 +5,9 @@
   "type": "commonjs",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
-    "build": "tsc && npm run post-build",
-    "post-build": "node scripts/verify-build.js",
+    "build": "tsc && node scripts/copy-scripts.js",
     "start": "node dist/app.js",
-    "vercel-build": "npm run build && cp -r api dist/ 2>/dev/null || true && echo '📁 Build contents:' && ls -la dist/",
+    "vercel-build": "npm run build",
     "vercel-dev": "npm run build"
   },
   "dependencies": {
