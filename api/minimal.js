@@ -1,39 +1,67 @@
-// api/minimal.js - Version avec gestion DB
+// api/minimal.js - Version avec connexion DB directe
 console.log('🚀 Colarys API Enhanced - Starting...');
 
 const express = require('express');
 const cors = require('cors');
+const { DataSource } = require('typeorm');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ========== GESTION DATABASE ==========
+// ========== CONFIGURATION DB DIRECTE ==========
 let dbInitialized = false;
 let dbError = null;
+let AppDataSource = null;
 
 const initializeDatabase = async () => {
   try {
-    console.log('🔄 Attempting database connection...');
+    console.log('🔄 Initializing database directly...');
     
-    // Essayer d'importer et d'initialiser la DB
-    const { initializeDatabase: initDB } = require('../dist/config/data-source');
-    dbInitialized = await initDB();
+    AppDataSource = new DataSource({
+      type: "postgres",
+      host: process.env.POSTGRES_HOST,
+      port: parseInt(process.env.POSTGRES_PORT || "5432"),
+      username: process.env.POSTGRES_USER,
+      password: process.env.POSTGRES_PASSWORD,
+      database: process.env.POSTGRES_DB,
+      entities: [
+        // Entities minimales nécessaires
+      ],
+      synchronize: false,
+      logging: false,
+      ssl: {
+        rejectUnauthorized: false
+      }
+    });
+
+    await AppDataSource.initialize();
+    dbInitialized = true;
+    console.log('✅ Database connected successfully');
     
-    if (dbInitialized) {
-      console.log('✅ Database connected successfully');
-    } else {
-      dbError = 'Database initialization failed';
-      console.log('❌ Database connection failed');
-    }
   } catch (error) {
     dbError = error.message;
-    console.log('❌ Database error:', error.message);
+    console.log('❌ Database connection failed:', error.message);
   }
 };
 
-// Initialiser la DB au démarrage
+// Initialiser la DB
 initializeDatabase();
+
+// ========== ENTITÉS MANUELLES ==========
+
+// Définir l'entité User manuellement
+class User {
+  constructor() {
+    this.id = undefined;
+    this.name = undefined;
+    this.email = undefined;
+    this.password = undefined;
+    this.role = undefined;
+    this.createdAt = undefined;
+    this.updatedAt = undefined;
+  }
+}
 
 // ========== ROUTES ==========
 
@@ -48,7 +76,7 @@ app.get('/', (req, res) => {
   });
 });
 
-// Route santé améliorée
+// Route santé
 app.get('/api/health', (req, res) => {
   res.json({
     status: "HEALTHY",
@@ -57,101 +85,104 @@ app.get('/api/health', (req, res) => {
     database: {
       connected: dbInitialized,
       error: dbError
-    },
-    environment: process.env.NODE_ENV || 'production'
+    }
   });
 });
 
-// Route pour initialiser/récupérer l'utilisateur
-app.post('/api/init-user', async (req, res) => {
+// Route de test DB simple
+app.get('/api/test-db-simple', async (req, res) => {
   try {
     if (!dbInitialized) {
-      return res.status(503).json({
+      await initializeDatabase();
+    }
+
+    if (!dbInitialized) {
+      return res.json({
         success: false,
         error: "Database not connected",
-        message: "Please check database configuration"
+        message: dbError
       });
     }
 
-    const { AppDataSource } = require('../dist/config/data-source');
-    const { User } = require('../dist/entities/User');
-    const bcrypt = require('bcryptjs');
-
-    const userRepository = AppDataSource.getRepository(User);
-    
-    // Vérifier si l'utilisateur existe
-    let user = await userRepository.findOne({ 
-      where: { email: 'ressource.prod@gmail.com' } 
-    });
-
-    if (!user) {
-      // Créer l'utilisateur
-      const hashedPassword = await bcrypt.hash('stage25', 10);
-      user = userRepository.create({
-        name: 'Admin Ressources',
-        email: 'ressource.prod@gmail.com',
-        password: hashedPassword,
-        role: 'admin'
-      });
-      await userRepository.save(user);
-      
-      res.json({
-        success: true,
-        action: 'created',
-        message: 'Default user created successfully',
-        user: {
-          email: user.email,
-          password: 'stage25'
-        }
-      });
-    } else {
-      res.json({
-        success: true,
-        action: 'exists',
-        message: 'User already exists',
-        user: {
-          email: user.email
-        }
-      });
-    }
-  } catch (error) {
-    console.error('❌ Init user error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-// Test manuel de connexion DB
-app.post('/api/test-db-connection', async (req, res) => {
-  try {
-    console.log('🔧 Testing DB connection manually...');
-    
-    const { DataSource } = require('typeorm');
-    
-    // Créer une connexion de test
-    const testDataSource = new DataSource({
-      type: "postgres",
-      host: process.env.POSTGRES_HOST,
-      port: parseInt(process.env.POSTGRES_PORT || "5432"),
-      username: process.env.POSTGRES_USER,
-      password: process.env.POSTGRES_PASSWORD,
-      database: process.env.POSTGRES_DB,
-      ssl: { rejectUnauthorized: false }
-    });
-    
-    await testDataSource.initialize();
-    const result = await testDataSource.query('SELECT 1 as test');
-    await testDataSource.destroy();
+    // Test simple de connexion
+    const result = await AppDataSource.query('SELECT NOW() as current_time, version() as postgres_version');
     
     res.json({
       success: true,
       message: "Database connection successful",
-      test: result
+      test: result[0]
     });
-    
+
   } catch (error) {
-    console.error('❌ DB test error:', error);
+    res.json({
+      success: false,
+      error: error.message,
+      code: error.code
+    });
+  }
+});
+
+// Route pour créer l'utilisateur manuellement
+app.post('/api/create-user-manual', async (req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+
+    if (!dbInitialized) {
+      return res.status(503).json({
+        success: false,
+        error: "Database not connected",
+        message: dbError
+      });
+    }
+
+    const bcrypt = require('bcryptjs');
+    const hashedPassword = await bcrypt.hash('stage25', 10);
+
+    // Vérifier si l'utilisateur existe déjà
+    const existingUser = await AppDataSource.query(
+      'SELECT * FROM users WHERE email = $1',
+      ['ressource.prod@gmail.com']
+    );
+
+    if (existingUser.length > 0) {
+      // Mettre à jour le mot de passe
+      await AppDataSource.query(
+        'UPDATE users SET password = $1, updated_at = NOW() WHERE email = $2',
+        [hashedPassword, 'ressource.prod@gmail.com']
+      );
+
+      return res.json({
+        success: true,
+        action: 'updated',
+        message: 'User password updated to "stage25"',
+        credentials: {
+          email: 'ressource.prod@gmail.com',
+          password: 'stage25'
+        }
+      });
+    }
+
+    // Créer l'utilisateur
+    await AppDataSource.query(
+      `INSERT INTO users (name, email, password, role, created_at, updated_at) 
+       VALUES ($1, $2, $3, $4, NOW(), NOW())`,
+      ['Admin Ressources', 'ressource.prod@gmail.com', hashedPassword, 'admin']
+    );
+
+    res.json({
+      success: true,
+      action: 'created',
+      message: 'User created successfully',
+      credentials: {
+        email: 'ressource.prod@gmail.com',
+        password: 'stage25'
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Create user error:', error);
     res.status(500).json({
       success: false,
       error: error.message,
@@ -160,35 +191,42 @@ app.post('/api/test-db-connection', async (req, res) => {
   }
 });
 
-// Route de login avec DB réelle
+// Route de login avec DB directe
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     
     if (!dbInitialized) {
+      await initializeDatabase();
+    }
+
+    if (!dbInitialized) {
       return res.status(503).json({
         success: false,
         error: "Database not available",
-        message: "Service temporarily unavailable"
+        message: dbError
       });
     }
 
-    const { AppDataSource } = require('../dist/config/data-source');
-    const { User } = require('../dist/entities/User');
     const bcrypt = require('bcryptjs');
     const jwt = require('jsonwebtoken');
 
-    const userRepository = AppDataSource.getRepository(User);
-    const user = await userRepository.findOne({ where: { email } });
+    // Chercher l'utilisateur
+    const users = await AppDataSource.query(
+      'SELECT * FROM users WHERE email = $1',
+      [email]
+    );
 
-    if (!user) {
+    if (users.length === 0) {
       return res.status(401).json({
         success: false,
         error: "User not found"
       });
     }
 
+    const user = users[0];
     const validPassword = await bcrypt.compare(password, user.password);
+
     if (!validPassword) {
       return res.status(401).json({
         success: false,
@@ -196,10 +234,10 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    // Générer le token JWT
+    // Générer le token
     const token = jwt.sign(
       { userId: user.id, email: user.email, role: user.role },
-      process.env.JWT_SECRET || 'fallback-secret',
+      process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
 
@@ -223,40 +261,6 @@ app.post('/api/auth/login', async (req, res) => {
       message: error.message
     });
   }
-});
-
-// Route pour vérifier la DB
-app.get('/api/db-status', (req, res) => {
-  res.json({
-    database: {
-      connected: dbInitialized,
-      error: dbError,
-      environment: {
-        host: process.env.POSTGRES_HOST ? 'set' : 'missing',
-        user: process.env.POSTGRES_USER ? 'set' : 'missing',
-        database: process.env.POSTGRES_DB ? 'set' : 'missing'
-      }
-    }
-  });
-});
-
-// Route de diagnostic détaillé
-app.get('/api/debug-env', (req, res) => {
-  // Ne jamais exposer les mots de passe réels en production!
-  res.json({
-    environment: {
-      node_env: process.env.NODE_ENV,
-      postgres_host: process.env.POSTGRES_HOST ? '***' : 'MISSING',
-      postgres_user: process.env.POSTGRES_USER ? '***' : 'MISSING', 
-      postgres_db: process.env.POSTGRES_DB ? '***' : 'MISSING',
-      postgres_port: process.env.POSTGRES_PORT || '5432',
-      jwt_secret: process.env.JWT_SECRET ? 'SET' : 'MISSING'
-    },
-    database: {
-      connected: dbInitialized,
-      error: dbError
-    }
-  });
 });
 
 console.log('✅ Enhanced API ready!');
