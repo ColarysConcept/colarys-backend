@@ -114,6 +114,67 @@ app.use((error: any, _req: any, res: any, _next: any) => {
   });
 });
 
+// ==================== ROUTES AUTHENTIFICATION ====================
+
+// Route de login
+app.post('/api/auth/login', (req, res) => {
+  console.log('🔐 Login attempt:', req.body);
+  
+  const { username, password } = req.body;
+
+  // Mock authentication - À REMPLACER par votre vraie logique
+  if (username === 'admin' && password === 'admin') {
+    res.json({
+      success: true,
+      message: "✅ Login successful",
+      user: {
+        id: 1,
+        username: 'admin',
+        email: 'admin@colarys.com',
+        role: 'administrator'
+      },
+      token: 'mock-jwt-token-for-development-' + Date.now()
+    });
+  } else {
+    res.status(401).json({
+      success: false,
+      error: "❌ Invalid credentials"
+    });
+  }
+});
+
+// Route de vérification de token
+app.get('/api/auth/verify', (req, res) => {
+  res.json({
+    success: true,
+    user: {
+      id: 1,
+      username: 'admin',
+      email: 'admin@colarys.com',
+      role: 'administrator'
+    },
+    message: "✅ Token is valid"
+  });
+});
+
+// Route de logout
+app.post('/api/auth/logout', (req, res) => {
+  res.json({
+    success: true,
+    message: "✅ Logout successful"
+  });
+});
+
+// Route 404 - DOIT RESTER EN DERNIER
+app.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: "Endpoint not found",
+    requestedUrl: req.originalUrl,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Route 404
 app.use('*', (req, res) => {
   res.status(404).json({
