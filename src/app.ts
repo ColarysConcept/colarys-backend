@@ -51,23 +51,32 @@ const allowedOrigins = [
 ];
 
 app.use(cors({
-  origin: true, // Autorise toutes les origines
+  origin: true, // ✅ Autorise TOUTES les origines
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
+  allowedHeaders: ['*'], // ✅ Autorise TOUS les headers
+  exposedHeaders: ['*'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 }));
 
 app.use((req, res, next) => {
+  // Headers CORS pour TOUTES les réponses
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers');
   res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
   
+  // Répondre immédiatement aux requêtes OPTIONS
   if (req.method === 'OPTIONS') {
+    console.log('🛠️  CORS Preflight handled for:', req.headers.origin);
     return res.status(200).end();
   }
   
   next();
 });
+
 
 // 🔥 CORRECTION : Gestion OPTIONS pour CORS preflight
 app.options('*', (req, res) => {
@@ -160,6 +169,32 @@ const createDefaultUser = async () => {
 };
 
 // ========== ROUTES DE BASE ==========
+
+// 🔥 AJOUTEZ CES ROUTES DE TEST AVANT LES AUTRES ROUTES :
+
+// Route de test CORS URGENCE
+app.get('/api/cors-test', (req, res) => {
+  console.log('🧪 CORS Test Route called from:', req.headers.origin);
+  res.json({
+    success: true,
+    message: '✅ CORS TEST SUCCESSFUL',
+    timestamp: new Date().toISOString(),
+    origin: req.headers.origin,
+    cors: 'ENABLED'
+  });
+});
+
+// Route de santé URGENCE
+app.get('/api/health-urgent', (req, res) => {
+  console.log('🚑 URGENT Health check from:', req.headers.origin);
+  res.json({
+    success: true,
+    status: 'OK',
+    message: '🚑 URGENT HEALTH CHECK - CORS FIXED',
+    timestamp: new Date().toISOString(),
+    origin: req.headers.origin
+  });
+});
 
 // Route racine
 app.get('/', (_req, res) => {
