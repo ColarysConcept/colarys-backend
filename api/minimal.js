@@ -122,6 +122,43 @@ app.post('/api/init-user', async (req, res) => {
     });
   }
 });
+// Test manuel de connexion DB
+app.post('/api/test-db-connection', async (req, res) => {
+  try {
+    console.log('🔧 Testing DB connection manually...');
+    
+    const { DataSource } = require('typeorm');
+    
+    // Créer une connexion de test
+    const testDataSource = new DataSource({
+      type: "postgres",
+      host: process.env.POSTGRES_HOST,
+      port: parseInt(process.env.POSTGRES_PORT || "5432"),
+      username: process.env.POSTGRES_USER,
+      password: process.env.POSTGRES_PASSWORD,
+      database: process.env.POSTGRES_DB,
+      ssl: { rejectUnauthorized: false }
+    });
+    
+    await testDataSource.initialize();
+    const result = await testDataSource.query('SELECT 1 as test');
+    await testDataSource.destroy();
+    
+    res.json({
+      success: true,
+      message: "Database connection successful",
+      test: result
+    });
+    
+  } catch (error) {
+    console.error('❌ DB test error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: error.code
+    });
+  }
+});
 
 // Route de login avec DB réelle
 app.post('/api/auth/login', async (req, res) => {
@@ -199,6 +236,25 @@ app.get('/api/db-status', (req, res) => {
         user: process.env.POSTGRES_USER ? 'set' : 'missing',
         database: process.env.POSTGRES_DB ? 'set' : 'missing'
       }
+    }
+  });
+});
+
+// Route de diagnostic détaillé
+app.get('/api/debug-env', (req, res) => {
+  // Ne jamais exposer les mots de passe réels en production!
+  res.json({
+    environment: {
+      node_env: process.env.NODE_ENV,
+      postgres_host: process.env.POSTGRES_HOST ? '***' : 'MISSING',
+      postgres_user: process.env.POSTGRES_USER ? '***' : 'MISSING', 
+      postgres_db: process.env.POSTGRES_DB ? '***' : 'MISSING',
+      postgres_port: process.env.POSTGRES_PORT || '5432',
+      jwt_secret: process.env.JWT_SECRET ? 'SET' : 'MISSING'
+    },
+    database: {
+      connected: dbInitialized,
+      error: dbError
     }
   });
 });
