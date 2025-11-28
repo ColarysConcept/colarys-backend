@@ -312,6 +312,40 @@ app.get('/api/debug-env', (req, res) => {
   });
 });
 
+// Route pour vérifier l'utilisateur spécifique
+app.get('/api/check-my-user', async (req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+
+    // Vérifier l'utilisateur spécifique
+    const user = await AppDataSource.query(
+      'SELECT id, name, email, role, "createdAt", "updatedAt" FROM "user" WHERE email = $1',
+      ['ressource.prod@gmail.com']
+    );
+
+    if (user.length === 0) {
+      return res.json({
+        success: false,
+        message: "User not found in database"
+      });
+    }
+
+    res.json({
+      success: true,
+      user: user[0],
+      message: "User found in database"
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Gestionnaire d'erreurs
 app.use((error, req, res, next) => {
   console.error('❌ Server error:', error);
