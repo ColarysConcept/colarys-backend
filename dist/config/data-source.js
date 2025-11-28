@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.initializeDatabase = exports.AppDataSource = void 0;
+exports.ensureDatabaseConnection = exports.initializeDatabase = exports.AppDataSource = void 0;
 const typeorm_1 = require("typeorm");
 const dotenv_1 = __importDefault(require("dotenv"));
 const User_1 = require("../entities/User");
@@ -19,7 +19,7 @@ console.log('🔧 Database configuration - Loading entities...');
 exports.AppDataSource = new typeorm_1.DataSource({
     type: "postgres",
     host: process.env.POSTGRES_HOST,
-    port: parseInt(process.env.POSTGRES_PORT || "6543"),
+    port: parseInt(process.env.POSTGRES_PORT || "5432"),
     username: process.env.POSTGRES_USER,
     password: process.env.POSTGRES_PASSWORD,
     database: process.env.POSTGRES_DB,
@@ -33,13 +33,10 @@ exports.AppDataSource = new typeorm_1.DataSource({
         Trashpresence_1.Trashpresence,
         AgentColarys_1.AgentColarys
     ],
-    synchronize: true,
-    logging: true,
-    ssl: process.env.NODE_ENV === 'production',
+    synchronize: false,
+    logging: false,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     extra: {
-        ssl: {
-            rejectUnauthorized: false
-        },
         max: 5,
         connectionTimeoutMillis: 10000,
         idleTimeoutMillis: 30000,
@@ -48,8 +45,6 @@ exports.AppDataSource = new typeorm_1.DataSource({
 const initializeDatabase = async () => {
     if (exports.AppDataSource.isInitialized) {
         console.log('✅ Database already initialized');
-        const entityNames = exports.AppDataSource.entityMetadatas.map(meta => meta.name);
-        console.log('📋 Currently loaded entities:', entityNames);
         return true;
     }
     try {
@@ -65,25 +60,35 @@ const initializeDatabase = async () => {
         console.log('✅ Database connected successfully!');
         const entityNames = exports.AppDataSource.entityMetadatas.map(meta => meta.name);
         console.log('📋 Successfully loaded entities:', entityNames);
-        const agentColarysMeta = exports.AppDataSource.entityMetadatas.find(meta => meta.name === 'AgentColarys' || meta.tableName === 'agents_colarys');
-        if (agentColarysMeta) {
-            console.log('✅ AgentColarys entity loaded successfully:', {
-                name: agentColarysMeta.name,
-                tableName: agentColarysMeta.tableName,
-                columns: agentColarysMeta.columns.map(col => col.propertyName)
-            });
-        }
-        else {
-            console.error('❌ AgentColarys entity NOT found in metadata');
-        }
         return true;
     }
     catch (error) {
         console.error('❌ Database initialization FAILED:');
         console.error('Error message:', error.message);
         console.error('Error code:', error.code);
-        console.error('Error stack:', error.stack);
         return false;
     }
 };
 exports.initializeDatabase = initializeDatabase;
+const ensureDatabaseConnection = async () => {
+    try {
+        if (exports.AppDataSource.isInitialized) {
+            try {
+                await exports.AppDataSource.query('SELECT 1');
+                console.log('✅ Database connection verified');
+                return true;
+            }
+            catch (error) {
+                console.log('🔄 Connection test failed, reconnecting...');
+                await exports.AppDataSource.destroy();
+            }
+        }
+        console.log('🔄 Reconnecting to database...');
+        return await (0, exports.initializeDatabase)();
+    }
+    catch (error) {
+        console.error('❌ ensureDatabaseConnection failed:', error);
+        return false;
+    }
+};
+exports.ensureDatabaseConnection = ensureDatabaseConnection;

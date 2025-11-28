@@ -16,7 +16,7 @@ class CloudinaryService {
                 folder,
                 resource_type: 'image',
                 transformation: [
-                    { width: 300, height: 300, crop: 'fill' },
+                    { width: 150, height: 150, crop: 'fill' },
                     { quality: 'auto' },
                     { format: 'webp' }
                 ]

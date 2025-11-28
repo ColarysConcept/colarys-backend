@@ -1,41 +1,10 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.colarysEmployeeService = exports.ColarysEmployeeService = void 0;
-const fs_1 = __importDefault(require("fs"));
-const path_1 = __importDefault(require("path"));
+const supabase_1 = require("../lib/supabase");
 class ColarysEmployeeService {
     constructor() {
-        this.ALLOWED_PRESENCE_VALUES = new Set(["p", "n", "a", "c", "m", "f", "o"]);
-        this.dataPath = this.findDataPath();
-        console.log('🔧 Dossier des données Colarys:', this.dataPath);
-        this.initializeDataFiles();
-    }
-    findDataPath() {
-        const possiblePaths = [
-            path_1.default.join(process.cwd(), 'colarys'),
-            path_1.default.join(process.cwd(), '..', 'colarys'),
-            path_1.default.join(process.cwd(), '..', '..', 'colarys'),
-            path_1.default.join('C:', 'Users', 'RAMANDA', 'Desktop', 'Theme Gestion des Resources et production de colarys concept', 'colarys'),
-            process.env.COLARYS_DATA_PATH || ''
-        ].filter(p => p && fs_1.default.existsSync(p));
-        return possiblePaths[0] || path_1.default.join(process.cwd(), 'colarys-data');
-    }
-    initializeDataFiles() {
-        const requiredFiles = {
-            'employes.json': [],
-            'presences.json': {},
-            'salaires.json': {}
-        };
-        for (const [filename, defaultData] of Object.entries(requiredFiles)) {
-            const filePath = path_1.default.join(this.dataPath, filename);
-            if (!fs_1.default.existsSync(filePath)) {
-                console.log(`📝 Création de ${filename}...`);
-                this.writeJSONFile(filename, defaultData);
-            }
-        }
+        console.log('🔧 ColarysEmployeeService initialisé avec Supabase');
     }
     parseFloat(s, defaultVal = 0.0) {
         try {
@@ -109,33 +78,17 @@ class ColarysEmployeeService {
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
         return diffDays > 365 ? 1 : 0;
     }
-    readJSONFile(filename, defaultData) {
-        const filePath = path_1.default.join(this.dataPath, filename);
-        try {
-            if (fs_1.default.existsSync(filePath)) {
-                const data = fs_1.default.readFileSync(filePath, 'utf8');
-                return JSON.parse(data);
-            }
+    calculAncienneteAns(dateEmbaucheStr) {
+        const dateEmbauche = this.parseDateEmbauche(dateEmbaucheStr);
+        if (!dateEmbauche)
+            return 0;
+        const today = new Date();
+        let years = today.getFullYear() - dateEmbauche.getFullYear();
+        const months = today.getMonth() - dateEmbauche.getMonth();
+        if (months < 0 || (months === 0 && today.getDate() < dateEmbauche.getDate())) {
+            years--;
         }
-        catch (error) {
-            console.error(`❌ Erreur lecture ${filename}:`, error);
-        }
-        return defaultData;
-    }
-    writeJSONFile(filename, data) {
-        const filePath = path_1.default.join(this.dataPath, filename);
-        try {
-            const dir = path_1.default.dirname(filePath);
-            if (!fs_1.default.existsSync(dir)) {
-                fs_1.default.mkdirSync(dir, { recursive: true });
-            }
-            fs_1.default.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
-            return true;
-        }
-        catch (error) {
-            console.error(`❌ Erreur écriture ${filename}:`, error);
-            return false;
-        }
+        return years;
     }
     calculerJoursOuvrables(year, month) {
         try {
@@ -153,15 +106,12 @@ class ColarysEmployeeService {
         }
         catch (error) {
             console.error('❌ Erreur calcul jours ouvrables:', error);
-            return this.getJoursOuvrablesParDefaut(month);
+            const joursParMois = {
+                1: 22, 2: 20, 3: 23, 4: 21, 5: 22, 6: 22,
+                7: 21, 8: 23, 9: 21, 10: 22, 11: 22, 12: 20
+            };
+            return joursParMois[month] || 22;
         }
-    }
-    getJoursOuvrablesParDefaut(month) {
-        const joursParMois = {
-            1: 22, 2: 20, 3: 23, 4: 21, 5: 22, 6: 22,
-            7: 21, 8: 23, 9: 21, 10: 22, 11: 22, 12: 20
-        };
-        return joursParMois[month] || 22;
     }
     calculHeuresPresence(matricule, year, month, presences) {
         var _a;
@@ -180,7 +130,7 @@ class ColarysEmployeeService {
         for (let jour = 1; jour <= joursDansMois; jour++) {
             const key = `${matricule}_${year}_${month}_${jour}`;
             const statut = (_a = presences[key]) === null || _a === void 0 ? void 0 : _a.toLowerCase();
-            const heuresPlanifiees = this.getHeuresPlanifiees(matricule, year, month, jour) || 8;
+            const heuresPlanifiees = 8;
             switch (statut) {
                 case 'p':
                     result.presence += heuresPlanifiees;
@@ -213,38 +163,49 @@ class ColarysEmployeeService {
         }
         return result;
     }
-    getHeuresPlanifiees(matricule, year, month, day) {
+    async getAllEmployees() {
         try {
-            return 8;
+            const { data, error } = await supabase_1.supabase
+                .from('employees')
+                .select('*')
+                .order('Matricule');
+            if (error) {
+                console.error('❌ Erreur récupération employés:', error);
+                return [];
+            }
+            return data || [];
         }
         catch (error) {
-            console.error(`❌ Erreur récupération planning ${matricule}:`, error);
-            return 8;
+            console.error('❌ Erreur récupération employés:', error);
+            return [];
         }
-    }
-    calculAncienneteAns(dateEmbaucheStr) {
-        const dateEmbauche = this.parseDateEmbauche(dateEmbaucheStr);
-        if (!dateEmbauche)
-            return 0;
-        const today = new Date();
-        let years = today.getFullYear() - dateEmbauche.getFullYear();
-        const months = today.getMonth() - dateEmbauche.getMonth();
-        if (months < 0 || (months === 0 && today.getDate() < dateEmbauche.getDate())) {
-            years--;
-        }
-        return years;
-    }
-    async getAllEmployees() {
-        return this.readJSONFile('employes.json', []);
     }
     async getEmployeeByMatricule(matricule) {
-        const employees = await this.getAllEmployees();
-        return employees.find(emp => emp.Matricule === matricule) || null;
+        try {
+            const { data, error } = await supabase_1.supabase
+                .from('employees')
+                .select('*')
+                .eq('Matricule', matricule)
+                .single();
+            if (error) {
+                console.error('❌ Erreur récupération employé:', error);
+                return null;
+            }
+            return data;
+        }
+        catch (error) {
+            console.error('❌ Erreur récupération employé:', error);
+            return null;
+        }
     }
     async createEmployee(employeeData) {
         try {
-            const employees = await this.getAllEmployees();
-            if (employees.find(emp => emp.Matricule === employeeData.Matricule)) {
+            const { data: existing } = await supabase_1.supabase
+                .from('employees')
+                .select('Matricule')
+                .eq('Matricule', employeeData.Matricule)
+                .single();
+            if (existing) {
                 return { success: false, message: 'Un employé avec ce matricule existe déjà' };
             }
             const dateEmbauche = employeeData["Date d'embauche"];
@@ -252,23 +213,54 @@ class ColarysEmployeeService {
             const droit = this.calculDroitDepuisDate(dateEmbauche);
             const soldeInitial = this.parseFloat(employeeData["Solde initial congé"], 0);
             const soldeConge = this.parseFloat(employeeData["Solde de congé"], -1);
-            const nouvelEmploye = Object.assign(Object.assign({}, employeeData), { Ancienneté: anciennete, "droit ostie": droit.toString(), "droit transport et repas": droit.toString(), "Solde de congé": soldeConge < 0 ? soldeInitial.toString() : employeeData["Solde de congé"] });
-            employees.push(nouvelEmploye);
-            const success = this.writeJSONFile('employes.json', employees);
-            return success ?
-                { success: true, message: 'Employé créé avec succès', matricule: employeeData.Matricule } :
-                { success: false, message: 'Erreur lors de la sauvegarde' };
+            const nouvelEmploye = Object.assign(Object.assign({}, employeeData), { Ancienneté: anciennete, "droit ostie": droit.toString(), "droit transport et repas": droit.toString(), "Solde de congé": soldeConge < 0 ? soldeInitial.toString() : employeeData["Solde de congé"], created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+            const { data, error } = await supabase_1.supabase
+                .from('employees')
+                .insert([nouvelEmploye])
+                .select();
+            if (error) {
+                console.error('❌ Erreur création employé:', error);
+                return { success: false, message: error.message };
+            }
+            return {
+                success: true,
+                message: 'Employé créé avec succès',
+                matricule: employeeData.Matricule
+            };
         }
         catch (error) {
-            console.error('Erreur création employé:', error);
+            console.error('❌ Erreur création employé:', error);
             return { success: false, message: 'Erreur lors de la création' };
+        }
+    }
+    async getEmployeePresenceForMonth(matricule, year, month) {
+        try {
+            const { data, error } = await supabase_1.supabase
+                .from('presences')
+                .select('*')
+                .eq('matricule', matricule)
+                .eq('year', year)
+                .eq('month', month)
+                .order('day');
+            if (error) {
+                console.error('❌ Erreur récupération présences employé:', error);
+                return [];
+            }
+            return data || [];
+        }
+        catch (error) {
+            console.error('❌ Erreur récupération présences employé:', error);
+            return [];
         }
     }
     async updateEmployee(matricule, employeeData) {
         try {
-            const employees = await this.getAllEmployees();
-            const index = employees.findIndex(emp => emp.Matricule === matricule);
-            if (index === -1) {
+            const { data: existing } = await supabase_1.supabase
+                .from('employees')
+                .select('Matricule')
+                .eq('Matricule', matricule)
+                .single();
+            if (!existing) {
                 return { success: false, message: 'Employé non trouvé' };
             }
             if (employeeData["Date d'embauche"]) {
@@ -278,126 +270,232 @@ class ColarysEmployeeService {
                 employeeData["droit ostie"] = droit.toString();
                 employeeData["droit transport et repas"] = droit.toString();
             }
-            employees[index] = Object.assign(Object.assign({}, employees[index]), employeeData);
-            const success = this.writeJSONFile('employes.json', employees);
-            return success ?
-                { success: true, message: 'Employé modifié avec succès' } :
-                { success: false, message: 'Erreur lors de la sauvegarde' };
+            employeeData.updated_at = new Date().toISOString();
+            const { error } = await supabase_1.supabase
+                .from('employees')
+                .update(employeeData)
+                .eq('Matricule', matricule);
+            if (error) {
+                console.error('❌ Erreur modification employé:', error);
+                return { success: false, message: error.message };
+            }
+            return { success: true, message: 'Employé modifié avec succès' };
         }
         catch (error) {
-            console.error('Erreur modification employé:', error);
+            console.error('❌ Erreur modification employé:', error);
             return { success: false, message: 'Erreur lors de la modification' };
         }
     }
     async deleteEmployee(matricule) {
         try {
-            const employees = await this.getAllEmployees();
-            const filteredEmployees = employees.filter(emp => emp.Matricule !== matricule);
-            if (filteredEmployees.length === employees.length) {
-                return { success: false, message: 'Employé non trouvé' };
+            const { error } = await supabase_1.supabase
+                .from('employees')
+                .delete()
+                .eq('Matricule', matricule);
+            if (error) {
+                console.error('❌ Erreur suppression employé:', error);
+                return { success: false, message: error.message };
             }
-            const success = this.writeJSONFile('employes.json', filteredEmployees);
-            return success ?
-                { success: true, message: 'Employé supprimé avec succès' } :
-                { success: false, message: 'Erreur lors de la suppression' };
+            return { success: true, message: 'Employé supprimé avec succès' };
         }
         catch (error) {
-            console.error('Erreur suppression employé:', error);
+            console.error('❌ Erreur suppression employé:', error);
             return { success: false, message: 'Erreur lors de la suppression' };
         }
     }
     async getPresences() {
-        return this.readJSONFile('presences.json', {});
+        try {
+            const { data, error } = await supabase_1.supabase
+                .from('presences')
+                .select('*');
+            if (error) {
+                console.error('❌ Erreur récupération présences:', error);
+                return {};
+            }
+            const presencesMap = {};
+            data === null || data === void 0 ? void 0 : data.forEach(presence => {
+                const key = `${presence.matricule}_${presence.year}_${presence.month}_${presence.day}`;
+                presencesMap[key] = presence.type;
+            });
+            return presencesMap;
+        }
+        catch (error) {
+            console.error('❌ Erreur récupération présences:', error);
+            return {};
+        }
     }
     async updatePresence(matricule, year, month, day, type) {
         try {
-            const presences = await this.getPresences();
-            const key = `${matricule}_${year}_${month}_${day}`;
             const ALLOWED_PRESENCE_VALUES = new Set(["p", "n", "a", "c", "m", "f", "o"]);
             if (!ALLOWED_PRESENCE_VALUES.has(type) && type !== '') {
                 return { success: false, message: 'Type de présence invalide' };
             }
             if (type === '') {
-                delete presences[key];
+                const { error } = await supabase_1.supabase
+                    .from('presences')
+                    .delete()
+                    .eq('matricule', matricule)
+                    .eq('year', year)
+                    .eq('month', month)
+                    .eq('day', day);
+                if (error) {
+                    return { success: false, message: error.message };
+                }
             }
             else {
-                presences[key] = type;
+                const { error } = await supabase_1.supabase
+                    .from('presences')
+                    .upsert({
+                    matricule,
+                    year,
+                    month,
+                    day,
+                    type,
+                    created_at: new Date().toISOString()
+                }, {
+                    onConflict: 'matricule,year,month,day'
+                });
+                if (error) {
+                    return { success: false, message: error.message };
+                }
             }
             if (type === 'c') {
                 await this.updateSoldeConge(matricule, -1);
             }
-            const success = this.writeJSONFile('presences.json', presences);
-            return success ?
-                { success: true, message: 'Présence mise à jour avec succès' } :
-                { success: false, message: 'Erreur lors de la sauvegarde' };
+            return { success: true, message: 'Présence mise à jour avec succès' };
         }
         catch (error) {
-            console.error('Erreur mise à jour présence:', error);
+            console.error('❌ Erreur mise à jour présence:', error);
             return { success: false, message: 'Erreur lors de la mise à jour' };
         }
     }
     async getMonthlyPresences(year, month) {
-        const presences = await this.getPresences();
-        const employees = await this.getAllEmployees();
-        const firstDay = new Date(year, month - 1, 1);
-        const lastDay = new Date(year, month, 0);
-        const daysInMonth = lastDay.getDate();
-        return {
-            year,
-            month,
-            daysInMonth,
-            presences,
-            employees
-        };
+        try {
+            const { data: presencesData, error } = await supabase_1.supabase
+                .from('presences')
+                .select('*')
+                .eq('year', year)
+                .eq('month', month);
+            if (error) {
+                console.error('❌ Erreur récupération présences mensuelles:', error);
+                return { year, month, daysInMonth: 0, presences: {}, employees: [] };
+            }
+            const employees = await this.getAllEmployees();
+            const daysInMonth = new Date(year, month, 0).getDate();
+            const presences = {};
+            presencesData === null || presencesData === void 0 ? void 0 : presencesData.forEach(presence => {
+                const key = `${presence.matricule}_${presence.year}_${presence.month}_${presence.day}`;
+                presences[key] = presence.type;
+            });
+            return {
+                year,
+                month,
+                daysInMonth,
+                presences,
+                employees
+            };
+        }
+        catch (error) {
+            console.error('❌ Erreur récupération présences mensuelles:', error);
+            return { year, month, daysInMonth: 0, presences: {}, employees: [] };
+        }
     }
     async getSalaires() {
-        return this.readJSONFile('salaires.json', {});
+        try {
+            const { data, error } = await supabase_1.supabase
+                .from('salaires')
+                .select('*');
+            if (error) {
+                console.error('❌ Erreur récupération salaires:', error);
+                return {};
+            }
+            const salairesMap = {};
+            data === null || data === void 0 ? void 0 : data.forEach(salaire => {
+                const key = `${salaire.matricule}_${salaire.year}_${salaire.month}`;
+                salairesMap[key] = salaire;
+            });
+            return salairesMap;
+        }
+        catch (error) {
+            console.error('❌ Erreur récupération salaires:', error);
+            return {};
+        }
     }
     async updateSalaire(matricule, year, month, salaireData) {
         try {
-            const salaires = await this.getSalaires();
-            const key = `${matricule}_${year}_${month}`;
-            salaires[key] = Object.assign(Object.assign({}, salaires[key]), salaireData);
-            const success = this.writeJSONFile('salaires.json', salaires);
-            return success ?
-                { success: true, message: 'Salaire mis à jour avec succès' } :
-                { success: false, message: 'Erreur lors de la sauvegarde' };
+            const { error } = await supabase_1.supabase
+                .from('salaires')
+                .upsert(Object.assign(Object.assign({ matricule,
+                year,
+                month }, salaireData), { updated_at: new Date().toISOString() }), {
+                onConflict: 'matricule,year,month'
+            });
+            if (error) {
+                console.error('❌ Erreur mise à jour salaire:', error);
+                return { success: false, message: error.message };
+            }
+            return { success: true, message: 'Salaire mis à jour avec succès' };
         }
         catch (error) {
-            console.error('Erreur mise à jour salaire:', error);
+            console.error('❌ Erreur mise à jour salaire:', error);
             return { success: false, message: 'Erreur lors de la mise à jour' };
         }
     }
     async updateSoldeConge(matricule, variation) {
-        const employees = await this.getAllEmployees();
-        const index = employees.findIndex(emp => emp.Matricule === matricule);
-        if (index !== -1) {
-            const soldeActuel = this.parseFloat(employees[index]["Solde de congé"]);
-            employees[index]["Solde de congé"] = Math.max(0, soldeActuel + variation).toString();
-            this.writeJSONFile('employes.json', employees);
+        try {
+            const { data: employee } = await supabase_1.supabase
+                .from('employees')
+                .select('"Solde de congé"')
+                .eq('Matricule', matricule)
+                .single();
+            if (employee) {
+                const soldeActuel = this.parseFloat(employee["Solde de congé"]);
+                const nouveauSolde = Math.max(0, soldeActuel + variation);
+                await supabase_1.supabase
+                    .from('employees')
+                    .update({
+                    "Solde de congé": nouveauSolde.toString(),
+                    updated_at: new Date().toISOString()
+                })
+                    .eq('Matricule', matricule);
+            }
+        }
+        catch (error) {
+            console.error('❌ Erreur mise à jour solde congé:', error);
         }
     }
     async updateCongesAutomatique() {
-        const employees = await this.getAllEmployees();
-        const today = new Date();
-        for (const emp of employees) {
-            const soldeCourant = this.parseFloat(emp["Solde de congé"] || emp["Solde initial congé"], 0);
-            const lastUpdate = emp.last_update;
-            let monthsPassed = 0;
-            if (lastUpdate) {
-                const lastDate = new Date(lastUpdate + '-01');
-                monthsPassed = (today.getFullYear() - lastDate.getFullYear()) * 12 +
-                    (today.getMonth() - lastDate.getMonth());
+        try {
+            const employees = await this.getAllEmployees();
+            const today = new Date();
+            for (const emp of employees) {
+                const soldeCourant = this.parseFloat(emp["Solde de congé"] || emp["Solde initial congé"], 0);
+                const lastUpdate = emp.last_update;
+                let monthsPassed = 0;
+                if (lastUpdate) {
+                    const lastDate = new Date(lastUpdate);
+                    monthsPassed = (today.getFullYear() - lastDate.getFullYear()) * 12 +
+                        (today.getMonth() - lastDate.getMonth());
+                }
+                else {
+                    monthsPassed = 3;
+                }
+                if (monthsPassed > 0) {
+                    const nouveauSolde = (soldeCourant + 2.5 * monthsPassed).toFixed(1);
+                    await supabase_1.supabase
+                        .from('employees')
+                        .update({
+                        "Solde de congé": nouveauSolde,
+                        updated_at: new Date().toISOString()
+                    })
+                        .eq('Matricule', emp.Matricule);
+                }
             }
-            else {
-                monthsPassed = 3;
-            }
-            if (monthsPassed > 0) {
-                emp["Solde de congé"] = (soldeCourant + 2.5 * monthsPassed).toFixed(1);
-            }
-            emp.last_update = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}`;
+            console.log('✅ Mise à jour automatique des congés terminée');
         }
-        this.writeJSONFile('employes.json', employees);
+        catch (error) {
+            console.error('❌ Erreur mise à jour congés automatique:', error);
+        }
     }
     async calculateSalaires(year, month, joursTheoriques) {
         try {
