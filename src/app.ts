@@ -16,21 +16,17 @@ import planningRoutes from "./routes/planningRoutes";
 import { errorMiddleware } from "./middleware/errorMiddleware";
 import agentColarysRoutes from "./routes/agentColarysRoutes";
 import colarysRoutes from "./routes/colarysRoutes";
-import debugRoutes from './routes/debugRoutes';
 
 console.log('🚀 Starting Colarys API Server...');
 
 dotenv.config();
 
 // Vérification des variables d'environnement
-console.log('🔧 Environment check:');
-console.log('NODE_ENV:', process.env.NODE_ENV);
-console.log('VERCEL:', process.env.VERCEL);
-console.log('SUPABASE_URL:', process.env.SUPABASE_URL ? '✅' : '❌');
-console.log('SUPABASE_SERVICE_ROLE_KEY:', process.env.SUPABASE_SERVICE_ROLE_KEY ? '✅' : '❌');
-
 const requiredEnvVars = [
-  'JWT_SECRET'
+  'JWT_SECRET',
+  'POSTGRES_HOST', 
+  'POSTGRES_USER',
+  'POSTGRES_PASSWORD'
 ];
 
 requiredEnvVars.forEach(envVar => {
@@ -42,100 +38,35 @@ requiredEnvVars.forEach(envVar => {
 const API_PREFIX = "/api";
 const app = express();
 
-// 🔥 CORRECTION : Configuration CORS COMPLÈTE ET PERMISSIVE
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:3000', 
-  'http://localhost:8080',
-  'https://colarys-frontend.vercel.app',
-  'https://colarys-concept.vercel.app',
-  'https://theme-gestion-des-resources-et-prod.vercel.app'
-];
-
+// Configuration CORS
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) {
-      return callback(null, true);
-    }
+  origin: (origin, callback) => {
+    const allowedOrigins = [
+      'http://localhost:5173', 
+      'http://localhost:3000', 
+      'http://localhost:8080',
+      'https://colarys-frontend.vercel.app',
+      'https://*.vercel.app'
+    ];
     
-    // Vérifier si l'origine est autorisée
-    const isAllowed = allowedOrigins.some(allowedOrigin => {
-      return origin === allowedOrigin || 
-             origin.endsWith('.vercel.app') ||
-             origin.includes('localhost') ||
-             origin.includes('127.0.0.1');
-    });
-
-    if (isAllowed) {
+    if (origin && origin.endsWith('.vercel.app')) {
+      callback(null, true);
+    } else if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      console.log('🚫 CORS blocked for origin:', origin);
-      // En production, on autorise quand même pour debug
-      if (process.env.NODE_ENV === 'production') {
-        console.log('⚠️  But allowing in production for debugging');
-        callback(null, true);
-      } else {
-        callback(new Error(`Not allowed by CORS: ${origin}`));
-      }
+      callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
-  allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
-    'X-Requested-With', 
-    'Accept',
-    'Origin',
-    'Access-Control-Request-Method',
-    'Access-Control-Request-Headers'
-  ],
-  exposedHeaders: [
-    'Content-Range',
-    'X-Content-Range',
-    'Access-Control-Allow-Origin'
-  ],
-  preflightContinue: false,
-  optionsSuccessStatus: 204,
-  maxAge: 86400 // 24 hours
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
 }));
-
-// 🔥 CORRECTION : Gestion OPTIONS pour CORS preflight
-app.options('*', (req, res) => {
-  console.log('🛠️  CORS Preflight request:', req.method, req.headers.origin);
-  const origin = req.headers.origin;
-  
-  if (origin && allowedOrigins.some(allowed => origin.includes(allowed))) {
-    res.header('Access-Control-Allow-Origin', origin);
-  } else {
-    res.header('Access-Control-Allow-Origin', '*');
-  }
-  
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.status(204).send();
-});
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Middleware de logging amélioré
-app.use((req, res, next) => {
-  console.log(`📱 ${req.method} ${req.originalUrl} - Origin: ${req.headers.origin} - ${new Date().toISOString()}`);
-  
-  // 🔥 CORRECTION : Headers CORS dans toutes les réponses
-  const origin = req.headers.origin;
-  if (origin && allowedOrigins.some(allowed => origin.includes(allowed))) {
-    res.header('Access-Control-Allow-Origin', origin);
-  } else {
-    res.header('Access-Control-Allow-Origin', '*');
-  }
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
-  
+// Middleware de logging
+app.use((req, _res, next) => {
+  console.log(`📱 ${req.method} ${req.originalUrl} - ${new Date().toISOString()}`);
   next();
 });
 
@@ -201,63 +132,27 @@ app.get('/', (_req, res) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
     platform: process.env.VERCEL ? 'Vercel' : 'Local',
-    database: AppDataSource.isInitialized ? "Connected" : "Disconnected",
-    cors: "Enabled",
-    supabase: process.env.SUPABASE_URL ? "Configured" : "Not Configured"
+    database: AppDataSource.isInitialized ? "Connected" : "Disconnected"
   });
 });
 
-// 🔥 CORRECTION : Route de santé SIMPLIFIÉE et ROBUSTE
+// Route de santé
 app.get(`${API_PREFIX}/health`, async (_req, res) => {
   try {
-    console.log('🔍 Health check requested');
-    
     const dbStatus = AppDataSource.isInitialized ? "Connected" : "Disconnected";
-    
     res.json({
-      success: true,
       status: "OK",
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV || 'development',
       service: "Colarys Concept API",
       version: "2.0.0",
-      database: dbStatus,
-      cors: "Enabled",
-      supabase: process.env.SUPABASE_URL ? "Configured" : "Not Configured"
+      database: dbStatus
     });
   } catch (error: any) {
-    console.error('❌ Health check error:', error);
     res.json({
-      success: false,
-      status: "ERROR",
+      status: "WARNING",
       database: "Connection issues",
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// 🔥 CORRECTION : Route de santé spécifique Colarys
-app.get(`${API_PREFIX}/colarys/health`, async (_req, res) => {
-  try {
-    console.log('🔍 Colarys Health check requested');
-    
-    // Test simple sans dépendances complexes
-    res.json({
-      success: true,
-      message: "✅ Colarys API is operational",
-      timestamp: new Date().toISOString(),
-      service: "Colarys Employee Service",
-      environment: process.env.NODE_ENV || 'development',
-      version: "2.0.0"
-    });
-  } catch (error: any) {
-    console.error('❌ Colarys Health check error:', error);
-    res.status(500).json({
-      success: false,
-      message: "Service unavailable",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-      timestamp: new Date().toISOString()
+      error: error.message
     });
   }
 });
@@ -321,7 +216,6 @@ app.get(`${API_PREFIX}/db-test`, async (_req, res) => {
       }
     });
   } catch (error: any) {
-    console.error('❌ DB test error:', error);
     res.status(500).json({
       success: false,
       error: "DB test failed",
@@ -385,13 +279,6 @@ app.get(`${API_PREFIX}/debug-entities`, async (_req, res) => {
 
 console.log('📋 Mounting API routes...');
 
-// 🔥 CORRECTION : Ordre important - les routes spécifiques d'abord
-app.use(`${API_PREFIX}/colarys`, colarysRoutes);
-console.log('✅ Mounted: /api/colarys');
-
-app.use(`${API_PREFIX}/debug`, debugRoutes);
-console.log('✅ Mounted: /api/debug');
-
 app.use(`${API_PREFIX}/auth`, authRoutes);
 console.log('✅ Mounted: /api/auth');
 
@@ -419,15 +306,17 @@ console.log('✅ Mounted: /api/plannings');
 app.use(`${API_PREFIX}/agents-colarys`, agentColarysRoutes);
 console.log('✅ Mounted: /api/agents-colarys');
 
+app.use(`${API_PREFIX}/colarys`, colarysRoutes);
+console.log('✅ Mounted: /api/colarys');
+
 console.log('📋 All routes mounted successfully');
 
 // Middleware d'erreur
 app.use(errorMiddleware);
 
-// 🔥 CORRECTION : Route 404 avec headers CORS
+// Route 404 - DOIT ÊTRE APRÈS toutes les routes
 app.use('*', (req, res) => {
-  console.log(`❌ 404 - Route not found: ${req.originalUrl} from ${req.headers.origin}`);
-  
+  console.log(`❌ 404 - Route not found: ${req.originalUrl}`);
   res.status(404).json({ 
     success: false,
     error: "Endpoint not found", 
@@ -436,12 +325,8 @@ app.use('*', (req, res) => {
     availableRoutes: [
       "/",
       "/api/health",
-      "/api/colarys/health",
       "/api/db-test",
       "/api/debug-entities",
-      "/api/colarys/employees",
-      "/api/colarys/presences",
-      "/api/colarys/salaires",
       "/api/auth",
       "/api/users",
       "/api/agents",
@@ -456,18 +341,14 @@ app.use('*', (req, res) => {
   });
 });
 
-// 🔥 CORRECTION : Gestionnaire d'erreurs global avec CORS
-app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+// Gestionnaire d'erreurs global
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error("❌ Server Error:", err);
-  console.error("📱 Request URL:", req.originalUrl);
-  console.error("🌐 Origin:", req.headers.origin);
-  
   res.status(500).json({ 
     success: false,
     error: "Internal server error",
     message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong',
-    database: AppDataSource.isInitialized ? "Connected" : "Disconnected",
-    timestamp: new Date().toISOString()
+    database: AppDataSource.isInitialized ? "Connected" : "Disconnected"
   });
 });
 
@@ -476,7 +357,6 @@ app.use((err: any, req: express.Request, res: express.Response, _next: express.N
 const startServer = async () => {
   try {
     console.log('🚀 Starting server initialization...');
-    console.log('🌐 CORS configured for origins:', allowedOrigins);
     
     // ✅ INITIALISATION DB AVEC GESTION D'ERREUR ROBUSTE
     try {
@@ -502,7 +382,6 @@ const startServer = async () => {
     
     console.log("✅ Server ready and listening for requests");
     console.log("📊 Database status:", AppDataSource.isInitialized ? "CONNECTED" : "DISCONNECTED");
-    console.log("🌐 CORS Enabled for:", allowedOrigins.join(', '));
 
   } catch (error) {
     console.error("❌ Server startup error:", error);
