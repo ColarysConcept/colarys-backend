@@ -46,6 +46,7 @@ app.use(cors({
       'http://localhost:5173', 
       'http://localhost:3000', 
       'http://localhost:8080',
+      'https://theme-gestion-des-resources-et-prod.vercel.app',
       'https://colarys-frontend.vercel.app',
       'https://*.vercel.app'
     ];

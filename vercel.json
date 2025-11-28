@@ -2,26 +2,14 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/debug-db.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "dist/app.js",
+      "src": "src/app.ts",
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
-      "src": "/debug-db",
-      "dest": "/api/debug-db.js"
-    },
-    {
-      "src": "/api/(.*)",
-      "dest": "/dist/app.js"
-    },
-    {
       "src": "/(.*)",
-      "dest": "/dist/app.js"
+      "dest": "src/app.ts"
     }
   ]
 }
