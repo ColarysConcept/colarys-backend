@@ -4,23 +4,11 @@
     "main": "dist/app.js",
     "type": "commonjs",
     "scripts": {
-        "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
-        "build": "tsc",
-        "start": "node dist/app.js",
-        "init-db": "ts-node src/scripts/initDatabase.ts",
-        "vercel-build": "npm run build",
-        "vercel-dev": "npm run build",
-        "migrate:tsx": "tsx src/scripts/migrate-to-supabase.ts",
-        "create-tables": "ts-node src/scripts/create-tables.ts",
-        "migrate": "npm run create-tables && ts-node src/scripts/migrate-to-supabase.ts",
-         "migrate-sql": "ts-node src/scripts/migrate-direct-sql.ts",
-        "migrate-all": "npm run create-tables && npm run migrate-sql",
-        "final-migrate": "ts-node src/scripts/final-migration.ts",
-        "reset-and-migrate": "npm run final-migrate",
-         "migrate-fix-dates": "ts-node src/scripts/fix-dates-migration.ts",
-        "migrate-complete": "npm run migrate-fix-dates",
-        "migrate-salaires": "ts-node src/scripts/migrate-salaires-only.ts",
-        "migrate-all-final": "npm run migrate-fix-dates && npm run migrate-salaires"
+       "dev": "ts-node-dev --respawn --transpile-only src/app-minimal.ts",
+    "build": "tsc src/app-minimal.ts --outDir dist --esModuleInterop --skipLibCheck",
+    "start": "node dist/app-minimal.js",
+    "vercel-build": "npm run build",
+    "build:minimal": "tsc src/app-minimal.ts --outDir dist --esModuleInterop --skipLibCheck"
     },
     "dependencies": {
         "@supabase/supabase-js": "^2.86.0",

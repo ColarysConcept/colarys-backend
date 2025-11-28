@@ -2,14 +2,18 @@
   "version": 2,
   "builds": [
     {
-      "src": "src/app.ts",
+      "src": "dist/app-minimal.js",
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
+      "src": "/api/(.*)",
+      "dest": "/dist/app-minimal.js"
+    },
+    {
       "src": "/(.*)",
-      "dest": "src/app.ts"
+      "dest": "/dist/app-minimal.js"
     }
   ]
 }
