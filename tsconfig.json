@@ -16,6 +16,6 @@
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true
   },
-  "include": ["src/**/*.ts", "src/app-minimal.ts"],
-    "exclude": ["dist", "node_modules", "api", "src/**/*.js"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["dist", "node_modules", "api"]
 }
