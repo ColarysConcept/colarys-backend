@@ -8,7 +8,7 @@ const initializeApp = async () => {
   try {
     console.log('🔄 Initializing application...');
     
-    // Import de l'app compilée
+    // Import de l'app compilée - CHEMIN CORRIGÉ
     app = require('../dist/app').default;
     console.log('✅ App imported successfully');
     
