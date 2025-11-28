@@ -5,7 +5,7 @@
   "type": "commonjs",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
-    "build": "tsc && node scripts/copy-scripts.js",
+    "build": "tsc",
     "start": "node dist/app.js",
     "vercel-build": "npm run build",
     "vercel-dev": "npm run build"
