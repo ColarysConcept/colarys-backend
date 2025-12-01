@@ -1282,6 +1282,461 @@ app.get('/api/debug-agent/:id', async (req, res) => {
   }
 });
 
+// ========== ROUTES POUR LES PRÉSENCES ==========
+
+// Rechercher un agent par matricule
+app.get('/api/agents/matricule/:matricule', async (req, res) => {
+  try {
+    const matricule = req.params.matricule;
+    console.log(`🔍 Recherche agent par matricule: ${matricule}`);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+
+    const agents = await AppDataSource.query(
+      'SELECT * FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+
+    if (agents.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent non trouvé"
+      });
+    }
+
+    res.json({
+      success: true,
+      data: agents[0]
+    });
+
+  } catch (error) {
+    console.error('❌ Error searching agent by matricule:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors de la recherche de l'agent"
+    });
+  }
+});
+
+// Rechercher un agent par nom et prénom
+app.get('/api/agents/nom/:nom/prenom/:prenom', async (req, res) => {
+  try {
+    const nom = req.params.nom;
+    const prenom = req.params.prenom;
+    console.log(`🔍 Recherche agent par nom/prénom: ${nom} ${prenom}`);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+
+    const agents = await AppDataSource.query(
+      'SELECT * FROM agents_colarys WHERE nom ILIKE $1 AND prenom ILIKE $2',
+      [`%${nom}%`, `%${prenom}%`]
+    );
+
+    if (agents.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent non trouvé"
+      });
+    }
+
+    res.json({
+      success: true,
+      data: agents[0]
+    });
+
+  } catch (error) {
+    console.error('❌ Error searching agent by name:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors de la recherche de l'agent"
+    });
+  }
+});
+
+// Vérifier la présence aujourd'hui pour un matricule
+app.get('/api/presences/aujourdhui/:matricule', async (req, res) => {
+  try {
+    const matricule = req.params.matricule;
+    console.log(`📅 Vérification présence aujourd'hui pour: ${matricule}`);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+
+    // Chercher d'abord l'agent
+    const agents = await AppDataSource.query(
+      'SELECT id FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+
+    if (agents.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent non trouvé"
+      });
+    }
+
+    const agentId = agents[0].id;
+    const today = new Date().toISOString().split('T')[0]; // Format YYYY-MM-DD
+
+    // Chercher les présences d'aujourd'hui
+    let presences = [];
+    try {
+      presences = await AppDataSource.query(
+        'SELECT * FROM presence WHERE agent_id = $1 AND DATE(date) = $2',
+        [agentId, today]
+      );
+    } catch (error) {
+      console.log('⚠️ Table presence non trouvée:', error.message);
+      // Retourner un tableau vide si la table n'existe pas
+      return res.json({
+        success: true,
+        data: []
+      });
+    }
+
+    res.json({
+      success: true,
+      data: presences
+    });
+
+  } catch (error) {
+    console.error('❌ Error checking today presence:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors de la vérification de présence"
+    });
+  }
+});
+
+// Pointage d'entrée
+app.post('/api/presences/entree', async (req, res) => {
+  try {
+    const data = req.body;
+    console.log('📝 Pointage entrée reçu:', data);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+
+    // Chercher l'agent par matricule
+    const agents = await AppDataSource.query(
+      'SELECT id FROM agents_colarys WHERE matricule = $1',
+      [data.matricule]
+    );
+
+    if (agents.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Agent non trouvé"
+      });
+    }
+
+    const agentId = agents[0].id;
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    
+    // Vérifier si une présence existe déjà aujourd'hui
+    let existingPresence = [];
+    try {
+      existingPresence = await AppDataSource.query(
+        'SELECT id FROM presence WHERE agent_id = $1 AND DATE(date) = $2',
+        [agentId, today]
+      );
+    } catch (error) {
+      // Table peut ne pas exister
+    }
+
+    if (existingPresence.length > 0) {
+      // Mettre à jour la présence existante
+      await AppDataSource.query(
+        `UPDATE presence 
+         SET check_in = $1, check_out = NULL, status = 'present', 
+             updated_at = NOW(), signature_entree = $2, heure_entree = $3
+         WHERE id = $4`,
+        [
+          now.toTimeString().split(' ')[0], // HH:MM:SS
+          data.signature || null,
+          now.toISOString(),
+          existingPresence[0].id
+        ]
+      );
+    } else {
+      // Créer une nouvelle présence
+      await AppDataSource.query(
+        `INSERT INTO presence 
+         (agent_id, date, check_in, check_out, status, created_at, updated_at, 
+          signature_entree, heure_entree, campagne, shift) 
+         VALUES ($1, $2, $3, NULL, 'present', NOW(), NOW(), $4, $5, $6, $7)`,
+        [
+          agentId,
+          now.toISOString(),
+          now.toTimeString().split(' ')[0],
+          data.signature || null,
+          now.toISOString(),
+          data.campagne || 'Stagiare',
+          data.shift || 'JOUR'
+        ]
+      );
+    }
+
+    res.json({
+      success: true,
+      message: "Pointage d'entrée enregistré avec succès",
+      data: {
+        matricule: data.matricule,
+        heure: now.toISOString(),
+        status: 'present'
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error recording entry:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors du pointage d'entrée"
+    });
+  }
+});
+
+// Pointage de sortie
+app.post('/api/presences/sortie', async (req, res) => {
+  try {
+    const data = req.body;
+    console.log('📝 Pointage sortie reçu:', data);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+
+    // Chercher l'agent par matricule
+    const agents = await AppDataSource.query(
+      'SELECT id FROM agents_colarys WHERE matricule = $1',
+      [data.matricule]
+    );
+
+    if (agents.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Agent non trouvé"
+      });
+    }
+
+    const agentId = agents[0].id;
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    
+    // Chercher la présence d'aujourd'hui
+    let existingPresence = [];
+    try {
+      existingPresence = await AppDataSource.query(
+        'SELECT id FROM presence WHERE agent_id = $1 AND DATE(date) = $2',
+        [agentId, today]
+      );
+    } catch (error) {
+      console.log('⚠️ Erreur recherche présence:', error);
+    }
+
+    if (existingPresence.length === 0) {
+      // Créer une nouvelle présence avec seulement la sortie (cas d'oubli d'entrée)
+      await AppDataSource.query(
+        `INSERT INTO presence 
+         (agent_id, date, check_in, check_out, status, created_at, updated_at, 
+          signature_sortie, heure_sortie, campagne, shift) 
+         VALUES ($1, $2, NULL, $3, 'present', NOW(), NOW(), $4, $5, $6, $7)`,
+        [
+          agentId,
+          now.toISOString(),
+          now.toTimeString().split(' ')[0],
+          data.signature || null,
+          now.toISOString(),
+          data.campagne || 'Stagiare',
+          data.shift || 'JOUR'
+        ]
+      );
+    } else {
+      // Mettre à jour la présence existante
+      await AppDataSource.query(
+        `UPDATE presence 
+         SET check_out = $1, updated_at = NOW(), 
+             signature_sortie = $2, heure_sortie = $3
+         WHERE id = $4`,
+        [
+          now.toTimeString().split(' ')[0],
+          data.signature || null,
+          now.toISOString(),
+          existingPresence[0].id
+        ]
+      );
+    }
+
+    res.json({
+      success: true,
+      message: "Pointage de sortie enregistré avec succès",
+      data: {
+        matricule: data.matricule,
+        heure: now.toISOString(),
+        status: 'present'
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error recording exit:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors du pointage de sortie"
+    });
+  }
+});
+
+// Obtenir toutes les présences
+app.get('/api/presences', async (req, res) => {
+  try {
+    console.log('📋 Fetching all presences...');
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+
+    let presences = [];
+    try {
+      presences = await AppDataSource.query(`
+        SELECT p.*, a.matricule, a.nom, a.prenom, a.role 
+        FROM presence p
+        LEFT JOIN agents_colarys a ON p.agent_id = a.id
+        ORDER BY p.date DESC
+        LIMIT 100
+      `);
+    } catch (error) {
+      console.log('⚠️ Table presence non trouvée ou join impossible:', error.message);
+      // Retourner un tableau vide
+    }
+
+    res.json({
+      success: true,
+      data: presences,
+      count: presences.length
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching presences:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors du chargement des présences"
+    });
+  }
+});
+
+// Obtenir les présences par date
+app.get('/api/presences/date/:date', async (req, res) => {
+  try {
+    const date = req.params.date;
+    console.log(`📅 Fetching presences for date: ${date}`);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+
+    let presences = [];
+    try {
+      presences = await AppDataSource.query(
+        `SELECT p.*, a.matricule, a.nom, a.prenom, a.role 
+         FROM presence p
+         LEFT JOIN agents_colarys a ON p.agent_id = a.id
+         WHERE DATE(p.date) = $1
+         ORDER BY p.created_at DESC`,
+        [date]
+      );
+    } catch (error) {
+      console.log('⚠️ Erreur recherche présences par date:', error);
+    }
+
+    res.json({
+      success: true,
+      data: presences,
+      count: presences.length
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching presences by date:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors du chargement des présences"
+    });
+  }
+});
+
+// Obtenir les statistiques de présence
+app.get('/api/presences/stats/:period?', async (req, res) => {
+  try {
+    const period = req.params.period || 'today';
+    console.log(`📊 Fetching presence stats for period: ${period}`);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+
+    let stats = {};
+    const today = new Date().toISOString().split('T')[0];
+
+    try {
+      // Présences d'aujourd'hui
+      const todayPresences = await AppDataSource.query(
+        'SELECT COUNT(*) as count FROM presence WHERE DATE(date) = $1',
+        [today]
+      );
+
+      // Agents présents aujourd'hui
+      const presentToday = await AppDataSource.query(
+        "SELECT COUNT(DISTINCT agent_id) as count FROM presence WHERE DATE(date) = $1 AND status = 'present'",
+        [today]
+      );
+
+      // Agents absents aujourd'hui (total agents - présents)
+      const totalAgents = await AppDataSource.query(
+        'SELECT COUNT(*) as count FROM agents_colarys'
+      );
+
+      stats = {
+        period: period,
+        date: today,
+        total_presences: parseInt(todayPresences[0]?.count || 0),
+        present_today: parseInt(presentToday[0]?.count || 0),
+        total_agents: parseInt(totalAgents[0]?.count || 0),
+        absent_today: parseInt(totalAgents[0]?.count || 0) - parseInt(presentToday[0]?.count || 0)
+      };
+
+    } catch (error) {
+      console.log('⚠️ Erreur calcul statistiques:', error);
+      stats = {
+        period: period,
+        date: today,
+        total_presences: 0,
+        present_today: 0,
+        total_agents: 0,
+        absent_today: 0,
+        error: "Données non disponibles"
+      };
+    }
+
+    res.json({
+      success: true,
+      data: stats
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching presence stats:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors du chargement des statistiques"
+    });
+  }
+});
+
 console.log('✅ Minimal API ready!');
 
 module.exports = app;
