@@ -406,25 +406,176 @@ app.put('/api/agents-colarys/:id', async (req, res) => {
   }
 });
 
-// Route pour créer un nouvel agent
+
+// ✅ AJOUTER CE NOUVEAU CODE À LA PLACE :
 app.post('/api/agents-colarys', async (req, res) => {
   try {
     const newAgent = req.body;
     
-    console.log('📋 Creating new agent:', newAgent);
+    console.log('📋 Creating REAL agent in database:', newAgent);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
 
-    // Simulation de création
-    res.json({
+    if (!dbInitialized || !AppDataSource) {
+      return res.status(503).json({
+        success: false,
+        error: "Database not available"
+      });
+    }
+
+    // ✅ VALIDATION DES DONNÉES
+    if (!newAgent.matricule || !newAgent.nom || !newAgent.prenom || !newAgent.role || !newAgent.mail) {
+      return res.status(400).json({
+        success: false,
+        error: "Tous les champs obligatoires (matricule, nom, prénom, rôle, mail) doivent être remplis"
+      });
+    }
+
+    // ✅ VÉRIFIER LES DOUBLONS
+    const existingMatricule = await AppDataSource.query(
+      'SELECT id FROM agents_colarys WHERE matricule = $1',
+      [newAgent.matricule]
+    );
+    
+    if (existingMatricule.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `Le matricule "${newAgent.matricule}" existe déjà`
+      });
+    }
+
+    const existingEmail = await AppDataSource.query(
+      'SELECT id FROM agents_colarys WHERE mail = $1',
+      [newAgent.mail]
+    );
+    
+    if (existingEmail.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `L'email "${newAgent.mail}" existe déjà`
+      });
+    }
+
+    // ✅ CRÉER L'AGENT DANS LA BASE DE DONNÉES
+    const result = await AppDataSource.query(
+      `INSERT INTO agents_colarys 
+       (matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW()) 
+       RETURNING *`,
+      [
+        newAgent.matricule,
+        newAgent.nom,
+        newAgent.prenom,
+        newAgent.role || 'Stagiaire',
+        newAgent.mail,
+        newAgent.contact || '',
+        newAgent.entreprise || 'Colarys Concept',
+        '/images/default-avatar.svg',
+        'default-avatar'
+      ]
+    );
+
+    const createdAgent = result[0];
+    console.log('✅ Agent créé avec succès dans la base. ID:', createdAgent.id);
+
+    // ✅ FORMATER LA RÉPONSE
+    const responseData = {
+      ...createdAgent,
+      displayImage: '/images/default-avatar.svg',
+      hasDefaultImage: true
+    };
+
+    res.status(201).json({
       success: true,
-      message: "Agent created successfully",
-      data: { id: Date.now(), ...newAgent }
+      message: "Agent créé avec succès",
+      data: responseData
     });
 
   } catch (error) {
     console.error('❌ Error creating agent:', error);
+    
+    // Gérer les erreurs PostgreSQL
+    if (error.code === '23505') { // Violation de contrainte unique
+      return res.status(400).json({
+        success: false,
+        error: "Le matricule ou l'email existe déjà"
+      });
+    }
+    
     res.status(500).json({
       success: false,
-      error: "Failed to create agent"
+      error: "Erreur lors de la création de l'agent",
+      message: error.message
+    });
+  }
+});
+
+// Dans api/minimal.js - AJOUTER APRÈS la route POST
+const multer = require('multer');
+const upload = multer();
+
+app.post('/api/agents-colarys/formdata', upload.single('image'), async (req, res) => {
+  try {
+    console.log('📸 Creating agent with FormData (image upload)');
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+
+    const agentData = {
+      matricule: req.body.matricule,
+      nom: req.body.nom,
+      prenom: req.body.prenom,
+      role: req.body.role,
+      mail: req.body.mail,
+      contact: req.body.contact || '',
+      entreprise: req.body.entreprise || 'Colarys Concept'
+    };
+
+    console.log('📋 Agent data from FormData:', agentData);
+    console.log('📸 Image file:', req.file ? `${req.file.originalname} (${req.file.size} bytes)` : 'No image');
+
+    // Utiliser la même logique de création que la route normale
+    // Appeler la route interne ou copier le code
+    
+    const result = await AppDataSource.query(
+      `INSERT INTO agents_colarys 
+       (matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW()) 
+       RETURNING *`,
+      [
+        agentData.matricule,
+        agentData.nom,
+        agentData.prenom,
+        agentData.role || 'Stagiaire',
+        agentData.mail,
+        agentData.contact,
+        agentData.entreprise,
+        '/images/default-avatar.svg',
+        'default-avatar'
+      ]
+    );
+
+    const createdAgent = result[0];
+
+    res.status(201).json({
+      success: true,
+      message: "Agent créé avec succès",
+      data: {
+        ...createdAgent,
+        displayImage: '/images/default-avatar.svg',
+        hasDefaultImage: true
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error creating agent with FormData:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors de la création de l'agent",
+      message: error.message
     });
   }
 });
