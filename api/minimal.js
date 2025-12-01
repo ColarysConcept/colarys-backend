@@ -390,26 +390,58 @@ app.get('/api/agents-colarys/:id', async (req, res) => {
   }
 });
 
-// Route pour mettre à jour un agent
-app.put('/api/agents-colarys/:id', async (req, res) => {
+// Dans minimal.js - Améliorer la route PUT
+app.put('/api/agents-colarys/:id', upload.single('image'), async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
-    const updates = req.body;
+    const agentId = parseInt(req.params.id);
+    let updates = req.body;
     
-    console.log(`📋 Updating agent ${id}:`, updates);
-
-    // Simulation de mise à jour
-    res.json({
-      success: true,
-      message: `Agent ${id} updated successfully`,
-      data: { id, ...updates }
-    });
-
+    console.log('🔄 Updating agent:', agentId);
+    console.log('📦 Raw updates:', updates);
+    console.log('📸 Has file:', !!req.file);
+    
+    // ✅ CORRECTION : Détecter si c'est FormData (Content-Type: multipart/form-data)
+    const isFormData = req.headers['content-type']?.includes('multipart/form-data');
+    
+    if (isFormData) {
+      // Pour FormData, les données sont dans req.body déjà parsées
+      console.log('📋 FormData détecté, keys:', Object.keys(updates));
+    } else {
+      // Pour JSON, vérifier si c'est un JSON string
+      if (typeof updates === 'string') {
+        try {
+          updates = JSON.parse(updates);
+        } catch (e) {
+          console.error('❌ Erreur parsing JSON:', e);
+        }
+      }
+    }
+    
+    // ✅ CORRECTION : Nettoyer l'image
+    if (updates.image) {
+      console.log('📸 Image dans updates:', updates.image);
+      
+      // Si c'est une URL Cloudinary, vérifier qu'elle est valide
+      if (updates.image.includes('cloudinary.com')) {
+        console.log('☁️ URL Cloudinary détectée dans updates');
+        
+        // Vérifier qu'elle ne commence pas par notre URL de base
+        const baseUrl = 'https://theme-gestion-des-resources-et-prod.vercel.app';
+        if (updates.image.startsWith(baseUrl)) {
+          updates.image = updates.image.replace(baseUrl, '');
+          console.log('🔄 URL nettoyée:', updates.image);
+        }
+      }
+    }
+    
+    // ... reste du code existant ...
+    
   } catch (error) {
     console.error('❌ Error updating agent:', error);
     res.status(500).json({
       success: false,
-      error: "Failed to update agent"
+      error: "Erreur lors de la modification",
+      message: error.message
     });
   }
 });
@@ -589,14 +621,14 @@ app.post('/api/agents-colarys/formdata', upload.single('image'), async (req, res
 });
 
 
-// Dans api/minimal.js - AJOUTER cette route
+// Dans minimal.js - REMPLACER la route PUT existante
 app.put('/api/agents-colarys/:id', upload.single('image'), async (req, res) => {
   try {
     const agentId = parseInt(req.params.id);
     const updates = req.body;
     
     console.log('🔄 Updating agent:', agentId);
-    console.log('📦 Updates:', updates);
+    console.log('📦 Updates from body:', updates);
     console.log('📸 Has file:', !!req.file);
     
     if (!dbInitialized) {
@@ -616,15 +648,66 @@ app.put('/api/agents-colarys/:id', upload.single('image'), async (req, res) => {
       });
     }
 
-    let imageToSet = existingAgent[0].image;
+    // ✅ NETTOYER L'URL DE L'IMAGE SI ELLE EST FOURNIE
+    if (updates.image) {
+      // Si l'image commence par votre URL de base, la retirer
+      const baseUrl = 'https://theme-gestion-des-resources-et-prod.vercel.app/';
+      if (updates.image.startsWith(baseUrl)) {
+        updates.image = updates.image.replace(baseUrl, '');
+      }
+      
+      // Vérifier si c'est une URL Cloudinary complète
+      if (updates.image.startsWith('http://') || updates.image.startsWith('https://')) {
+        // C'est déjà une URL complète, on la conserve
+        console.log('🌐 Image est déjà une URL complète:', updates.image);
+      } else {
+        // Sinon, c'est peut-être un chemin relatif
+        updates.image = updates.image.replace(/^\/+/, '');
+      }
+    }
+
+    let imageToSet = updates.image || existingAgent[0].image;
     let imagePublicIdToSet = existingAgent[0].imagePublicId;
 
-    // Si une nouvelle image est fournie
+    // Si une nouvelle image est fournie via FormData
     if (req.file) {
-      console.log('📸 Nouvelle image détectée');
-      const base64Image = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-      imageToSet = base64Image;
-      imagePublicIdToSet = 'uploaded-' + Date.now();
+      console.log('📸 Nouvelle image uploadée');
+      
+      try {
+        // Upload vers Cloudinary
+        const uploadResult = await new Promise((resolve, reject) => {
+          const uploadStream = cloudinary.uploader.upload_stream(
+            {
+              folder: 'colarys/agents',
+              public_id: `agent-${agentId}-${Date.now()}`,
+              transformation: [
+                { width: 500, height: 500, crop: 'fill' },
+                { quality: 'auto:good' }
+              ]
+            },
+            (error, result) => {
+              if (error) {
+                console.error('❌ Cloudinary upload error:', error);
+                reject(error);
+              } else {
+                console.log('☁️ Cloudinary upload success:', result.url);
+                resolve(result);
+              }
+            }
+          );
+          uploadStream.end(req.file.buffer);
+        });
+
+        imageToSet = uploadResult.url;
+        imagePublicIdToSet = uploadResult.public_id;
+        
+      } catch (uploadError) {
+        console.error('❌ Cloudinary upload failed:', uploadError);
+        // Fallback: stocker en base64
+        const base64Image = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+        imageToSet = base64Image;
+        imagePublicIdToSet = 'base64-fallback-' + Date.now();
+      }
     }
 
     // Mettre à jour l'agent
@@ -654,10 +737,19 @@ app.put('/api/agents-colarys/:id', upload.single('image'), async (req, res) => {
       [agentId]
     );
 
+    // ✅ RETOURNER L'URL COMPLÈTE DE L'IMAGE
+    const agentData = updatedAgent[0];
+    if (agentData.image && !agentData.image.startsWith('http')) {
+      // Si l'image n'a pas de protocole, c'est peut-être une URL relative
+      agentData.image = agentData.image.startsWith('/') 
+        ? agentData.image 
+        : '/' + agentData.image;
+    }
+
     res.json({
       success: true,
       message: "Agent modifié avec succès",
-      data: updatedAgent[0]
+      data: agentData
     });
 
   } catch (error) {
@@ -882,6 +974,49 @@ app.delete('/api/agents-colarys/:id', async (req, res) => {
       success: false,
       error: "Failed to delete agent",
       message: error.message
+    });
+  }
+});
+
+// Route de débogage pour voir les données actuelles
+app.get('/api/debug-agent-image/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    
+    const agent = await AppDataSource.query(
+      'SELECT id, matricule, nom, prenom, image, "imagePublicId" FROM agents_colarys WHERE id = $1',
+      [id]
+    );
+
+    if (agent.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Agent non trouvé"
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        id: agent[0].id,
+        name: `${agent[0].nom} ${agent[0].prenom}`,
+        imageRaw: agent[0].image,
+        imagePublicId: agent[0].imagePublicId,
+        imageStartsWithHttp: agent[0].image ? agent[0].image.startsWith('http') : false,
+        imageStartsWithHttps: agent[0].image ? agent[0].image.startsWith('https') : false,
+        recommendedUrl: agent[0].image && agent[0].image.startsWith('http') 
+          ? agent[0].image 
+          : agent[0].image 
+            ? (agent[0].image.startsWith('/') ? agent[0].image : '/' + agent[0].image)
+            : '/images/default-avatar.svg'
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error debugging agent image:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
@@ -1155,6 +1290,47 @@ app.get('/api/debug-agent/:id', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error debugging agent:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Route de test pour les images
+app.get('/api/test-image-url/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    
+    const agent = await AppDataSource.query(
+      'SELECT id, nom, prenom, image, "imagePublicId" FROM agents_colarys WHERE id = $1',
+      [id]
+    );
+
+    if (agent.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Agent non trouvé"
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        id: agent[0].id,
+        name: `${agent[0].nom} ${agent[0].prenom}`,
+        imageRaw: agent[0].image,
+        imageType: typeof agent[0].image,
+        imageStartsWithHttp: agent[0].image ? 
+          (agent[0].image.startsWith('http://') || agent[0].image.startsWith('https://')) : false,
+        isCloudinary: agent[0].image ? agent[0].image.includes('cloudinary.com') : false,
+        recommendation: agent[0].image && agent[0].image.startsWith('http') 
+          ? 'Utiliser directement dans src="..."'
+          : 'Nécessite construction d\'URL'
+      }
+    });
+
+  } catch (error) {
     res.status(500).json({
       success: false,
       error: error.message
