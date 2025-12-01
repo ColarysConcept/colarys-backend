@@ -1426,79 +1426,148 @@ app.get('/api/presences/aujourdhui/:matricule', async (req, res) => {
 });
 
 // 5. Pointage d'entrée (version corrigée pour votre structure)
+// Pointage d'entrée - VERSION AVEC LOGGING DÉTAILLÉ
 app.post('/api/presences/entree', async (req, res) => {
+  console.log('=== DÉBUT POINTAGE ENTRÉE ===');
+  console.log('📦 Body complet:', JSON.stringify(req.body, null, 2));
+  
   try {
     const data = req.body;
-    console.log('📝 Pointage entrée reçu:', data);
     
+    if (!data || !data.matricule) {
+      console.error('❌ Matricule manquant');
+      return res.status(400).json({
+        success: false,
+        error: "Matricule requis"
+      });
+    }
+    
+    console.log(`🔍 Recherche agent: ${data.matricule}`);
+    
+    // Initialiser DB si nécessaire
     if (!dbInitialized) {
+      console.log('🔄 Initialisation DB...');
       await initializeDatabase();
     }
+    
+    if (!dbInitialized) {
+      console.error('❌ DB non initialisée');
+      return res.status(503).json({
+        success: false,
+        error: "Database non disponible"
+      });
+    }
 
-    // Chercher l'agent
+    // 1. Chercher l'agent
+    console.log(`📊 Requête SQL agent: SELECT id FROM agents_colarys WHERE matricule = '${data.matricule}'`);
     const agents = await AppDataSource.query(
       'SELECT id FROM agents_colarys WHERE matricule = $1',
       [data.matricule]
     );
+    
+    console.log(`📊 Résultat agent: ${agents.length} trouvé(s)`);
 
     if (agents.length === 0) {
+      console.error(`❌ Agent ${data.matricule} non trouvé`);
       return res.status(404).json({
         success: false,
-        error: "Agent non trouvé"
+        error: `Agent avec matricule ${data.matricule} non trouvé`
       });
     }
 
     const agentId = agents[0].id;
     const now = new Date();
-    const today = now.toISOString().split('T')[0];
-    const timeNow = now.toTimeString().split(' ')[0].substring(0, 8);
+    const today = now.toISOString().split('T')[0]; // YYYY-MM-DD
+    const timeNow = now.toTimeString().split(' ')[0].substring(0, 8); // HH:MM:SS
     
-    console.log(`👤 Agent ID: ${agentId}, Date: ${today}, Heure: ${timeNow}`);
+    console.log(`✅ Agent trouvé - ID: ${agentId}`);
+    console.log(`📅 Date: ${today}`);
+    console.log(`⏰ Heure: ${timeNow}`);
     
-    // Insérer dans la table presence
-    const result = await AppDataSource.query(
-      `INSERT INTO presence 
-       (agent_id, date, heure_entree, shift, created_at) 
-       VALUES ($1, $2, $3, $4, NOW())
-       RETURNING id`,
-      [
-        agentId,
-        today,
-        timeNow,
-        data.shift || 'JOUR'
-      ]
+    // 2. Vérifier si pointage existe déjà aujourd'hui
+    console.log(`📊 Vérification présence existante...`);
+    console.log(`📊 Requête: SELECT id FROM presence WHERE agent_id = ${agentId} AND date = '${today}'`);
+    
+    const existing = await AppDataSource.query(
+      'SELECT id, heure_entree FROM presence WHERE agent_id = $1 AND date = $2',
+      [agentId, today]
     );
+    
+    console.log(`📊 Présences existantes: ${existing.length}`);
+    
+    let presenceId;
+    
+    if (existing.length > 0) {
+      // Mettre à jour l'entrée existante
+      console.log(`🔄 Mise à jour présence ID: ${existing[0].id}`);
+      console.log(`📊 Requête UPDATE: UPDATE presence SET heure_entree = '${timeNow}' WHERE id = ${existing[0].id}`);
+      
+      await AppDataSource.query(
+        `UPDATE presence SET heure_entree = $1 WHERE id = $2`,
+        [timeNow, existing[0].id]
+      );
+      presenceId = existing[0].id;
+      console.log(`✅ Présence mise à jour`);
+    } else {
+      // Créer nouvelle présence
+      console.log(`📝 Création nouvelle présence...`);
+      console.log(`📊 Requête INSERT: INSERT INTO presence (agent_id, date, heure_entree, shift, created_at) VALUES (${agentId}, '${today}', '${timeNow}', '${data.shift || 'JOUR'}', NOW())`);
+      
+      const result = await AppDataSource.query(
+        `INSERT INTO presence (agent_id, date, heure_entree, shift, created_at) 
+         VALUES ($1, $2, $3, $4, NOW())
+         RETURNING id`,
+        [agentId, today, timeNow, data.shift || 'JOUR']
+      );
+      
+      presenceId = result[0].id;
+      console.log(`✅ Nouvelle présence créée ID: ${presenceId}`);
+    }
 
-    console.log('✅ Pointage enregistré, ID:', result[0].id);
-
+    console.log('=== POINTAGE RÉUSSI ===');
+    
     res.json({
       success: true,
       message: "Pointage d'entrée enregistré avec succès",
       data: {
         matricule: data.matricule,
-        heure_entree: timeNow,
+        agent_id: agentId,
+        presence_id: presenceId,
         date: today,
-        presence_id: result[0].id
+        heure_entree: timeNow,
+        shift: data.shift || 'JOUR'
       }
     });
 
   } catch (error) {
-    console.error('❌ ERREUR dans /api/presences/entree:', error);
+    console.error('=== ERREUR POINTAGE ===');
+    console.error('❌ Message:', error.message);
+    console.error('❌ Code:', error.code);
+    console.error('❌ Détail:', error.detail);
+    console.error('❌ Table:', error.table);
+    console.error('❌ Contrainte:', error.constraint);
+    console.error('❌ Stack:', error.stack);
     
     let errorMessage = "Erreur lors du pointage d'entrée";
+    let details = error.message;
     
-    if (error.message.includes('relation "presence" does not exist')) {
-      errorMessage = "Table 'presence' non trouvée. Créez-la d'abord.";
+    // Messages plus spécifiques
+    if (error.code === '23505') { // Violation contrainte unique
+      errorMessage = "Pointage déjà existant pour cet agent aujourd'hui";
+    } else if (error.code === '23503') { // Violation clé étrangère
+      errorMessage = "Erreur de référence (agent_id invalide)";
+    } else if (error.message.includes('null value')) {
+      errorMessage = "Champ obligatoire manquant";
     }
     
     res.status(500).json({
       success: false,
       error: errorMessage,
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      code: error.code,
+      details: details
     });
   }
 });
-
 console.log('✅ Minimal API ready!');
 
 module.exports = app;
