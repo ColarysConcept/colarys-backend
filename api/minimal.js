@@ -5,6 +5,7 @@ const express = require('express');
 const cors = require('cors');
 const { DataSource } = require('typeorm');
 const cloudinary = require('cloudinary').v2;
+const multer = require('multer');
 
 const app = express();
 app.use(cors());
@@ -52,6 +53,9 @@ const initializeDatabase = async () => {
 
 // Initialiser la DB
 initializeDatabase();
+
+// Configuration Multer
+const upload = multer();
 
 // ========== ROUTES ESSENTIELLES ==========
 
@@ -390,64 +394,7 @@ app.get('/api/agents-colarys/:id', async (req, res) => {
   }
 });
 
-// Dans minimal.js - Améliorer la route PUT
-app.put('/api/agents-colarys/:id', upload.single('image'), async (req, res) => {
-  try {
-    const agentId = parseInt(req.params.id);
-    let updates = req.body;
-    
-    console.log('🔄 Updating agent:', agentId);
-    console.log('📦 Raw updates:', updates);
-    console.log('📸 Has file:', !!req.file);
-    
-    // ✅ CORRECTION : Détecter si c'est FormData (Content-Type: multipart/form-data)
-    const isFormData = req.headers['content-type']?.includes('multipart/form-data');
-    
-    if (isFormData) {
-      // Pour FormData, les données sont dans req.body déjà parsées
-      console.log('📋 FormData détecté, keys:', Object.keys(updates));
-    } else {
-      // Pour JSON, vérifier si c'est un JSON string
-      if (typeof updates === 'string') {
-        try {
-          updates = JSON.parse(updates);
-        } catch (e) {
-          console.error('❌ Erreur parsing JSON:', e);
-        }
-      }
-    }
-    
-    // ✅ CORRECTION : Nettoyer l'image
-    if (updates.image) {
-      console.log('📸 Image dans updates:', updates.image);
-      
-      // Si c'est une URL Cloudinary, vérifier qu'elle est valide
-      if (updates.image.includes('cloudinary.com')) {
-        console.log('☁️ URL Cloudinary détectée dans updates');
-        
-        // Vérifier qu'elle ne commence pas par notre URL de base
-        const baseUrl = 'https://theme-gestion-des-resources-et-prod.vercel.app';
-        if (updates.image.startsWith(baseUrl)) {
-          updates.image = updates.image.replace(baseUrl, '');
-          console.log('🔄 URL nettoyée:', updates.image);
-        }
-      }
-    }
-    
-    // ... reste du code existant ...
-    
-  } catch (error) {
-    console.error('❌ Error updating agent:', error);
-    res.status(500).json({
-      success: false,
-      error: "Erreur lors de la modification",
-      message: error.message
-    });
-  }
-});
-
-
-// ✅ AJOUTER CE NOUVEAU CODE À LA PLACE :
+// ✅ CRÉER UN AGENT (JSON)
 app.post('/api/agents-colarys', async (req, res) => {
   try {
     const newAgent = req.body;
@@ -552,10 +499,7 @@ app.post('/api/agents-colarys', async (req, res) => {
   }
 });
 
-// Dans api/minimal.js - AJOUTER APRÈS la route POST
-const multer = require('multer');
-const upload = multer();
-
+// ✅ CRÉER UN AGENT AVEC FORM-DATA (IMAGE)
 app.post('/api/agents-colarys/formdata', upload.single('image'), async (req, res) => {
   try {
     console.log('📸 Creating agent with FormData (image upload)');
@@ -577,9 +521,7 @@ app.post('/api/agents-colarys/formdata', upload.single('image'), async (req, res
     console.log('📋 Agent data from FormData:', agentData);
     console.log('📸 Image file:', req.file ? `${req.file.originalname} (${req.file.size} bytes)` : 'No image');
 
-    // Utiliser la même logique de création que la route normale
-    // Appeler la route interne ou copier le code
-    
+    // Créer l'agent d'abord
     const result = await AppDataSource.query(
       `INSERT INTO agents_colarys 
        (matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
@@ -599,14 +541,62 @@ app.post('/api/agents-colarys/formdata', upload.single('image'), async (req, res
     );
 
     const createdAgent = result[0];
+    console.log('✅ Agent créé, ID:', createdAgent.id);
+
+    // Si une image est fournie, uploader sur Cloudinary
+    if (req.file) {
+      try {
+        console.log('📤 Uploading image to Cloudinary...');
+        const uploadResult = await new Promise((resolve, reject) => {
+          const uploadStream = cloudinary.uploader.upload_stream(
+            {
+              folder: 'colarys/agents',
+              public_id: `agent-${createdAgent.id}-${Date.now()}`,
+              transformation: [
+                { width: 500, height: 500, crop: 'fill' },
+                { quality: 'auto:good' }
+              ]
+            },
+            (error, result) => {
+              if (error) {
+                console.error('❌ Cloudinary upload error:', error);
+                reject(error);
+              } else {
+                console.log('☁️ Cloudinary upload success:', result.url);
+                resolve(result);
+              }
+            }
+          );
+          uploadStream.end(req.file.buffer);
+        });
+
+        // Mettre à jour l'agent avec l'URL Cloudinary
+        await AppDataSource.query(
+          'UPDATE agents_colarys SET image = $1, "imagePublicId" = $2 WHERE id = $3',
+          [uploadResult.url, uploadResult.public_id, createdAgent.id]
+        );
+
+        // Récupérer l'agent mis à jour
+        const updatedAgent = await AppDataSource.query(
+          'SELECT * FROM agents_colarys WHERE id = $1',
+          [createdAgent.id]
+        );
+
+        createdAgent.image = updatedAgent[0].image;
+        createdAgent.imagePublicId = updatedAgent[0].imagePublicId;
+
+      } catch (uploadError) {
+        console.error('❌ Cloudinary upload failed, keeping default avatar:', uploadError);
+      }
+    }
 
     res.status(201).json({
       success: true,
       message: "Agent créé avec succès",
       data: {
         ...createdAgent,
-        displayImage: '/images/default-avatar.svg',
-        hasDefaultImage: true
+        displayImage: createdAgent.image || '/images/default-avatar.svg',
+        hasDefaultImage: !createdAgent.image || createdAgent.image.includes('default-avatar')
       }
     });
 
@@ -620,15 +610,14 @@ app.post('/api/agents-colarys/formdata', upload.single('image'), async (req, res
   }
 });
 
-
-// Dans minimal.js - REMPLACER la route PUT existante
+// ✅ MODIFIER UN AGENT (CORRIGÉ)
 app.put('/api/agents-colarys/:id', upload.single('image'), async (req, res) => {
   try {
     const agentId = parseInt(req.params.id);
-    const updates = req.body;
+    let updates = {};
     
     console.log('🔄 Updating agent:', agentId);
-    console.log('📦 Updates from body:', updates);
+    console.log('📦 Raw updates from body:', req.body);
     console.log('📸 Has file:', !!req.file);
     
     if (!dbInitialized) {
@@ -648,25 +637,20 @@ app.put('/api/agents-colarys/:id', upload.single('image'), async (req, res) => {
       });
     }
 
-    // ✅ NETTOYER L'URL DE L'IMAGE SI ELLE EST FOURNIE
-    if (updates.image) {
-      // Si l'image commence par votre URL de base, la retirer
-      const baseUrl = 'https://theme-gestion-des-resources-et-prod.vercel.app/';
-      if (updates.image.startsWith(baseUrl)) {
-        updates.image = updates.image.replace(baseUrl, '');
-      }
-      
-      // Vérifier si c'est une URL Cloudinary complète
-      if (updates.image.startsWith('http://') || updates.image.startsWith('https://')) {
-        // C'est déjà une URL complète, on la conserve
-        console.log('🌐 Image est déjà une URL complète:', updates.image);
-      } else {
-        // Sinon, c'est peut-être un chemin relatif
-        updates.image = updates.image.replace(/^\/+/, '');
-      }
+    // Gérer les données selon le type de requête
+    const isFormData = req.headers['content-type']?.includes('multipart/form-data');
+    
+    if (isFormData) {
+      // Pour FormData, req.body contient les champs textuels
+      updates = req.body;
+    } else {
+      // Pour JSON, utiliser req.body directement
+      updates = req.body;
     }
+    
+    console.log('📋 Processed updates:', updates);
 
-    let imageToSet = updates.image || existingAgent[0].image;
+    let imageToSet = existingAgent[0].image;
     let imagePublicIdToSet = existingAgent[0].imagePublicId;
 
     // Si une nouvelle image est fournie via FormData
@@ -708,6 +692,26 @@ app.put('/api/agents-colarys/:id', upload.single('image'), async (req, res) => {
         imageToSet = base64Image;
         imagePublicIdToSet = 'base64-fallback-' + Date.now();
       }
+    } else if (updates.image) {
+      // Si une URL d'image est fournie dans les updates
+      console.log('🌐 Image URL fournie dans les données:', updates.image);
+      
+      // ✅ CORRECTION : Nettoyer l'URL si nécessaire
+      const baseUrl = 'https://theme-gestion-des-resources-et-prod.vercel.app/';
+      if (updates.image.startsWith(baseUrl)) {
+        updates.image = updates.image.replace(baseUrl, '');
+      }
+      
+      // Si c'est une URL Cloudinary, la garder
+      if (updates.image.includes('cloudinary.com')) {
+        imageToSet = updates.image;
+        // Générer un nouvel ID public si pas déjà fourni
+        imagePublicIdToSet = updates.imagePublicId || `agent-${agentId}-${Date.now()}`;
+      } else if (updates.image === '/images/default-avatar.svg' || updates.image.includes('default-avatar')) {
+        // Remettre l'avatar par défaut
+        imageToSet = '/images/default-avatar.svg';
+        imagePublicIdToSet = 'default-avatar';
+      }
     }
 
     // Mettre à jour l'agent
@@ -737,19 +741,10 @@ app.put('/api/agents-colarys/:id', upload.single('image'), async (req, res) => {
       [agentId]
     );
 
-    // ✅ RETOURNER L'URL COMPLÈTE DE L'IMAGE
-    const agentData = updatedAgent[0];
-    if (agentData.image && !agentData.image.startsWith('http')) {
-      // Si l'image n'a pas de protocole, c'est peut-être une URL relative
-      agentData.image = agentData.image.startsWith('/') 
-        ? agentData.image 
-        : '/' + agentData.image;
-    }
-
     res.json({
       success: true,
       message: "Agent modifié avec succès",
-      data: agentData
+      data: updatedAgent[0]
     });
 
   } catch (error) {
@@ -762,7 +757,7 @@ app.put('/api/agents-colarys/:id', upload.single('image'), async (req, res) => {
   }
 });
 
-// Modifier la route d'upload pour utiliser Cloudinary
+// UPLOAD D'IMAGE POUR UN AGENT EXISTANT
 app.post('/api/agents-colarys/:id/upload-image', upload.single('image'), async (req, res) => {
   try {
     const agentId = parseInt(req.params.id);
@@ -789,12 +784,6 @@ app.post('/api/agents-colarys/:id/upload-image', upload.single('image'), async (
       });
     }
 
-    // ✅ SIMULATION D'UPLOAD CLOUDINARY (à remplacer par le vrai)
-    // Pour l'instant, on va stocker l'image en base64 dans la base
-    const base64Image = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-    
-    console.log('📸 Image convertie en base64, taille:', base64Image.length);
-
     // Upload vers Cloudinary
     const uploadResult = await new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
@@ -817,11 +806,11 @@ app.post('/api/agents-colarys/:id/upload-image', upload.single('image'), async (
         }
       );
 
-       // Écrire le buffer dans le stream
+      // Écrire le buffer dans le stream
       uploadStream.end(req.file.buffer);
     });
 
-   await AppDataSource.query(
+    await AppDataSource.query(
       'UPDATE agents_colarys SET image = $1, "imagePublicId" = $2 WHERE id = $3',
       [uploadResult.url, uploadResult.public_id, agentId]
     );
@@ -879,8 +868,7 @@ app.post('/api/agents-colarys/:id/upload-image', upload.single('image'), async (
   }
 });
 
-// pour supprimer un agent
-// Dans minimal.js - Remplacer la route DELETE existante
+// SUPPRIMER UN AGENT
 app.delete('/api/agents-colarys/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -912,19 +900,6 @@ app.delete('/api/agents-colarys/:id', async (req, res) => {
     }
 
     if (!agentExists) {
-      // Essayer la table 'agent' alternative
-      try {
-        const checkResult = await AppDataSource.query(
-          'SELECT id FROM agent WHERE id = $1',
-          [id]
-        );
-        agentExists = checkResult.length > 0;
-      } catch (error) {
-        console.log('⚠️ agent table check error:', error.message);
-      }
-    }
-
-    if (!agentExists) {
       return res.status(404).json({
         success: false,
         error: `Agent with ID ${id} not found`
@@ -932,41 +907,15 @@ app.delete('/api/agents-colarys/:id', async (req, res) => {
     }
 
     // Supprimer l'agent de la base de données
-    let deleted = false;
-    try {
-      // Essayer agents_colarys d'abord
-      await AppDataSource.query(
-        'DELETE FROM agents_colarys WHERE id = $1',
-        [id]
-      );
-      deleted = true;
-      console.log(`✅ Agent ${id} deleted from agents_colarys table`);
-    } catch (error) {
-      console.log('⚠️ Could not delete from agents_colarys, trying agent table...');
-      
-      try {
-        await AppDataSource.query(
-          'DELETE FROM agent WHERE id = $1',
-          [id]
-        );
-        deleted = true;
-        console.log(`✅ Agent ${id} deleted from agent table`);
-      } catch (error2) {
-        console.error('❌ Could not delete from any agent table:', error2.message);
-      }
-    }
+    await AppDataSource.query(
+      'DELETE FROM agents_colarys WHERE id = $1',
+      [id]
+    );
 
-    if (deleted) {
-      res.json({
-        success: true,
-        message: `Agent ${id} deleted successfully from database`
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        error: "Failed to delete agent from database"
-      });
-    }
+    res.json({
+      success: true,
+      message: `Agent ${id} deleted successfully from database`
+    });
 
   } catch (error) {
     console.error('❌ Error deleting agent:', error);
@@ -978,7 +927,7 @@ app.delete('/api/agents-colarys/:id', async (req, res) => {
   }
 });
 
-// Route de débogage pour voir les données actuelles
+// ROUTE DE DÉBOGAGE POUR LES IMAGES
 app.get('/api/debug-agent-image/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -1021,7 +970,48 @@ app.get('/api/debug-agent-image/:id', async (req, res) => {
   }
 });
 
-// Route pour les présences
+// ROUTE DE TEST POUR LES URLS D'IMAGE
+app.get('/api/test-image-url/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    
+    const agent = await AppDataSource.query(
+      'SELECT id, nom, prenom, image, "imagePublicId" FROM agents_colarys WHERE id = $1',
+      [id]
+    );
+
+    if (agent.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Agent non trouvé"
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        id: agent[0].id,
+        name: `${agent[0].nom} ${agent[0].prenom}`,
+        imageRaw: agent[0].image,
+        imageType: typeof agent[0].image,
+        imageStartsWithHttp: agent[0].image ? 
+          (agent[0].image.startsWith('http://') || agent[0].image.startsWith('https://')) : false,
+        isCloudinary: agent[0].image ? agent[0].image.includes('cloudinary.com') : false,
+        recommendation: agent[0].image && agent[0].image.startsWith('http') 
+          ? 'Utiliser directement dans src="..."'
+          : 'Nécessite construction d\'URL'
+      }
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ROUTES EXISTANTES (conservées pour compatibilité)
 app.get('/api/presences', async (req, res) => {
   try {
     if (!dbInitialized) {
@@ -1065,7 +1055,6 @@ app.get('/api/presences', async (req, res) => {
   }
 });
 
-// Route pour les plannings
 app.get('/api/plannings', async (req, res) => {
   try {
     if (!dbInitialized) {
@@ -1108,7 +1097,6 @@ app.get('/api/plannings', async (req, res) => {
   }
 });
 
-// Dans minimal.js, ajoutez :
 app.get('/api/test-agents-direct', async (req, res) => {
   try {
     console.log('🔍 Testing direct agent query...');
@@ -1172,7 +1160,6 @@ app.get('/api/test-agents-direct', async (req, res) => {
   }
 });
 
-// Ajoutez cette route pour voir les tables disponibles
 app.get('/api/debug-tables', async (req, res) => {
   try {
     if (!dbInitialized) {
@@ -1201,7 +1188,6 @@ app.get('/api/debug-tables', async (req, res) => {
   }
 });
 
-// Ajoutez cette route pour vérifier un agent spécifique
 app.get('/api/check-agent/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -1258,7 +1244,6 @@ app.get('/api/check-agent/:id', async (req, res) => {
   }
 });
 
-// Dans api/minimal.js - AJOUTER
 app.get('/api/debug-agent/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -1290,47 +1275,6 @@ app.get('/api/debug-agent/:id', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error debugging agent:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Route de test pour les images
-app.get('/api/test-image-url/:id', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    
-    const agent = await AppDataSource.query(
-      'SELECT id, nom, prenom, image, "imagePublicId" FROM agents_colarys WHERE id = $1',
-      [id]
-    );
-
-    if (agent.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Agent non trouvé"
-      });
-    }
-
-    res.json({
-      success: true,
-      data: {
-        id: agent[0].id,
-        name: `${agent[0].nom} ${agent[0].prenom}`,
-        imageRaw: agent[0].image,
-        imageType: typeof agent[0].image,
-        imageStartsWithHttp: agent[0].image ? 
-          (agent[0].image.startsWith('http://') || agent[0].image.startsWith('https://')) : false,
-        isCloudinary: agent[0].image ? agent[0].image.includes('cloudinary.com') : false,
-        recommendation: agent[0].image && agent[0].image.startsWith('http') 
-          ? 'Utiliser directement dans src="..."'
-          : 'Nécessite construction d\'URL'
-      }
-    });
-
-  } catch (error) {
     res.status(500).json({
       success: false,
       error: error.message
