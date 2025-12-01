@@ -1282,9 +1282,9 @@ app.get('/api/debug-agent/:id', async (req, res) => {
   }
 });
 
-// ========== ROUTES POUR LES AGENTS ET PRÉSENCES ==========
+// ========== ROUTES MANQUANTES POUR LES AGENTS ==========
 
-// Rechercher un agent par matricule
+// 1. Rechercher un agent par matricule (MANQUANTE !)
 app.get('/api/agents/matricule/:matricule', async (req, res) => {
   try {
     const matricule = req.params.matricule;
@@ -1320,7 +1320,7 @@ app.get('/api/agents/matricule/:matricule', async (req, res) => {
   }
 });
 
-// Rechercher un agent par nom et prénom
+// 2. Rechercher un agent par nom et prénom (MANQUANTE !)
 app.get('/api/agents/nom/:nom/prenom/:prenom', async (req, res) => {
   try {
     const nom = req.params.nom;
@@ -1357,17 +1357,33 @@ app.get('/api/agents/nom/:nom/prenom/:prenom', async (req, res) => {
   }
 });
 
-// Vérifier la présence aujourd'hui pour un matricule
+// 3. Route de test pour vérifier
+app.get('/api/presences/test', (req, res) => {
+  res.json({
+    success: true,
+    message: "✅ API de présences fonctionnelle",
+    timestamp: new Date().toISOString(),
+    routes_disponibles: [
+      "POST /api/presences/entree",
+      "POST /api/presences/sortie",
+      "GET /api/presences/aujourdhui/:matricule",
+      "GET /api/agents/matricule/:matricule",
+      "GET /api/agents/nom/:nom/prenom/:prenom"
+    ]
+  });
+});
+
+// 4. Vérifier la présence aujourd'hui (version simplifiée)
 app.get('/api/presences/aujourdhui/:matricule', async (req, res) => {
   try {
     const matricule = req.params.matricule;
-    console.log(`📅 Vérification présence aujourd'hui pour: ${matricule}`);
+    console.log(`📅 Vérification présence pour: ${matricule}`);
     
     if (!dbInitialized) {
       await initializeDatabase();
     }
 
-    // Chercher d'abord l'agent
+    // Chercher l'agent
     const agents = await AppDataSource.query(
       'SELECT id FROM agents_colarys WHERE matricule = $1',
       [matricule]
@@ -1381,31 +1397,27 @@ app.get('/api/presences/aujourdhui/:matricule', async (req, res) => {
     }
 
     const agentId = agents[0].id;
-    const today = new Date().toISOString().split('T')[0]; // Format YYYY-MM-DD
+    const today = new Date().toISOString().split('T')[0];
 
-    // Chercher les présences d'aujourd'hui
+    // Chercher les présences
     let presences = [];
     try {
       presences = await AppDataSource.query(
-        'SELECT * FROM presence WHERE agent_id = $1 AND DATE(date) = $2',
+        'SELECT * FROM presence WHERE agent_id = $1 AND date = $2',
         [agentId, today]
       );
     } catch (error) {
-      console.log('⚠️ Table presence non trouvée:', error.message);
-      // Retourner un tableau vide si la table n'existe pas
-      return res.json({
-        success: true,
-        data: []
-      });
+      console.log('ℹ️ Aucune présence trouvée pour aujourd\'hui');
     }
 
     res.json({
       success: true,
-      data: presences
+      data: presences,
+      count: presences.length
     });
 
   } catch (error) {
-    console.error('❌ Error checking today presence:', error);
+    console.error('❌ Error checking presence:', error);
     res.status(500).json({
       success: false,
       error: "Erreur lors de la vérification de présence"
@@ -1413,112 +1425,11 @@ app.get('/api/presences/aujourdhui/:matricule', async (req, res) => {
   }
 });
 
-// Pointage d'entrée
-// Pointage d'entrée - VERSION CORRIGÉE POUR VOTRE STRUCTURE
+// 5. Pointage d'entrée (version corrigée pour votre structure)
 app.post('/api/presences/entree', async (req, res) => {
   try {
     const data = req.body;
     console.log('📝 Pointage entrée reçu:', data);
-    
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-
-    // Chercher l'agent par matricule
-    const agents = await AppDataSource.query(
-      'SELECT id FROM agents_colarys WHERE matricule = $1',
-      [data.matricule]
-    );
-
-    if (agents.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Agent non trouvé"
-      });
-    }
-
-    const agentId = agents[0].id;
-    const now = new Date();
-    const today = now.toISOString().split('T')[0]; // YYYY-MM-DD
-    const timeNow = now.toTimeString().split(' ')[0].substring(0, 8); // HH:MM:SS
-    
-    console.log(`👤 Agent ID: ${agentId}, Date: ${today}, Heure entrée: ${timeNow}`);
-    
-    // Vérifier si présence existe déjà aujourd'hui
-    const existingPresence = await AppDataSource.query(
-      'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
-      [agentId, today]
-    );
-
-    let presenceId;
-    
-    if (existingPresence.length > 0) {
-      // Mettre à jour l'entrée existante
-      await AppDataSource.query(
-        `UPDATE presence 
-         SET heure_entree = $1, shift = $2, created_at = NOW()
-         WHERE id = $3`,
-        [timeNow, data.shift || 'JOUR', existingPresence[0].id]
-      );
-      presenceId = existingPresence[0].id;
-      console.log(`🔄 Présence mise à jour, ID: ${presenceId}`);
-    } else {
-      // Créer nouvelle présence
-      const result = await AppDataSource.query(
-        `INSERT INTO presence 
-         (agent_id, date, heure_entree, shift, created_at) 
-         VALUES ($1, $2, $3, $4, NOW())
-         RETURNING id`,
-        [agentId, today, timeNow, data.shift || 'JOUR']
-      );
-      presenceId = result[0].id;
-      console.log(`✅ Nouvelle présence créée, ID: ${presenceId}`);
-    }
-
-    res.json({
-      success: true,
-      message: "Pointage d'entrée enregistré avec succès",
-      data: {
-        matricule: data.matricule,
-        agent_id: agentId,
-        presence_id: presenceId,
-        date: today,
-        heure_entree: timeNow,
-        shift: data.shift || 'JOUR'
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ ERREUR dans /api/presences/entree:', error);
-    console.error('❌ Stack:', error.stack);
-    
-    // Messages d'erreur plus clairs
-    let errorMessage = "Erreur lors du pointage d'entrée";
-    let details = process.env.NODE_ENV === 'development' ? error.message : undefined;
-    
-    if (error.message.includes('relation "presence" does not exist')) {
-      errorMessage = "La table 'presence' n'existe pas dans la base de données";
-      details = "Vérifiez que la table existe dans Supabase";
-    } else if (error.message.includes('column "check_in" does not exist')) {
-      errorMessage = "Structure de table incorrecte";
-      details = "La table 'presence' n'a pas les colonnes attendues";
-    }
-    
-    res.status(500).json({
-      success: false,
-      error: errorMessage,
-      details: details
-    });
-  }
-});
-
-// Pointage de sortie
-// Pointage de sortie - VERSION CORRIGÉE
-// Pointage de sortie - VERSION CORRIGÉE
-app.post('/api/presences/sortie', async (req, res) => {
-  try {
-    const data = req.body;
-    console.log('📝 Pointage sortie reçu:', data);
     
     if (!dbInitialized) {
       await initializeDatabase();
@@ -1542,76 +1453,47 @@ app.post('/api/presences/sortie', async (req, res) => {
     const today = now.toISOString().split('T')[0];
     const timeNow = now.toTimeString().split(' ')[0].substring(0, 8);
     
-    console.log(`👤 Agent ID: ${agentId}, Date: ${today}, Heure sortie: ${timeNow}`);
+    console.log(`👤 Agent ID: ${agentId}, Date: ${today}, Heure: ${timeNow}`);
     
-    // Chercher présence d'aujourd'hui
-    const existingPresence = await AppDataSource.query(
-      'SELECT id, heure_entree FROM presence WHERE agent_id = $1 AND date = $2',
-      [agentId, today]
+    // Insérer dans la table presence
+    const result = await AppDataSource.query(
+      `INSERT INTO presence 
+       (agent_id, date, heure_entree, shift, created_at) 
+       VALUES ($1, $2, $3, $4, NOW())
+       RETURNING id`,
+      [
+        agentId,
+        today,
+        timeNow,
+        data.shift || 'JOUR'
+      ]
     );
 
-    let presenceId;
-    let heuresTravaillees = null;
-    
-    if (existingPresence.length > 0) {
-      presenceId = existingPresence[0].id;
-      
-      // Calculer heures travaillées si heure_entree existe
-      if (existingPresence[0].heure_entree) {
-        const entree = existingPresence[0].heure_entree;
-        const [heuresE, minutesE] = entree.split(':').map(Number);
-        const [heuresS, minutesS] = timeNow.split(':').map(Number);
-        
-        const totalMinutesEntree = heuresE * 60 + minutesE;
-        const totalMinutesSortie = heuresS * 60 + minutesS;
-        const diffMinutes = totalMinutesSortie - totalMinutesEntree;
-        
-        heuresTravaillees = (diffMinutes / 60).toFixed(2);
-        console.log(`⏱️ Heures travaillées: ${heuresTravaillees}h`);
-      }
-      
-      // Mettre à jour
-      await AppDataSource.query(
-        `UPDATE presence 
-         SET heure_sortie = $1, heures_travaillees = $2
-         WHERE id = $3`,
-        [timeNow, heuresTravaillees, presenceId]
-      );
-      
-      console.log(`🔄 Sortie enregistrée pour présence ID: ${presenceId}`);
-    } else {
-      // Créer avec seulement sortie (cas spécial)
-      const result = await AppDataSource.query(
-        `INSERT INTO presence 
-         (agent_id, date, heure_sortie, shift, created_at) 
-         VALUES ($1, $2, $3, $4, NOW())
-         RETURNING id`,
-        [agentId, today, timeNow, data.shift || 'JOUR']
-      );
-      
-      presenceId = result[0].id;
-      console.log(`⚠️ Présence créée avec sortie uniquement, ID: ${presenceId}`);
-    }
+    console.log('✅ Pointage enregistré, ID:', result[0].id);
 
     res.json({
       success: true,
-      message: "Pointage de sortie enregistré",
+      message: "Pointage d'entrée enregistré avec succès",
       data: {
         matricule: data.matricule,
-        agent_id: agentId,
-        presence_id: presenceId,
+        heure_entree: timeNow,
         date: today,
-        heure_sortie: timeNow,
-        heures_travaillees: heuresTravaillees,
-        shift: data.shift || 'JOUR'
+        presence_id: result[0].id
       }
     });
 
   } catch (error) {
-    console.error('❌ Error recording exit:', error);
+    console.error('❌ ERREUR dans /api/presences/entree:', error);
+    
+    let errorMessage = "Erreur lors du pointage d'entrée";
+    
+    if (error.message.includes('relation "presence" does not exist')) {
+      errorMessage = "Table 'presence' non trouvée. Créez-la d'abord.";
+    }
+    
     res.status(500).json({
       success: false,
-      error: "Erreur lors du pointage de sortie",
+      error: errorMessage,
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
