@@ -4,10 +4,18 @@ console.log('🚀 Colarys API Minimal - Starting...');
 const express = require('express');
 const cors = require('cors');
 const { DataSource } = require('typeorm');
+const cloudinary = require('cloudinary').v2;
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Configurer Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
 // ========== CONFIGURATION DB DIRECTE ==========
 let dbInitialized = false;
@@ -48,7 +56,7 @@ initializeDatabase();
 // ========== ROUTES ESSENTIELLES ==========
 
 // Route racine
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.json({
     message: "✅ Colarys API is WORKING!",
     status: "operational", 
@@ -580,7 +588,206 @@ app.post('/api/agents-colarys/formdata', upload.single('image'), async (req, res
   }
 });
 
-// Route pour supprimer un agent
+
+// Dans api/minimal.js - AJOUTER cette route
+app.put('/api/agents-colarys/:id', upload.single('image'), async (req, res) => {
+  try {
+    const agentId = parseInt(req.params.id);
+    const updates = req.body;
+    
+    console.log('🔄 Updating agent:', agentId);
+    console.log('📦 Updates:', updates);
+    console.log('📸 Has file:', !!req.file);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+
+    // Vérifier que l'agent existe
+    const existingAgent = await AppDataSource.query(
+      'SELECT * FROM agents_colarys WHERE id = $1',
+      [agentId]
+    );
+
+    if (existingAgent.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Agent non trouvé"
+      });
+    }
+
+    let imageToSet = existingAgent[0].image;
+    let imagePublicIdToSet = existingAgent[0].imagePublicId;
+
+    // Si une nouvelle image est fournie
+    if (req.file) {
+      console.log('📸 Nouvelle image détectée');
+      const base64Image = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+      imageToSet = base64Image;
+      imagePublicIdToSet = 'uploaded-' + Date.now();
+    }
+
+    // Mettre à jour l'agent
+    await AppDataSource.query(
+      `UPDATE agents_colarys 
+       SET matricule = $1, nom = $2, prenom = $3, role = $4, mail = $5, 
+           contact = $6, entreprise = $7, image = $8, "imagePublicId" = $9,
+           "updated_at" = NOW()
+       WHERE id = $10`,
+      [
+        updates.matricule || existingAgent[0].matricule,
+        updates.nom || existingAgent[0].nom,
+        updates.prenom || existingAgent[0].prenom,
+        updates.role || existingAgent[0].role,
+        updates.mail || existingAgent[0].mail,
+        updates.contact || existingAgent[0].contact,
+        updates.entreprise || existingAgent[0].entreprise,
+        imageToSet,
+        imagePublicIdToSet,
+        agentId
+      ]
+    );
+
+    // Récupérer l'agent mis à jour
+    const updatedAgent = await AppDataSource.query(
+      'SELECT * FROM agents_colarys WHERE id = $1',
+      [agentId]
+    );
+
+    res.json({
+      success: true,
+      message: "Agent modifié avec succès",
+      data: updatedAgent[0]
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating agent:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors de la modification",
+      message: error.message
+    });
+  }
+});
+
+// Modifier la route d'upload pour utiliser Cloudinary
+app.post('/api/agents-colarys/:id/upload-image', upload.single('image'), async (req, res) => {
+  try {
+    const agentId = parseInt(req.params.id);
+    
+    console.log('📸 Upload image Cloudinary pour agent:', agentId);
+    
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "Aucun fichier image fourni"
+      });
+    }
+
+    // Vérifier que l'agent existe
+    const agent = await AppDataSource.query(
+      'SELECT * FROM agents_colarys WHERE id = $1',
+      [agentId]
+    );
+
+    if (agent.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Agent non trouvé"
+      });
+    }
+
+    // ✅ SIMULATION D'UPLOAD CLOUDINARY (à remplacer par le vrai)
+    // Pour l'instant, on va stocker l'image en base64 dans la base
+    const base64Image = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+    
+    console.log('📸 Image convertie en base64, taille:', base64Image.length);
+
+    // Upload vers Cloudinary
+    const uploadResult = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'colarys/agents',
+          public_id: `agent-${agentId}-${Date.now()}`,
+          transformation: [
+            { width: 500, height: 500, crop: 'fill' },
+            { quality: 'auto:good' }
+          ]
+        },
+        (error, result) => {
+          if (error) {
+            console.error('❌ Cloudinary upload error:', error);
+            reject(error);
+          } else {
+            console.log('☁️ Cloudinary upload success:', result.url);
+            resolve(result);
+          }
+        }
+      );
+
+       // Écrire le buffer dans le stream
+      uploadStream.end(req.file.buffer);
+    });
+
+   await AppDataSource.query(
+      'UPDATE agents_colarys SET image = $1, "imagePublicId" = $2 WHERE id = $3',
+      [uploadResult.url, uploadResult.public_id, agentId]
+    );
+
+    // Récupérer l'agent mis à jour
+    const updatedAgent = await AppDataSource.query(
+      'SELECT * FROM agents_colarys WHERE id = $1',
+      [agentId]
+    );
+
+    res.json({
+      success: true,
+      message: "Image uploadée avec succès sur Cloudinary",
+      data: {
+        agent: updatedAgent[0],
+        cloudinaryUrl: uploadResult.url
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error uploading image to Cloudinary:', error);
+    
+    // Fallback: stocker en base64
+    try {
+      if (req.file) {
+        const base64Image = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+        
+        await AppDataSource.query(
+          'UPDATE agents_colarys SET image = $1, "imagePublicId" = $2 WHERE id = $3',
+          [base64Image, 'base64-fallback', agentId]
+        );
+        
+        const updatedAgent = await AppDataSource.query(
+          'SELECT * FROM agents_colarys WHERE id = $1',
+          [agentId]
+        );
+
+        return res.json({
+          success: true,
+          message: "Image sauvegardée en local (Cloudinary échoué)",
+          data: {
+            agent: updatedAgent[0]
+          }
+        });
+      }
+    } catch (fallbackError) {
+      console.error('❌ Fallback aussi échoué:', fallbackError);
+    }
+    
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors de l'upload de l'image",
+      message: error.message
+    });
+  }
+});
+
+// pour supprimer un agent
 // Dans minimal.js - Remplacer la route DELETE existante
 app.delete('/api/agents-colarys/:id', async (req, res) => {
   try {
@@ -909,6 +1116,45 @@ app.get('/api/check-agent/:id', async (req, res) => {
     });
     
   } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Dans api/minimal.js - AJOUTER
+app.get('/api/debug-agent/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+
+    const agent = await AppDataSource.query(
+      'SELECT * FROM agents_colarys WHERE id = $1',
+      [id]
+    );
+
+    if (agent.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Agent non trouvé"
+      });
+    }
+
+    res.json({
+      success: true,
+      agent: agent[0],
+      rawImage: agent[0].image,
+      imageType: typeof agent[0].image,
+      isNull: agent[0].image === null,
+      isUndefined: agent[0].image === undefined
+    });
+
+  } catch (error) {
+    console.error('❌ Error debugging agent:', error);
     res.status(500).json({
       success: false,
       error: error.message
