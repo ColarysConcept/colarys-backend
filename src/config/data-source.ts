@@ -37,56 +37,28 @@ export const AppDataSource = new DataSource({
     AgentColarys
   ],
   
-  // ⚠️ IMPORTANT: synchronize false en production
-  synchronize: false,
-  logging: false, // ✅ DÉSACTIVER LES LOGS EN PROD
-  
-  // ✅ CONFIGURATION SSL POUR SUPABASE
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+ synchronize: false, // IMPORTANT: false en production
+  logging: false,
   extra: {
-    max: 5,
-    connectionTimeoutMillis: 10000,
-    idleTimeoutMillis: 30000,
+    ssl: {
+      rejectUnauthorized: false
+    }
   }
 });
 
 export const initializeDatabase = async (): Promise<boolean> => {
-  if (AppDataSource.isInitialized) {
-    console.log('✅ Database already initialized');
-    return true;
-  }
-
   try {
-    console.log('🔄 Starting database initialization...');
-    
-    // Vérification des variables critiques
-    const requiredVars = ['POSTGRES_HOST', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DB'];
-    const missingVars = requiredVars.filter(varName => !process.env[varName]);
-    
-    if (missingVars.length > 0) {
-      console.error('❌ Missing required environment variables:', missingVars);
-      return false;
+    if (!AppDataSource.isInitialized) {
+      await AppDataSource.initialize();
+      console.log('✅ Database connected successfully');
+      return true;
     }
-
-    console.log('🔧 Attempting to connect to database...');
-    await AppDataSource.initialize();
-    
-    console.log('✅ Database connected successfully!');
-    
-    // Vérifier que toutes les entités sont chargées
-    const entityNames = AppDataSource.entityMetadatas.map(meta => meta.name);
-    console.log('📋 Successfully loaded entities:', entityNames);
-    
     return true;
-  } catch (error: any) {
-    console.error('❌ Database initialization FAILED:');
-    console.error('Error message:', error.message);
-    console.error('Error code:', error.code);
-    
+  } catch (error) {
+    console.error('❌ Database connection failed:', error);
     return false;
   }
 };
-
 // ✅ AJOUTEZ CETTE FONCTION À LA FIN DU FICHIER
 export const ensureDatabaseConnection = async (): Promise<boolean> => {
   try {

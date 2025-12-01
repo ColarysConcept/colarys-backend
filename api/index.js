@@ -1,148 +1,91 @@
-// api/index.js - Version ultra-simplifiée
-console.log('🚀 Colarys API - Starting Vercel Function...');
+// api/index.js - Point d'entrée corrigé pour Vercel
+console.log('🚀 Colarys API - Vercel Serverless Function Starting...');
 
-const express = require('express');
-const cors = require('cors');
+const path = require('path');
 
-const app = express();
+// Ajouter dist/ au path pour les require
+require('module').Module._nodeModulePaths.push(path.join(process.cwd(), 'dist'));
 
-// Middleware de base
-app.use(cors());
-app.use(express.json());
-
-// Logging des requêtes
-app.use((req, res, next) => {
-  console.log(`📱 ${req.method} ${req.path}`);
-  next();
-});
-
-// Route santé simplifiée
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: "OK",
-    message: "API is running",
-    timestamp: new Date().toISOString(),
-    version: "2.0.0"
-  });
-});
-
-// Route racine
-app.get('/', (req, res) => {
-  res.json({
-    message: "🚀 Colarys Concept API Server",
-    status: "operational",
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Route pour initialiser la DB et créer l'utilisateur
-app.post('/api/init-db', async (req, res) => {
+const initializeApp = async () => {
   try {
+    console.log('🔄 Loading compiled application from dist/...');
+    
+    // Forcer le chargement depuis dist/
+    const appPath = path.join(process.cwd(), 'dist', 'app.js');
+    console.log('📁 App path:', appPath);
+    
+    const appModule = require(appPath);
+    const app = appModule.default || appModule;
+    
+    console.log('✅ App imported successfully from dist/');
+    
+    // Initialiser la base de données
     console.log('🔄 Initializing database...');
+    const { initializeDatabase } = require(path.join(process.cwd(), 'dist', 'config', 'data-source.js'));
     
-    // Essayer d'importer TypeORM
     let dbInitialized = false;
-    let userCreated = false;
-    
     try {
-      const { initializeDatabase } = require('../dist/config/data-source');
-      const { AppDataSource } = require('../dist/config/data-source');
-      const { User } = require('../dist/entities/User');
-      const bcrypt = require('bcryptjs');
-      
-      // Initialiser DB
       dbInitialized = await initializeDatabase();
-      
-      if (dbInitialized) {
-        // Créer utilisateur
-        const userRepository = AppDataSource.getRepository(User);
-        const existingUser = await userRepository.findOne({ 
-          where: { email: 'ressource.prod@gmail.com' } 
-        });
-        
-        if (!existingUser) {
-          const hashedPassword = await bcrypt.hash('stage25', 10);
-          const defaultUser = userRepository.create({
-            name: 'Admin Ressources',
-            email: 'ressource.prod@gmail.com',
-            password: hashedPassword,
-            role: 'admin'
-          });
-          await userRepository.save(defaultUser);
-          userCreated = true;
-        } else {
-          userCreated = true;
-        }
-      }
+      console.log('✅ Database initialized:', dbInitialized);
     } catch (dbError) {
-      console.log('⚠️ Database init failed:', dbError.message);
+      console.log('⚠️ Database init warning:', dbError.message);
     }
     
-    res.json({
-      success: true,
-      database: dbInitialized ? "connected" : "disconnected",
-      user: userCreated ? "created/exists" : "not_created",
-      credentials: {
-        email: "ressource.prod@gmail.com",
-        password: "stage25"
-      }
-    });
+    return app;
     
   } catch (error) {
-    console.error('❌ Init DB error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
+    console.error('❌ Failed to load main app from dist/:', error);
+    
+    // Fallback minimal
+    const express = require('express');
+    const cors = require('cors');
+    
+    const fallbackApp = express();
+    fallbackApp.use(cors());
+    fallbackApp.use(express.json());
+    
+    fallbackApp.get('/', (req, res) => {
+      res.json({
+        message: "Colarys API - Fallback Mode",
+        error: "Main app failed to load from dist/",
+        timestamp: new Date().toISOString()
+      });
     });
+    
+    fallbackApp.get('/api/health', (req, res) => {
+      res.json({
+        status: "fallback",
+        message: "Check TypeScript compilation",
+        timestamp: new Date().toISOString()
+      });
+    });
+    
+    return fallbackApp;
   }
-});
+};
 
-// Route de test DB
-app.get('/api/test-db', async (req, res) => {
+const appPromise = initializeApp();
+
+// Export pour Vercel
+module.exports = async (req, res) => {
   try {
-    let dbStatus = "not_attempted";
+    const app = await appPromise;
     
-    try {
-      const { initializeDatabase } = require('../dist/config/data-source');
-      dbStatus = await initializeDatabase() ? "connected" : "failed";
-    } catch (error) {
-      dbStatus = `error: ${error.message}`;
+    // Headers CORS
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    
+    if (req.method === 'OPTIONS') {
+      return res.status(200).end();
     }
     
-    res.json({
-      success: true,
-      database: dbStatus,
-      environment: {
-        node_env: process.env.NODE_ENV,
-        postgres_host: process.env.POSTGRES_HOST ? "set" : "missing",
-        postgres_user: process.env.POSTGRES_USER ? "set" : "missing"
-      }
-    });
+    return app(req, res);
   } catch (error) {
-    res.json({
-      success: false,
-      error: error.message
+    console.error('❌ Request handler error:', error);
+    res.status(500).json({ 
+      error: 'Server initialization failed',
+      message: error.message
     });
   }
-});
-
-// Gestionnaire d'erreurs
-app.use((error, req, res, next) => {
-  console.error('❌ Server error:', error);
-  res.status(500).json({
-    error: "Internal server error",
-    message: error.message
-  });
-});
-
-// Route 404
-app.use('*', (req, res) => {
-  res.status(404).json({
-    error: "Endpoint not found",
-    path: req.originalUrl
-  });
-});
-
-console.log('✅ Vercel Function initialized successfully');
-
-module.exports = app;
+};

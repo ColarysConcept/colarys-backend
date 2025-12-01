@@ -3,12 +3,13 @@
   "version": "1.0.0",
   "main": "dist/app.js",
   "type": "commonjs",
-  "scripts": {
+ "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
     "build": "tsc",
     "start": "node dist/app.js",
-    "vercel-build": "echo 'Build completed'",
-    "vercel-dev": "echo 'Build completed'"
+    "vercel-build": "npm run build && npm run verify-build",
+    "vercel-dev": "npm run build",
+    "verify-build": "node -e \"console.log('✅ Build verification:'); require('./dist/app.js'); console.log('✅ App loads successfully')\""
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
