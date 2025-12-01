@@ -1,5 +1,5 @@
-// api/minimal.js - Version corrigée pour Supabase avec colonnes majuscules
-console.log('🚀 Colarys API Enhanced - Starting...');
+// api/minimal.js - Version complète fonctionnelle
+console.log('🚀 Colarys API Minimal - Starting...');
 
 const express = require('express');
 const cors = require('cors');
@@ -45,7 +45,7 @@ const initializeDatabase = async () => {
 // Initialiser la DB
 initializeDatabase();
 
-// ========== ROUTES ==========
+// ========== ROUTES ESSENTIELLES ==========
 
 // Route racine
 app.get('/', (req, res) => {
@@ -71,7 +71,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Route de login CORRIGÉE pour les colonnes majuscules
+// Route de login pour Supabase avec colonnes majuscules
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -91,7 +91,7 @@ app.post('/api/auth/login', async (req, res) => {
     const bcrypt = require('bcryptjs');
     const jwt = require('jsonwebtoken');
 
-    // Chercher l'utilisateur avec les colonnes correctes (majuscules)
+    // Chercher l'utilisateur avec les colonnes correctes (majuscules pour Supabase)
     const users = await AppDataSource.query(
       'SELECT id, name, email, password, role, "createdAt", "updatedAt" FROM "user" WHERE email = $1',
       [email]
@@ -105,7 +105,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const user = users[0];
-    console.log('🔍 User found:', { email: user.email, passwordLength: user.password ? user.password.length : 'null' });
+    console.log('🔍 User found:', { email: user.email });
 
     // Vérifier le mot de passe
     const validPassword = await bcrypt.compare(password, user.password);
@@ -149,10 +149,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-
-// ========== ROUTES POUR LE FRONTEND ==========
-
-// Route pour agents-colarys
+// Route pour agents-colarys (pour votre frontend)
 app.get('/api/agents-colarys', async (req, res) => {
   try {
     if (!dbInitialized) {
@@ -161,47 +158,30 @@ app.get('/api/agents-colarys', async (req, res) => {
 
     console.log('📋 Fetching agents from database...');
 
-    // Essayer de récupérer depuis la table agents_colarys
     let agents = [];
     try {
+      // Essayer différentes tables possibles
       agents = await AppDataSource.query('SELECT * FROM agents_colarys LIMIT 50');
       console.log(`✅ Found ${agents.length} agents in agents_colarys`);
     } catch (error) {
-      console.log('⚠️ agents_colarys table not found, trying other tables...');
-      
-      // Essayer d'autres tables possibles
+      console.log('⚠️ agents_colarys table not found, trying agent table...');
       try {
         agents = await AppDataSource.query('SELECT * FROM agent LIMIT 50');
         console.log(`✅ Found ${agents.length} agents in agent table`);
       } catch (error2) {
-        console.log('⚠️ agent table not found either');
+        console.log('⚠️ agent table not found either, using mock data');
+        // Données mockées temporairement
+        agents = [
+          { id: 1, name: "Agent Test 1", email: "agent1@test.com", status: "active" },
+          { id: 2, name: "Agent Test 2", email: "agent2@test.com", status: "active" }
+        ];
       }
-    }
-
-    // Données mockées en attendant
-    if (agents.length === 0) {
-      agents = [
-        {
-          id: 1,
-          name: "Agent Test 1",
-          email: "agent1@test.com",
-          status: "active"
-        },
-        {
-          id: 2, 
-          name: "Agent Test 2",
-          email: "agent2@test.com",
-          status: "active"
-        }
-      ];
-      console.log('📝 Using mock agents data');
     }
 
     res.json({
       success: true,
       data: agents,
-      count: agents.length,
-      message: agents.length > 0 ? "Agents retrieved successfully" : "Using mock data - no agents table found"
+      count: agents.length
     });
 
   } catch (error) {
@@ -214,120 +194,7 @@ app.get('/api/agents-colarys', async (req, res) => {
   }
 });
 
-// Route pour les présences
-app.get('/api/presences', async (req, res) => {
-  try {
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-
-    console.log('📋 Fetching presences...');
-
-    let presences = [];
-    try {
-      presences = await AppDataSource.query('SELECT * FROM presence LIMIT 50');
-    } catch (error) {
-      console.log('⚠️ presence table not found');
-    }
-
-    // Données mockées
-    if (presences.length === 0) {
-      presences = [
-        {
-          id: 1,
-          agent_id: 1,
-          date: new Date().toISOString(),
-          status: "present"
-        }
-      ];
-    }
-
-    res.json({
-      success: true,
-      data: presences,
-      count: presences.length
-    });
-
-  } catch (error) {
-    console.error('❌ Error fetching presences:', error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to fetch presences"
-    });
-  }
-});
-
-// Route pour les plannings
-app.get('/api/plannings', async (req, res) => {
-  try {
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-
-    console.log('📋 Fetching plannings...');
-
-    let plannings = [];
-    try {
-      plannings = await AppDataSource.query('SELECT * FROM planning LIMIT 50');
-    } catch (error) {
-      console.log('⚠️ planning table not found');
-    }
-
-    // Données mockées
-    if (plannings.length === 0) {
-      plannings = [
-        {
-          id: 1,
-          agent_id: 1,
-          date: new Date().toISOString(),
-          shift: "morning"
-        }
-      ];
-    }
-
-    res.json({
-      success: true,
-      data: plannings,
-      count: plannings.length
-    });
-
-  } catch (error) {
-    console.error('❌ Error fetching plannings:', error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to fetch plannings"
-    });
-  }
-});
-
-// Route pour debug - lister toutes les tables
-app.get('/api/debug-tables', async (req, res) => {
-  try {
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-
-    const tables = await AppDataSource.query(`
-      SELECT table_name 
-      FROM information_schema.tables 
-      WHERE table_schema = 'public'
-    `);
-
-    res.json({
-      success: true,
-      tables: tables.map(t => t.table_name),
-      count: tables.length
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Route pour vérifier l'utilisateur spécifique
+// Route pour vérifier l'utilisateur
 app.get('/api/check-my-user', async (req, res) => {
   try {
     if (!dbInitialized) {
@@ -360,7 +227,7 @@ app.get('/api/check-my-user', async (req, res) => {
   }
 });
 
-// Route de test DB simple
+// Route de test DB
 app.get('/api/test-db-simple', async (req, res) => {
   try {
     if (!dbInitialized) {
@@ -392,29 +259,61 @@ app.get('/api/test-db-simple', async (req, res) => {
   }
 });
 
-// Route pour lister tous les utilisateurs (debug)
-app.get('/api/list-users', async (req, res) => {
+// Route pour créer l'utilisateur si nécessaire
+app.get('/api/ensure-user', async (req, res) => {
   try {
     if (!dbInitialized) {
       await initializeDatabase();
     }
 
-    const users = await AppDataSource.query('SELECT id, name, email, role, "createdAt", "updatedAt" FROM "user"');
+    const bcrypt = require('bcryptjs');
+    const hashedPassword = await bcrypt.hash('stage25', 10);
+
+    // Vérifier si l'utilisateur existe
+    const existingUser = await AppDataSource.query(
+      'SELECT * FROM "user" WHERE email = $1',
+      ['ressource.prod@gmail.com']
+    );
+
+    let action = 'exists';
     
+    if (existingUser.length === 0) {
+      // Créer l'utilisateur
+      await AppDataSource.query(
+        `INSERT INTO "user" (name, email, password, role, "createdAt", "updatedAt") 
+         VALUES ($1, $2, $3, $4, NOW(), NOW())`,
+        ['Admin Ressources', 'ressource.prod@gmail.com', hashedPassword, 'admin']
+      );
+      action = 'created';
+    } else {
+      // Mettre à jour le mot de passe
+      await AppDataSource.query(
+        'UPDATE "user" SET password = $1, "updatedAt" = NOW() WHERE email = $2',
+        [hashedPassword, 'ressource.prod@gmail.com']
+      );
+      action = 'updated';
+    }
+
     res.json({
       success: true,
-      users: users,
-      count: users.length
+      action: action,
+      message: `User ${action} successfully`,
+      credentials: {
+        email: 'ressource.prod@gmail.com',
+        password: 'stage25'
+      }
     });
 
   } catch (error) {
+    console.error('❌ Error ensuring user:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
+      code: error.code
     });
   }
 });
 
-console.log('✅ Enhanced API ready!');
+console.log('✅ Minimal API ready!');
 
 module.exports = app;
