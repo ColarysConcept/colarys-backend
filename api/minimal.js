@@ -430,23 +430,100 @@ app.post('/api/agents-colarys', async (req, res) => {
 });
 
 // Route pour supprimer un agent
+// Dans minimal.js - Remplacer la route DELETE existante
 app.delete('/api/agents-colarys/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     
-    console.log(`📋 Deleting agent ${id}`);
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
 
-    // Simulation de suppression
-    res.json({
-      success: true,
-      message: `Agent ${id} deleted successfully`
-    });
+    console.log(`🗑️ Deleting agent ${id} from database...`);
+
+    if (!dbInitialized || !AppDataSource) {
+      console.error('❌ Database not initialized');
+      return res.status(503).json({
+        success: false,
+        error: "Database not available"
+      });
+    }
+
+    // Vérifier d'abord si l'agent existe
+    let agentExists = false;
+    try {
+      const checkResult = await AppDataSource.query(
+        'SELECT id FROM agents_colarys WHERE id = $1',
+        [id]
+      );
+      agentExists = checkResult.length > 0;
+    } catch (error) {
+      console.log('⚠️ agents_colarys table check error:', error.message);
+    }
+
+    if (!agentExists) {
+      // Essayer la table 'agent' alternative
+      try {
+        const checkResult = await AppDataSource.query(
+          'SELECT id FROM agent WHERE id = $1',
+          [id]
+        );
+        agentExists = checkResult.length > 0;
+      } catch (error) {
+        console.log('⚠️ agent table check error:', error.message);
+      }
+    }
+
+    if (!agentExists) {
+      return res.status(404).json({
+        success: false,
+        error: `Agent with ID ${id} not found`
+      });
+    }
+
+    // Supprimer l'agent de la base de données
+    let deleted = false;
+    try {
+      // Essayer agents_colarys d'abord
+      await AppDataSource.query(
+        'DELETE FROM agents_colarys WHERE id = $1',
+        [id]
+      );
+      deleted = true;
+      console.log(`✅ Agent ${id} deleted from agents_colarys table`);
+    } catch (error) {
+      console.log('⚠️ Could not delete from agents_colarys, trying agent table...');
+      
+      try {
+        await AppDataSource.query(
+          'DELETE FROM agent WHERE id = $1',
+          [id]
+        );
+        deleted = true;
+        console.log(`✅ Agent ${id} deleted from agent table`);
+      } catch (error2) {
+        console.error('❌ Could not delete from any agent table:', error2.message);
+      }
+    }
+
+    if (deleted) {
+      res.json({
+        success: true,
+        message: `Agent ${id} deleted successfully from database`
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: "Failed to delete agent from database"
+      });
+    }
 
   } catch (error) {
     console.error('❌ Error deleting agent:', error);
     res.status(500).json({
       success: false,
-      error: "Failed to delete agent"
+      error: "Failed to delete agent",
+      message: error.message
     });
   }
 });
@@ -599,6 +676,92 @@ app.get('/api/test-agents-direct', async (req, res) => {
         ]
       });
     }
+  }
+});
+
+// Ajoutez cette route pour voir les tables disponibles
+app.get('/api/debug-tables', async (req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    const tables = await AppDataSource.query(`
+      SELECT table_name, table_type 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public'
+      ORDER BY table_name
+    `);
+    
+    res.json({
+      success: true,
+      tables: tables,
+      total: tables.length
+    });
+    
+  } catch (error) {
+    console.error('❌ Error listing tables:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Ajoutez cette route pour vérifier un agent spécifique
+app.get('/api/check-agent/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    let agent = null;
+    let foundIn = null;
+    
+    // Chercher dans agents_colarys
+    try {
+      const result = await AppDataSource.query(
+        'SELECT * FROM agents_colarys WHERE id = $1',
+        [id]
+      );
+      if (result.length > 0) {
+        agent = result[0];
+        foundIn = 'agents_colarys';
+      }
+    } catch (error) {
+      console.log('agents_colarys query failed:', error.message);
+    }
+    
+    // Chercher dans agent (alternative)
+    if (!agent) {
+      try {
+        const result = await AppDataSource.query(
+          'SELECT * FROM agent WHERE id = $1',
+          [id]
+        );
+        if (result.length > 0) {
+          agent = result[0];
+          foundIn = 'agent';
+        }
+      } catch (error) {
+        console.log('agent table query failed:', error.message);
+      }
+    }
+    
+    res.json({
+      success: true,
+      agent: agent,
+      foundIn: foundIn,
+      exists: !!agent
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 
