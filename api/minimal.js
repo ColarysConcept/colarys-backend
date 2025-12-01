@@ -1737,6 +1737,133 @@ app.get('/api/presences/stats/:period?', async (req, res) => {
   }
 });
 
+// Créer la table presence si elle n'existe pas
+app.get('/api/presences/init-table', async (req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+
+    console.log('🔄 Initialisation table presence...');
+    
+    await AppDataSource.query(`
+      CREATE TABLE IF NOT EXISTS presence (
+        id SERIAL PRIMARY KEY,
+        agent_id INTEGER NOT NULL,
+        date TIMESTAMP NOT NULL,
+        check_in VARCHAR(10),
+        check_out VARCHAR(10),
+        status VARCHAR(20) DEFAULT 'present',
+        signature_entree TEXT,
+        signature_sortie TEXT,
+        heure_entree TIMESTAMP,
+        heure_sortie TIMESTAMP,
+        campagne VARCHAR(100),
+        shift VARCHAR(50),
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        FOREIGN KEY (agent_id) REFERENCES agents_colarys(id) ON DELETE CASCADE
+      )
+    `);
+
+    console.log('✅ Table presence initialisée ou déjà existante');
+    
+    res.json({
+      success: true,
+      message: "Table presence prête à l'utilisation"
+    });
+
+  } catch (error) {
+    console.error('❌ Error initializing presence table:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur d'initialisation de la table presence"
+    });
+  }
+});
+
+// Supprimer une présence
+app.delete('/api/presences/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+
+    console.log(`🗑️ Deleting presence ${id}`);
+    
+    await AppDataSource.query(
+      'DELETE FROM presence WHERE id = $1',
+      [id]
+    );
+
+    res.json({
+      success: true,
+      message: "Présence supprimée avec succès"
+    });
+
+  } catch (error) {
+    console.error('❌ Error deleting presence:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors de la suppression de la présence"
+    });
+  }
+});
+
+// Vérifier la structure de la table presence
+app.get('/api/presences/check-structure', async (req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+
+    console.log('🔍 Vérification structure table presence...');
+    
+    // Vérifier si la table existe
+    const tableExists = await AppDataSource.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'presence'
+      )
+    `);
+
+    if (!tableExists[0].exists) {
+      return res.json({
+        success: false,
+        message: "Table 'presence' n'existe pas",
+        needsInit: true
+      });
+    }
+
+    // Vérifier les colonnes
+    const columns = await AppDataSource.query(`
+      SELECT column_name, data_type, is_nullable
+      FROM information_schema.columns 
+      WHERE table_schema = 'public' 
+      AND table_name = 'presence'
+      ORDER BY ordinal_position
+    `);
+
+    res.json({
+      success: true,
+      tableExists: true,
+      columns: columns,
+      columnCount: columns.length,
+      message: `Table 'presence' existe avec ${columns.length} colonnes`
+    });
+
+  } catch (error) {
+    console.error('❌ Error checking presence structure:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors de la vérification de la structure"
+    });
+  }
+});
+
 console.log('✅ Minimal API ready!');
 
 module.exports = app;
