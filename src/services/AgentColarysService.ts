@@ -15,28 +15,49 @@ export class AgentColarysService {
 
   // ✅ VERSION SIMPLIFIÉE SANS ensureDatabaseConnection
   private async getRepository(): Promise<Repository<AgentColarys>> {
-    try {
-      // Toujours essayer de se connecter
-      if (!AppDataSource.isInitialized) {
-        console.log('🔄 Database not initialized, connecting...');
-        await initializeDatabase();
-      }
+  try {
+    console.log('🔍 getRepository() called - Current DB state:', {
+      isInitialized: AppDataSource.isInitialized,
+      entitiesCount: AppDataSource.entityMetadatas?.length || 0
+    });
+    
+    if (!AppDataSource.isInitialized) {
+      console.log('🔄 Attempting to initialize database...');
+      const success = await initializeDatabase();
+      console.log('📊 Database initialization result:', success);
       
-      if (!AppDataSource.isInitialized) {
-        throw new Error("Database connection unavailable");
+      if (!success) {
+        console.error('❌ Database initialization failed completely');
+        throw new Error("Database connection failed after attempt");
       }
-      
-      if (!this.agentRepository) {
-        this.agentRepository = AppDataSource.getRepository(AgentColarys);
-      }
-      
-      return this.agentRepository;
-    } catch (error: any) {
-      console.error('❌ Error in getRepository():', error.message);
-      throw new Error("Database service unavailable");
     }
+    
+    // Vérifiez spécifiquement l'entité AgentColarys
+    const agentEntity = AppDataSource.entityMetadatas?.find(
+      meta => meta.name === 'AgentColarys' || meta.tableName === 'agents_colarys'
+    );
+    
+    if (!agentEntity) {
+      console.error('❌ AgentColarys entity not found in TypeORM metadata');
+      console.log('📋 Available entities:', 
+        AppDataSource.entityMetadatas?.map(e => e.name) || []
+      );
+    }
+    
+    const repository = AppDataSource.getRepository(AgentColarys);
+    console.log('✅ Repository obtained successfully');
+    
+    return repository;
+    
+  } catch (error: any) {
+    console.error('❌ Error in getRepository():', {
+      message: error.message,
+      stack: error.stack,
+      dbStatus: AppDataSource.isInitialized
+    });
+    throw new Error(`Database service unavailable: ${error.message}`);
   }
-
+}
   async getAllAgents(): Promise<AgentColarys[]> {
     try {
       console.log("🔄 Service: Getting all agents from database");

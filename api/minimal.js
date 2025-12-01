@@ -538,6 +538,70 @@ app.get('/api/plannings', async (req, res) => {
   }
 });
 
+// Dans minimal.js, ajoutez :
+app.get('/api/test-agents-direct', async (req, res) => {
+  try {
+    console.log('🔍 Testing direct agent query...');
+    
+    // Test direct avec SQL brut
+    const agents = await AppDataSource.query(`
+      SELECT * FROM agents_colarys 
+      ORDER BY id ASC 
+      LIMIT 10
+    `);
+    
+    console.log(`✅ Found ${agents.length} agents directly`);
+    
+    res.json({
+      success: true,
+      directQuery: true,
+      count: agents.length,
+      agents: agents
+    });
+    
+  } catch (error) {
+    console.error('❌ Direct query failed:', error.message);
+    
+    // Essayez avec un nom de table différent
+    try {
+      const agents = await AppDataSource.query(`
+        SELECT * FROM agent 
+        ORDER BY id ASC 
+        LIMIT 10
+      `);
+      
+      res.json({
+        success: true,
+        usingTable: 'agent',
+        count: agents.length,
+        agents: agents
+      });
+      
+    } catch (error2) {
+      console.error('❌ Alternative table also failed:', error2.message);
+      
+      // Liste toutes les tables
+      const tables = await AppDataSource.query(`
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public'
+        ORDER BY table_name
+      `);
+      
+      res.json({
+        success: false,
+        error: "No agent table found",
+        availableTables: tables.map(t => t.table_name),
+        suggestions: [
+          "Check if table 'agents_colarys' exists",
+          "Check if table 'agent' exists",
+          "Run migration if needed"
+        ]
+      });
+    }
+  }
+});
+
 console.log('✅ Minimal API ready!');
 
 module.exports = app;
