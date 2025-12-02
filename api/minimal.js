@@ -1424,112 +1424,143 @@ app.get('/api/presences/aujourdhui/:matricule', async (req, res) => {
     });
   }
 });
-
-
-// Pointage d'entrée - VERSION AVEC LOGGING DÉTAILLÉ
-// Pointage d'entrée - VERSION CORRIGÉE POUR CLÉ ÉTRANGÈRE
 app.post('/api/presences/entree', async (req, res) => {
   try {
     const data = req.body;
-    console.log('📝 Pointage entrée:', data.matricule);
+    console.log('Pointage entrée pour:', data);
+    
+    if (!data.nom || !data.prenom) {
+      return res.status(400).json({
+        success: false,
+        error: "Nom et prénom sont requis"
+      });
+    }
     
     if (!dbInitialized) {
       await initializeDatabase();
     }
-
-    // OPTION 1: Chercher dans la table 'agent' (pour la clé étrangère)
-    let agentId;
-    let tableSource = 'agent';
     
-    try {
-      const agents = await AppDataSource.query(
-        'SELECT id FROM agent WHERE matricule = $1',
-        [data.matricule]
-      );
-      
-      if (agents.length > 0) {
-        agentId = agents[0].id;
-        console.log(`✅ Agent trouvé dans table 'agent', ID: ${agentId}`);
-      } else {
-        // OPTION 2: Chercher dans 'agents_colarys' et utiliser cet ID
-        const agentsColarys = await AppDataSource.query(
-          'SELECT id FROM agents_colarys WHERE matricule = $1',
-          [data.matricule]
-        );
-        
-        if (agentsColarys.length === 0) {
-          return res.status(404).json({
-            success: false,
-            error: "Agent non trouvé dans aucune table"
-          });
-        }
-        
-        agentId = agentsColarys[0].id;
-        tableSource = 'agents_colarys';
-        console.log(`⚠️ Agent trouvé dans 'agents_colarys', ID: ${agentId}`);
-        console.log(`⚠️ NOTE: La clé étrangère peut échouer si cet ID n'existe pas dans 'agent'`);
-      }
-    } catch (error) {
-      console.error('❌ Erreur recherche agent:', error);
-      return res.status(500).json({
-        success: false,
-        error: "Erreur recherche agent"
-      });
-    }
-
     const now = new Date();
     const today = now.toISOString().split('T')[0];
-    const timeNow = now.toTimeString().split(' ')[0].substring(0, 8);
+    const timeNow = data.heureEntreeManuelle || 
+                    now.toTimeString().split(' ')[0].substring(0, 8);
     
-    console.log(`📅 Date: ${today}, Heure: ${timeNow}`);
-    console.log(`🔧 Utilisation agent_id: ${agentId} (source: ${tableSource})`);
-    
-    try {
-      // Essayer d'insérer
-      const result = await AppDataSource.query(
-        `INSERT INTO presence (agent_id, date, heure_entree, shift, created_at) 
-         VALUES ($1, $2, $3, $4, NOW())
-         RETURNING id`,
-        [agentId, today, timeNow, data.shift || 'JOUR']
-      );
-      
-      console.log(`✅ Pointage réussi! ID: ${result[0].id}`);
-      
-      res.json({
-        success: true,
-        message: "Pointage d'entrée enregistré",
-        data: {
-          matricule: data.matricule,
-          agent_id: agentId,
-          presence_id: result[0].id,
-          date: today,
-          heure_entree: timeNow,
-          source_table: tableSource
-        }
-      });
-      
-    } catch (error) {
-      console.error('❌ Erreur insertion:', error);
-      
-      if (error.code === '23503') {
-        // Clé étrangère échouée
-        return res.status(400).json({
-          success: false,
-          error: "Problème de clé étrangère",
-          details: `agent_id=${agentId} n'existe pas dans la table référencée par la contrainte`,
-          suggestion: "1. Créer l'agent dans la table 'agent' ou 2. Modifier la contrainte étrangère"
-        });
-      }
-      
-      throw error;
+    // ✅ 1. GÉRER LE MATRICULE
+    let matricule = data.matricule?.trim();
+    if (!matricule || matricule === '') {
+      // Générer un matricule automatique
+      const { v4: uuidv4 } = require('uuid');
+      matricule = `AG-${uuidv4().slice(0, 8).toUpperCase()}`;
+      console.log('🎫 Matricule généré:', matricule);
     }
-
+    
+    // ✅ 2. CHERCHER OU CRÉER L'AGENT
+    let agentId = null;
+    
+    // Chercher l'agent existant
+    const existingAgent = await AppDataSource.query(
+      'SELECT id FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+    
+    if (existingAgent.length > 0) {
+      // Agent existant
+      agentId = existingAgent[0].id;
+      console.log('✅ Agent existant trouvé, ID:', agentId);
+    } else {
+      // ✅ CRÉER LE NOUVEL AGENT
+      console.log('🆕 Création nouvel agent...');
+      
+      try {
+        const newAgent = await AppDataSource.query(
+          `INSERT INTO agents_colarys 
+           (matricule, nom, prenom, campagne, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW()) 
+           RETURNING id`,
+          [
+            matricule,
+            data.nom,
+            data.prenom,
+            data.campagne || 'Standard',
+            data.shift === 'Stagiaire' ? 'Stagiaire' : 'Agent',
+            data.email || `${data.nom.toLowerCase()}.${data.prenom.toLowerCase()}@colarys.com`,
+            data.contact || '',
+            data.entreprise || 'Colarys Concept',
+            '/images/default-avatar.svg',
+            'default-avatar'
+          ]
+        );
+        
+        agentId = newAgent[0].id;
+        console.log('✅ Nouvel agent créé, ID:', agentId);
+        
+      } catch (createError) {
+        console.error('❌ Erreur création agent:', createError);
+        // Si échec, essayer avec moins de champs
+        const simpleAgent = await AppDataSource.query(
+          `INSERT INTO agents_colarys 
+           (matricule, nom, prenom, campagne, role, "created_at") 
+           VALUES ($1, $2, $3, $4, $5, NOW()) 
+           RETURNING id`,
+          [
+            matricule,
+            data.nom,
+            data.prenom,
+            data.campagne || 'Standard',
+            data.shift === 'Stagiaire' ? 'Stagiaire' : 'Agent'
+          ]
+        );
+        
+        agentId = simpleAgent[0].id;
+        console.log('✅ Agent créé (version simple), ID:', agentId);
+      }
+    }
+    
+    // ✅ 3. VÉRIFIER SI PRÉSENCE EXISTE DÉJÀ
+    const existingPresence = await AppDataSource.query(
+      'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
+      [agentId, today]
+    );
+    
+    if (existingPresence.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Une présence existe déjà pour aujourd'hui"
+      });
+    }
+    
+    // ✅ 4. CRÉER LA PRÉSENCE
+    const presence = await AppDataSource.query(
+      `INSERT INTO presence 
+       (agent_id, date, heure_entree, shift, created_at) 
+       VALUES ($1, $2, $3, $4, NOW()) 
+       RETURNING id, date, heure_entree`,
+      [agentId, today, timeNow, data.shift || 'JOUR']
+    );
+    
+    console.log('✅ Pointage entrée réussi!', presence[0]);
+    
+    res.json({
+      success: true,
+      message: "Pointage d'entrée enregistré",
+      data: {
+        presence_id: presence[0].id,
+        matricule: matricule,
+        nom: data.nom,
+        prenom: data.prenom,
+        heure_entree: presence[0].heure_entree,
+        date: presence[0].date,
+        statut: 'Entrée pointée',
+        agent_nouveau: existingAgent.length === 0 // Indique si nouvel agent
+      }
+    });
+    
   } catch (error) {
-    console.error('❌ Erreur générale:', error);
+    console.error('❌ Erreur pointage entrée:', error);
     res.status(500).json({
       success: false,
-      error: "Erreur pointage",
-      details: error.message
+      error: "Erreur pointage entrée",
+      message: error.message
     });
   }
 });
