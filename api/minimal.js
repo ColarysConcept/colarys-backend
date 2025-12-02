@@ -2079,6 +2079,42 @@ app.get('/api/test-all-routes', async (req, res) => {
   });
 });
 
+// Dans minimal.js - Ajouter ces routes
+app.get('/api/test-presence-connection', async (req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    res.json({
+      success: true,
+      message: 'API présence fonctionnelle',
+      baseUrl: process.env.VERCEL_URL || 'localhost',
+      database: dbInitialized ? 'connecté' : 'non connecté'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.get('/api/all-routes', (req, res) => {
+  res.json({
+    success: true,
+    routes: [
+      { method: 'GET', path: '/api/presences/historique' },
+      { method: 'GET', path: '/api/presences/historique-safe' },
+      { method: 'POST', path: '/api/presences/entree' },
+      { method: 'POST', path: '/api/presences/sortie' },
+      { method: 'GET', path: '/api/agents/matricule/:matricule' },
+      { method: 'GET', path: '/api/agents/nom/:nom/prenom/:prenom' },
+      // ... autres routes
+    ]
+  });
+});
+
 console.log('✅ Minimal API ready!');
 
 module.exports = app;
