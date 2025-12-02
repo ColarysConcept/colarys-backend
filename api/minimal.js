@@ -1472,17 +1472,16 @@ app.post('/api/presences/entree', async (req, res) => {
       console.log('🆕 Création nouvel agent...');
       
       try {
-        const newAgent = await AppDataSource.query(
+          const newAgent = await AppDataSource.query(
           `INSERT INTO agents_colarys 
-           (matricule, nom, prenom, campagne, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW()) 
-           RETURNING id`,
+          (matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW()) 
+          RETURNING id`,
           [
             matricule,
             data.nom,
             data.prenom,
-            data.campagne || 'Standard',
-            data.shift === 'Stagiaire' ? 'Stagiaire' : 'Agent',
+            data.shift === 'Stagiaire' ? 'Stagiaire' : 'Agent', // Utiliser 'role' au lieu de 'campagne'
             data.email || `${data.nom.toLowerCase()}.${data.prenom.toLowerCase()}@colarys.com`,
             data.contact || '',
             data.entreprise || 'Colarys Concept',
