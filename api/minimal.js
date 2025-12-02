@@ -1779,6 +1779,276 @@ app.get('/api/presences/recent', async (req, res) => {
   }
 });
 
+
+// ========== ROUTES AGENTS MANQUANTES ==========
+
+// 1. Rechercher agent par matricule (URGENT !)
+app.get('/api/agents/matricule/:matricule', async (req, res) => {
+  try {
+    const matricule = req.params.matricule;
+    console.log(`🔍 Recherche agent par matricule: ${matricule}`);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // Chercher d'abord dans agents_colarys
+    let agents = [];
+    try {
+      agents = await AppDataSource.query(
+        'SELECT * FROM agents_colarys WHERE matricule = $1',
+        [matricule]
+      );
+    } catch (error) {
+      console.log('⚠️ agents_colarys non trouvé:', error.message);
+    }
+    
+    // Si pas trouvé, chercher dans agent
+    if (agents.length === 0) {
+      try {
+        agents = await AppDataSource.query(
+          'SELECT * FROM agent WHERE matricule = $1',
+          [matricule]
+        );
+      } catch (error) {
+        console.log('⚠️ agent non trouvé:', error.message);
+      }
+    }
+    
+    if (agents.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent non trouvé"
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: agents[0],
+      source: agents[0].entreprise ? 'agents_colarys' : 'agent'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error searching agent:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur recherche agent"
+    });
+  }
+});
+
+// 2. Rechercher agent par nom/prénom (URGENT !)
+app.get('/api/agents/nom/:nom/prenom/:prenom', async (req, res) => {
+  try {
+    const nom = req.params.nom;
+    const prenom = req.params.prenom;
+    console.log(`🔍 Recherche agent: ${nom} ${prenom}`);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // Chercher dans agents_colarys
+    let agents = [];
+    try {
+      agents = await AppDataSource.query(
+        'SELECT * FROM agents_colarys WHERE nom ILIKE $1 AND prenom ILIKE $2',
+        [`%${nom}%`, `%${prenom}%`]
+      );
+    } catch (error) {
+      console.log('⚠️ agents_colarys:', error.message);
+    }
+    
+    // Chercher dans agent
+    if (agents.length === 0) {
+      try {
+        agents = await AppDataSource.query(
+          'SELECT * FROM agent WHERE nom ILIKE $1 AND prenom ILIKE $2',
+          [`%${nom}%`, `%${prenom}%`]
+        );
+      } catch (error) {
+        console.log('⚠️ agent:', error.message);
+      }
+    }
+    
+    if (agents.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent non trouvé"
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: agents[0],
+      count: agents.length
+    });
+    
+  } catch (error) {
+    console.error('❌ Error searching agent:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur recherche agent"
+    });
+  }
+});
+
+// 3. Vérifier présence aujourd'hui (améliorée)
+app.get('/api/presences/aujourdhui/:matricule', async (req, res) => {
+  try {
+    const matricule = req.params.matricule;
+    console.log(`📅 Vérification présence: ${matricule}`);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // Trouver agent_id
+    let agentId = null;
+    
+    // Chercher dans agents_colarys
+    try {
+      const agents = await AppDataSource.query(
+        'SELECT id FROM agents_colarys WHERE matricule = $1',
+        [matricule]
+      );
+      if (agents.length > 0) {
+        agentId = agents[0].id;
+      }
+    } catch (error) {
+      console.log('⚠️ agents_colarys:', error.message);
+    }
+    
+    // Chercher dans agent
+    if (!agentId) {
+      try {
+        const agents = await AppDataSource.query(
+          'SELECT id FROM agent WHERE matricule = $1',
+          [matricule]
+        );
+        if (agents.length > 0) {
+          agentId = agents[0].id;
+        }
+      } catch (error) {
+        console.log('⚠️ agent:', error.message);
+      }
+    }
+    
+    if (!agentId) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent non trouvé"
+      });
+    }
+    
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Chercher présence
+    let presences = [];
+    try {
+      presences = await AppDataSource.query(
+        'SELECT * FROM presence WHERE agent_id = $1 AND date = $2',
+        [agentId, today]
+      );
+    } catch (error) {
+      console.log('⚠️ Table presence:', error.message);
+    }
+    
+    res.json({
+      success: true,
+      data: presences,
+      count: presences.length
+    });
+    
+  } catch (error) {
+    console.error('❌ Error checking presence:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur vérification présence"
+    });
+  }
+});
+
+// 4. Route pour historique des présences (manquante !)
+app.get('/api/presences/historique', async (req, res) => {
+  try {
+    const { dateDebut, dateFin } = req.query;
+    console.log(`📊 Historique: ${dateDebut} à ${dateFin}`);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    if (!dateDebut || !dateFin) {
+      return res.status(400).json({
+        success: false,
+        error: "dateDebut et dateFin requis"
+      });
+    }
+    
+    let presences = [];
+    try {
+      presences = await AppDataSource.query(`
+        SELECT p.*, a.matricule, a.nom, a.prenom 
+        FROM presence p
+        LEFT JOIN agent a ON p.agent_id = a.id
+        WHERE p.date BETWEEN $1 AND $2
+        ORDER BY p.date DESC, a.nom, a.prenom
+      `, [dateDebut, dateFin]);
+    } catch (error) {
+      console.log('⚠️ Historique erreur:', error.message);
+      // Fallback: chercher sans join
+      try {
+        presences = await AppDataSource.query(
+          'SELECT * FROM presence WHERE date BETWEEN $1 AND $2 ORDER BY date DESC',
+          [dateDebut, dateFin]
+        );
+      } catch (error2) {
+        console.log('⚠️ Simple query aussi échoué:', error2.message);
+      }
+    }
+    
+    res.json({
+      success: true,
+      data: presences,
+      count: presences.length,
+      periode: { dateDebut, dateFin }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error historique:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur historique"
+    });
+  }
+});
+
+// 5. Route de test pour vérifier TOUTES les routes
+app.get('/api/test-all-routes', async (req, res) => {
+  const baseUrl = req.protocol + '://' + req.get('host');
+  
+  res.json({
+    success: true,
+    timestamp: new Date().toISOString(),
+    api_base: baseUrl,
+    routes_disponibles: [
+      "GET  /api/agents/matricule/:matricule",
+      "GET  /api/agents/nom/:nom/prenom/:prenom",
+      "GET  /api/agents-colarys",
+      "POST /api/agents-colarys",
+      "GET  /api/presences/aujourdhui/:matricule",
+      "POST /api/presences/entree",
+      "POST /api/presences/sortie",
+      "GET  /api/presences/historique?dateDebut=YYYY-MM-DD&dateFin=YYYY-MM-DD",
+      "GET  /api/presences/recent",
+      "GET  /api/health",
+      "GET  /"
+    ],
+    status: "Vérifiez chaque route individuellement"
+  });
+});
+
 console.log('✅ Minimal API ready!');
 
 module.exports = app;
