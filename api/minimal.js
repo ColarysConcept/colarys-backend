@@ -2044,6 +2044,50 @@ app.get('/api/presences/historique', async (req, res) => {
       count: presences.length,
       periode: { dateDebut, dateFin }
     });
+
+
+     const presencesCompletes = [];
+    for (const presence of presences) {
+      let agent = null;
+      
+      try {
+        const agents = await AppDataSource.query(
+          'SELECT id, matricule, nom, prenom, role as campagne FROM agents_colarys WHERE id = $1',
+          [presence.agent_id]
+        );
+        
+        if (agents.length > 0) {
+          agent = agents[0];
+        }
+      } catch (agentError) {
+        console.log('⚠️ Erreur récupération agent:', agentError.message);
+      }
+      
+      // ✅ TOUJOURS retourner un objet agent (même vide)
+      const presenceFormatee = {
+        id: presence.id,
+        date: presence.date,
+        heureEntree: presence.heure_entree,
+        heureSortie: presence.heure_sortie,
+        shift: presence.shift || 'JOUR',
+        heuresTravaillees: presence.heures_travaillees || 8.00,
+        createdAt: presence.created_at,
+        agent: agent || { // ✅ Toujours un objet agent
+          id: 0,
+          matricule: '',
+          nom: 'Agent inconnu',
+          prenom: '',
+          campagne: 'Non défini'
+        },
+        details: presence.details_id ? {
+          id: presence.details_id,
+          signatureEntree: presence.signature_entree,
+          signatureSortie: presence.signature_sortie
+        } : null
+      };
+      
+      presencesCompletes.push(presenceFormatee);
+    }
     
   } catch (error) {
     console.error('❌ Error historique:', error);
