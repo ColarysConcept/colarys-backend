@@ -2418,6 +2418,305 @@ app.get('/api/debug-agent/:agentId', async (req, res) => {
   }
 });
 
+// Route pour créer un agent dans les deux tables
+app.post('/api/create-agent-in-both-tables', async (req, res) => {
+  try {
+    const { matricule, nom, prenom, campagne, email, contact } = req.body;
+    
+    if (!matricule || !nom || !prenom) {
+      return res.status(400).json({
+        success: false,
+        error: "Matricule, nom et prénom sont requis"
+      });
+    }
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    console.log(`🔄 Création agent ${matricule} dans les deux tables...`);
+    
+    // Vérifier si existe déjà
+    const existingInColarys = await AppDataSource.query(
+      'SELECT id FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+    
+    const existingInAgent = await AppDataSource.query(
+      'SELECT id FROM agent WHERE matricule = $1',
+      [matricule]
+    );
+    
+    if (existingInColarys.length > 0 && existingInAgent.length > 0) {
+      return res.json({
+        success: true,
+        message: "Agent existe déjà dans les deux tables",
+        agent_id_colarys: existingInColarys[0].id,
+        agent_id_agent: existingInAgent[0].id
+      });
+    }
+    
+    let agentId = null;
+    let createdInColarys = false;
+    let createdInAgent = false;
+    
+    // 1. Créer ou récupérer dans agents_colarys
+    if (existingInColarys.length > 0) {
+      agentId = existingInColarys[0].id;
+      console.log(`✅ Existe déjà dans agents_colarys: ${agentId}`);
+    } else {
+      const newColarys = await AppDataSource.query(
+        `INSERT INTO agents_colarys 
+         (matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW()) 
+         RETURNING id`,
+        [
+          matricule,
+          nom,
+          prenom,
+          campagne || 'Standard',
+          email || `${nom.toLowerCase()}.${prenom.toLowerCase()}@colarys.com`,
+          contact || '',
+          'Colarys Concept',
+          '/images/default-avatar.svg',
+          'default-avatar'
+        ]
+      );
+      
+      agentId = newColarys[0].id;
+      createdInColarys = true;
+      console.log(`✅ Créé dans agents_colarys: ${agentId}`);
+    }
+    
+    // 2. Créer ou récupérer dans agent
+    if (existingInAgent.length > 0) {
+      console.log(`✅ Existe déjà dans agent: ${existingInAgent[0].id}`);
+    } else {
+      await AppDataSource.query(
+        `INSERT INTO agent 
+         (id, matricule, nom, prenom, campagne, date_creation, "createdAt", "updatedAt") 
+         VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())`,
+        [
+          agentId, // Même ID pour la cohérence
+          matricule,
+          nom,
+          prenom,
+          campagne || 'Standard'
+        ]
+      );
+      createdInAgent = true;
+      console.log(`✅ Créé dans agent avec ID: ${agentId}`);
+    }
+    
+    res.json({
+      success: true,
+      message: "Agent géré avec succès",
+      agent_id: agentId,
+      matricule: matricule,
+      created: {
+        in_agents_colarys: createdInColarys,
+        in_agent: createdInAgent
+      },
+      test_pointage: `POST /presences/entree avec { "matricule": "${matricule}", "nom": "${nom}", "prenom": "${prenom}" }`
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur création agent:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: error.code,
+      detail: error.detail
+    });
+  }
+});
+
+// Route de secours ultra-simple (sans FK vérification)
+app.post('/api/presences/entree-direct', async (req, res) => {
+  try {
+    const data = req.body;
+    console.log('🚀 Pointage entrée DIRECT:', data);
+    
+    // Validation minimale
+    if (!data.nom || !data.prenom) {
+      return res.status(400).json({
+        success: false,
+        error: "Nom et prénom sont requis"
+      });
+    }
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const timeNow = data.heureEntreeManuelle || 
+                    now.toTimeString().split(' ')[0].substring(0, 8);
+    
+    // Matricule
+    let matricule = data.matricule?.trim() || `AG-${Date.now()}`;
+    
+    // 1. Vérifier/créer l'agent dans agents_colarys
+    let agentColarysId = null;
+    const existingColarys = await AppDataSource.query(
+      'SELECT id FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+    
+    if (existingColarys.length > 0) {
+      agentColarysId = existingColarys[0].id;
+    } else {
+      const newAgent = await AppDataSource.query(
+        `INSERT INTO agents_colarys 
+         (matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW()) 
+         RETURNING id`,
+        [
+          matricule,
+          data.nom,
+          data.prenom,
+          data.campagne || 'Standard',
+          data.email || `${data.nom.toLowerCase()}.${data.prenom.toLowerCase()}@colarys.com`,
+          data.contact || '',
+          'Colarys Concept',
+          '/images/default-avatar.svg',
+          'default-avatar'
+        ]
+      );
+      agentColarysId = newAgent[0].id;
+    }
+    
+    // 2. S'assurer que l'agent existe dans agent aussi
+    const existingAgent = await AppDataSource.query(
+      'SELECT id FROM agent WHERE id = $1',
+      [agentColarysId]
+    );
+    
+    if (existingAgent.length === 0) {
+      await AppDataSource.query(
+        `INSERT INTO agent 
+         (id, matricule, nom, prenom, campagne, date_creation, "createdAt", "updatedAt") 
+         VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())`,
+        [
+          agentColarysId,
+          matricule,
+          data.nom,
+          data.prenom,
+          data.campagne || 'Standard'
+        ]
+      );
+    }
+    
+    // 3. Vérifier présence existante
+    const existingPresence = await AppDataSource.query(
+      'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
+      [agentColarysId, today]
+    );
+    
+    if (existingPresence.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Une présence existe déjà pour aujourd'hui"
+      });
+    }
+    
+    // 4. Insérer la présence
+    const presence = await AppDataSource.query(
+      `INSERT INTO presence 
+       (agent_id, date, heure_entree, shift, created_at) 
+       VALUES ($1, $2, $3, $4, NOW()) 
+       RETURNING id, date, heure_entree`,
+      [agentColarysId, today, timeNow, data.shift || 'JOUR']
+    );
+    
+    res.json({
+      success: true,
+      message: "Pointage direct réussi",
+      data: {
+        presence_id: presence[0].id,
+        matricule: matricule,
+        nom: data.nom,
+        prenom: data.prenom,
+        heure_entree: presence[0].heure_entree,
+        date: presence[0].date,
+        agent_id: agentColarysId
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur pointage direct:', error);
+    
+    // Si échec, essayer une approche encore plus simple
+    try {
+      console.log('🔄 Tentative avec insertion brute...');
+      
+      // Insertion directe sans trop de vérifications
+      const now = new Date();
+      const today = now.toISOString().split('T')[0];
+      const timeNow = data.heureEntreeManuelle || 
+                      now.toTimeString().split(' ')[0].substring(0, 8);
+      
+      const matricule = data.matricule?.trim() || `AG-EMG-${Date.now()}`;
+      
+      // Générer un ID d'agent qui existe probablement
+      const maxAgentId = await AppDataSource.query(
+        'SELECT COALESCE(MAX(id), 100) as max_id FROM agents_colarys'
+      );
+      const agentId = parseInt(maxAgentId[0].max_id) + 1;
+      
+      // Créer l'agent rapidement
+      await AppDataSource.query(
+        `INSERT INTO agents_colarys (id, matricule, nom, prenom, role, "created_at") 
+         VALUES ($1, $2, $3, $4, $5, NOW()) 
+         ON CONFLICT DO NOTHING`,
+        [agentId, matricule, data.nom, data.prenom, data.campagne || 'Standard']
+      );
+      
+      await AppDataSource.query(
+        `INSERT INTO agent (id, matricule, nom, prenom, campagne, "createdAt") 
+         VALUES ($1, $2, $3, $4, $5, NOW()) 
+         ON CONFLICT DO NOTHING`,
+        [agentId, matricule, data.nom, data.prenom, data.campagne || 'Standard']
+      );
+      
+      // Créer la présence
+      const presence = await AppDataSource.query(
+        `INSERT INTO presence (agent_id, date, heure_entree, shift, created_at) 
+         VALUES ($1, $2, $3, $4, NOW()) 
+         RETURNING id`,
+        [agentId, today, timeNow, data.shift || 'JOUR']
+      );
+      
+      return res.json({
+        success: true,
+        message: "Pointage de secours réussi",
+        data: {
+          presence_id: presence[0].id,
+          matricule: matricule,
+          nom: data.nom,
+          prenom: data.prenom,
+          heure_entree: timeNow,
+          date: today,
+          agent_id: agentId,
+          emergency_mode: true
+        }
+      });
+      
+    } catch (emergencyError) {
+      console.error('❌ Même la méthode d\'urgence a échoué:', emergencyError);
+      
+      res.status(500).json({
+        success: false,
+        error: "Échec critique du pointage",
+        original_error: error.message,
+        emergency_error: emergencyError.message,
+        suggestion: "Vérifiez la connexion à la base de données et les contraintes"
+      });
+    }
+  }
+});
+
 // Route pour corriger un agent manquant
 app.post('/api/fix-missing-agent/:agentId', async (req, res) => {
   try {
@@ -2683,6 +2982,65 @@ app.get('/api/fix-presences-without-agent', async (req, res) => {
     
   } catch (error) {
     console.error('❌ Erreur correction présences:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+
+// Route pour diagnostiquer un agent spécifique
+app.get('/api/debug-agent-by-matricule/:matricule', async (req, res) => {
+  try {
+    const matricule = req.params.matricule;
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    console.log(`🔍 Debug agent matricule: ${matricule}`);
+    
+    // Chercher dans les deux tables
+    const inAgentTable = await AppDataSource.query(
+      'SELECT * FROM agent WHERE matricule = $1',
+      [matricule]
+    );
+    
+    const inAgentsColarys = await AppDataSource.query(
+      'SELECT * FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+    
+    // Vérifier les IDs
+    const allAgentIds = await AppDataSource.query(
+      'SELECT id, matricule FROM agent WHERE matricule ILIKE $1',
+      [`%${matricule}%`]
+    );
+    
+    const allColarysIds = await AppDataSource.query(
+      'SELECT id, matricule FROM agents_colarys WHERE matricule ILIKE $1',
+      [`%${matricule}%`]
+    );
+    
+    res.json({
+      success: true,
+      matricule: matricule,
+      in_agent_table: inAgentTable.length > 0 ? inAgentTable[0] : null,
+      in_agents_colarys: inAgentsColarys.length > 0 ? inAgentsColarys[0] : null,
+      all_similar_in_agent: allAgentIds,
+      all_similar_in_colarys: allColarysIds,
+      foreign_key_info: {
+        table: 'agents_colarys',
+        constraint: 'presence_agent_id_fk'
+      },
+      recommendation: inAgentsColarys.length === 0 ? 
+        'Agent manquant dans agents_colarys. Utilisez /api/create-agent-in-both-tables' : 
+        'Agent trouvé'
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur debug agent:', error);
     res.status(500).json({
       success: false,
       error: error.message
