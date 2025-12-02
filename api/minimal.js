@@ -1425,94 +1425,67 @@ app.get('/api/presences/aujourdhui/:matricule', async (req, res) => {
   }
 });
 
-// 5. Pointage d'entrée (version corrigée pour votre structure)
+
 // Pointage d'entrée - VERSION AVEC LOGGING DÉTAILLÉ
+// Pointage d'entrée - VERSION CORRIGÉE POUR CLÉ ÉTRANGÈRE
 app.post('/api/presences/entree', async (req, res) => {
-  console.log('=== DÉBUT POINTAGE ENTRÉE ===');
-  console.log('📦 Body complet:', JSON.stringify(req.body, null, 2));
-  
   try {
     const data = req.body;
+    console.log('📝 Pointage entrée:', data.matricule);
     
-    if (!data || !data.matricule) {
-      console.error('❌ Matricule manquant');
-      return res.status(400).json({
-        success: false,
-        error: "Matricule requis"
-      });
-    }
-    
-    console.log(`🔍 Recherche agent: ${data.matricule}`);
-    
-    // Initialiser DB si nécessaire
     if (!dbInitialized) {
-      console.log('🔄 Initialisation DB...');
       await initializeDatabase();
     }
-    
-    if (!dbInitialized) {
-      console.error('❌ DB non initialisée');
-      return res.status(503).json({
-        success: false,
-        error: "Database non disponible"
-      });
-    }
 
-    // 1. Chercher l'agent
-    console.log(`📊 Requête SQL agent: SELECT id FROM agents_colarys WHERE matricule = '${data.matricule}'`);
-    const agents = await AppDataSource.query(
-      'SELECT id FROM agents_colarys WHERE matricule = $1',
-      [data.matricule]
-    );
+    // OPTION 1: Chercher dans la table 'agent' (pour la clé étrangère)
+    let agentId;
+    let tableSource = 'agent';
     
-    console.log(`📊 Résultat agent: ${agents.length} trouvé(s)`);
-
-    if (agents.length === 0) {
-      console.error(`❌ Agent ${data.matricule} non trouvé`);
-      return res.status(404).json({
-        success: false,
-        error: `Agent avec matricule ${data.matricule} non trouvé`
-      });
-    }
-
-    const agentId = agents[0].id;
-    const now = new Date();
-    const today = now.toISOString().split('T')[0]; // YYYY-MM-DD
-    const timeNow = now.toTimeString().split(' ')[0].substring(0, 8); // HH:MM:SS
-    
-    console.log(`✅ Agent trouvé - ID: ${agentId}`);
-    console.log(`📅 Date: ${today}`);
-    console.log(`⏰ Heure: ${timeNow}`);
-    
-    // 2. Vérifier si pointage existe déjà aujourd'hui
-    console.log(`📊 Vérification présence existante...`);
-    console.log(`📊 Requête: SELECT id FROM presence WHERE agent_id = ${agentId} AND date = '${today}'`);
-    
-    const existing = await AppDataSource.query(
-      'SELECT id, heure_entree FROM presence WHERE agent_id = $1 AND date = $2',
-      [agentId, today]
-    );
-    
-    console.log(`📊 Présences existantes: ${existing.length}`);
-    
-    let presenceId;
-    
-    if (existing.length > 0) {
-      // Mettre à jour l'entrée existante
-      console.log(`🔄 Mise à jour présence ID: ${existing[0].id}`);
-      console.log(`📊 Requête UPDATE: UPDATE presence SET heure_entree = '${timeNow}' WHERE id = ${existing[0].id}`);
-      
-      await AppDataSource.query(
-        `UPDATE presence SET heure_entree = $1 WHERE id = $2`,
-        [timeNow, existing[0].id]
+    try {
+      const agents = await AppDataSource.query(
+        'SELECT id FROM agent WHERE matricule = $1',
+        [data.matricule]
       );
-      presenceId = existing[0].id;
-      console.log(`✅ Présence mise à jour`);
-    } else {
-      // Créer nouvelle présence
-      console.log(`📝 Création nouvelle présence...`);
-      console.log(`📊 Requête INSERT: INSERT INTO presence (agent_id, date, heure_entree, shift, created_at) VALUES (${agentId}, '${today}', '${timeNow}', '${data.shift || 'JOUR'}', NOW())`);
       
+      if (agents.length > 0) {
+        agentId = agents[0].id;
+        console.log(`✅ Agent trouvé dans table 'agent', ID: ${agentId}`);
+      } else {
+        // OPTION 2: Chercher dans 'agents_colarys' et utiliser cet ID
+        const agentsColarys = await AppDataSource.query(
+          'SELECT id FROM agents_colarys WHERE matricule = $1',
+          [data.matricule]
+        );
+        
+        if (agentsColarys.length === 0) {
+          return res.status(404).json({
+            success: false,
+            error: "Agent non trouvé dans aucune table"
+          });
+        }
+        
+        agentId = agentsColarys[0].id;
+        tableSource = 'agents_colarys';
+        console.log(`⚠️ Agent trouvé dans 'agents_colarys', ID: ${agentId}`);
+        console.log(`⚠️ NOTE: La clé étrangère peut échouer si cet ID n'existe pas dans 'agent'`);
+      }
+    } catch (error) {
+      console.error('❌ Erreur recherche agent:', error);
+      return res.status(500).json({
+        success: false,
+        error: "Erreur recherche agent"
+      });
+    }
+
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const timeNow = now.toTimeString().split(' ')[0].substring(0, 8);
+    
+    console.log(`📅 Date: ${today}, Heure: ${timeNow}`);
+    console.log(`🔧 Utilisation agent_id: ${agentId} (source: ${tableSource})`);
+    
+    try {
+      // Essayer d'insérer
       const result = await AppDataSource.query(
         `INSERT INTO presence (agent_id, date, heure_entree, shift, created_at) 
          VALUES ($1, $2, $3, $4, NOW())
@@ -1520,54 +1493,96 @@ app.post('/api/presences/entree', async (req, res) => {
         [agentId, today, timeNow, data.shift || 'JOUR']
       );
       
-      presenceId = result[0].id;
-      console.log(`✅ Nouvelle présence créée ID: ${presenceId}`);
-    }
-
-    console.log('=== POINTAGE RÉUSSI ===');
-    
-    res.json({
-      success: true,
-      message: "Pointage d'entrée enregistré avec succès",
-      data: {
-        matricule: data.matricule,
-        agent_id: agentId,
-        presence_id: presenceId,
-        date: today,
-        heure_entree: timeNow,
-        shift: data.shift || 'JOUR'
+      console.log(`✅ Pointage réussi! ID: ${result[0].id}`);
+      
+      res.json({
+        success: true,
+        message: "Pointage d'entrée enregistré",
+        data: {
+          matricule: data.matricule,
+          agent_id: agentId,
+          presence_id: result[0].id,
+          date: today,
+          heure_entree: timeNow,
+          source_table: tableSource
+        }
+      });
+      
+    } catch (error) {
+      console.error('❌ Erreur insertion:', error);
+      
+      if (error.code === '23503') {
+        // Clé étrangère échouée
+        return res.status(400).json({
+          success: false,
+          error: "Problème de clé étrangère",
+          details: `agent_id=${agentId} n'existe pas dans la table référencée par la contrainte`,
+          suggestion: "1. Créer l'agent dans la table 'agent' ou 2. Modifier la contrainte étrangère"
+        });
       }
-    });
+      
+      throw error;
+    }
 
   } catch (error) {
-    console.error('=== ERREUR POINTAGE ===');
-    console.error('❌ Message:', error.message);
-    console.error('❌ Code:', error.code);
-    console.error('❌ Détail:', error.detail);
-    console.error('❌ Table:', error.table);
-    console.error('❌ Contrainte:', error.constraint);
-    console.error('❌ Stack:', error.stack);
-    
-    let errorMessage = "Erreur lors du pointage d'entrée";
-    let details = error.message;
-    
-    // Messages plus spécifiques
-    if (error.code === '23505') { // Violation contrainte unique
-      errorMessage = "Pointage déjà existant pour cet agent aujourd'hui";
-    } else if (error.code === '23503') { // Violation clé étrangère
-      errorMessage = "Erreur de référence (agent_id invalide)";
-    } else if (error.message.includes('null value')) {
-      errorMessage = "Champ obligatoire manquant";
-    }
-    
+    console.error('❌ Erreur générale:', error);
     res.status(500).json({
       success: false,
-      error: errorMessage,
-      code: error.code,
-      details: details
+      error: "Erreur pointage",
+      details: error.message
     });
   }
 });
+// Voir la structure de la table presence
+app.get('/api/debug-presence-structure', async (req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // Voir les contraintes
+    const constraints = await AppDataSource.query(`
+      SELECT 
+        tc.constraint_name,
+        tc.table_name, 
+        kcu.column_name,
+        ccu.table_name AS foreign_table_name,
+        ccu.column_name AS foreign_column_name
+      FROM 
+        information_schema.table_constraints AS tc 
+        JOIN information_schema.key_column_usage AS kcu
+          ON tc.constraint_name = kcu.constraint_name
+        JOIN information_schema.constraint_column_usage AS ccu
+          ON ccu.constraint_name = tc.constraint_name
+      WHERE 
+        tc.table_name = 'presence' 
+        AND tc.constraint_type = 'FOREIGN KEY'
+    `);
+    
+    // Voir les colonnes
+    const columns = await AppDataSource.query(`
+      SELECT column_name, data_type, is_nullable
+      FROM information_schema.columns
+      WHERE table_name = 'presence'
+      ORDER BY ordinal_position
+    `);
+    
+    res.json({
+      success: true,
+      constraints: constraints,
+      columns: columns,
+      note: "La contrainte étrangère pointe probablement vers 'agent(id)' pas 'agents_colarys(id)'"
+    });
+    
+  } catch (error) {
+    console.error('❌ Error checking structure:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 console.log('✅ Minimal API ready!');
 
 module.exports = app;
