@@ -1551,6 +1551,79 @@ app.post('/api/presences/entree', async (req, res) => {
         agent_id: agentId
       }
     });
+
+    // Dans la route /presences/entree - AJOUTER cette logique
+const ensureAgentExists = async (matricule, nom, prenom, campagne) => {
+  try {
+    // 1. Chercher dans agents_colarys
+    const agentColarys = await AppDataSource.query(
+      'SELECT id FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+    
+    let agentId;
+    
+    if (agentColarys.length > 0) {
+      agentId = agentColarys[0].id;
+      
+      // 2. Vérifier s'il existe dans agent
+      const agentInAgent = await AppDataSource.query(
+        'SELECT id FROM agent WHERE id = $1',
+        [agentId]
+      );
+      
+      if (agentInAgent.length === 0) {
+        // 3. Créer dans agent avec la structure correcte
+        await AppDataSource.query(
+          `INSERT INTO agent (id, matricule, nom, prenom, campagne, date_creation)
+           VALUES ($1, $2, $3, $4, $5, NOW())`,
+          [agentId, matricule, nom, prenom, campagne || 'Standard']
+        );
+        console.log(`✅ Agent ${matricule} ajouté à la table agent`);
+      }
+    } else {
+      // Créer le nouvel agent dans les deux tables
+      const maxId = await AppDataSource.query(
+        'SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM agents_colarys'
+      );
+      agentId = parseInt(maxId[0].next_id);
+      
+      // Créer dans agents_colarys
+      await AppDataSource.query(
+        `INSERT INTO agents_colarys 
+         (id, matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())`,
+        [
+          agentId,
+          matricule,
+          nom,
+          prenom,
+          campagne || 'Standard',
+          `${nom.toLowerCase()}.${prenom.toLowerCase()}@colarys.com`,
+          '',
+          'Colarys Concept',
+          '/images/default-avatar.svg',
+          'default-avatar'
+        ]
+      );
+      
+      // Créer dans agent
+      await AppDataSource.query(
+        `INSERT INTO agent (id, matricule, nom, prenom, campagne, date_creation)
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [agentId, matricule, nom, prenom, campagne || 'Standard']
+      );
+      
+      console.log(`✅ Nouvel agent créé: ${agentId}`);
+    }
+    
+    return agentId;
+    
+  } catch (error) {
+    console.error('❌ Erreur ensureAgentExists:', error);
+    throw error;
+  }
+};
     
   } catch (error) {
     console.error('❌ Erreur pointage entrée DÉTAILLÉE:', error);
