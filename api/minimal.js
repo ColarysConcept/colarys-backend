@@ -2797,6 +2797,388 @@ app.post('/api/fix-missing-agent/:agentId', async (req, res) => {
   }
 });
 
+// Route pour synchroniser les IDs d'un agent entre les tables
+app.post('/api/sync-agent-ids/:matricule', async (req, res) => {
+  try {
+    const matricule = req.params.matricule;
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    console.log(`🔄 Synchronisation IDs pour ${matricule}...`);
+    
+    // Récupérer les infos des deux tables
+    const agentInAgent = await AppDataSource.query(
+      'SELECT * FROM agent WHERE matricule = $1',
+      [matricule]
+    );
+    
+    const agentInColarys = await AppDataSource.query(
+      'SELECT * FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+    
+    if (agentInAgent.length === 0 || agentInColarys.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Agent non trouvé dans une des tables"
+      });
+    }
+    
+    const agent1 = agentInAgent[0];
+    const agent2 = agentInColarys[0];
+    
+    console.log('📊 IDs actuels:', {
+      agent_table_id: agent1.id,
+      agents_colarys_id: agent2.id
+    });
+    
+    // Déterminer quel ID utiliser (privilégier agents_colarys car c'est la cible de la FK)
+    const targetId = agent2.id; // ID de agents_colarys
+    const sourceId = agent1.id; // ID de agent
+    
+    let actions = [];
+    
+    // 1. Mettre à jour la table agent pour avoir le même ID
+    if (agent1.id !== targetId) {
+      // Vérifier si l'ID target existe déjà dans agent
+      const existingWithTargetId = await AppDataSource.query(
+        'SELECT id FROM agent WHERE id = $1',
+        [targetId]
+      );
+      
+      if (existingWithTargetId.length > 0) {
+        // L'ID existe déjà, on doit le supprimer ou le mettre à jour
+        await AppDataSource.query(
+          'DELETE FROM agent WHERE id = $1',
+          [targetId]
+        );
+        actions.push(`Supprimé agent existant avec ID ${targetId}`);
+      }
+      
+      // Mettre à jour l'ID dans agent
+      await AppDataSource.query(
+        'UPDATE agent SET id = $1 WHERE id = $2',
+        [targetId, sourceId]
+      );
+      actions.push(`Mis à jour agent.id de ${sourceId} à ${targetId}`);
+    }
+    
+    // 2. Mettre à jour les présences existantes
+    const presencesToUpdate = await AppDataSource.query(
+      'SELECT id, date FROM presence WHERE agent_id = $1',
+      [sourceId]
+    );
+    
+    if (presencesToUpdate.length > 0) {
+      await AppDataSource.query(
+        'UPDATE presence SET agent_id = $1 WHERE agent_id = $2',
+        [targetId, sourceId]
+      );
+      actions.push(`Mis à jour ${presencesToUpdate.length} présence(s) de agent_id ${sourceId} à ${targetId}`);
+    }
+    
+    res.json({
+      success: true,
+      message: "Synchronisation terminée",
+      matricule: matricule,
+      old_ids: {
+        agent_table: sourceId,
+        agents_colarys: targetId
+      },
+      new_id: targetId,
+      actions: actions,
+      next_step: "Tester le pointage d'entrée maintenant"
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur synchronisation:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      detail: error.detail
+    });
+  }
+});
+
+
+// Route de pointage d'entrée avec gestion correcte des IDs
+app.post('/api/presences/entree-correct', async (req, res) => {
+  try {
+    const data = req.body;
+    console.log('🎯 Pointage entrée CORRECT pour:', data.matricule);
+    
+    if (!data.nom || !data.prenom) {
+      return res.status(400).json({
+        success: false,
+        error: "Nom et prénom sont requis"
+      });
+    }
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const timeNow = data.heureEntreeManuelle || 
+                    now.toTimeString().split(' ')[0].substring(0, 8);
+    
+    let matricule = data.matricule?.trim();
+    if (!matricule || matricule === '') {
+      const { v4: uuidv4 } = require('uuid');
+      matricule = `AG-${uuidv4().slice(0, 8).toUpperCase()}`;
+      console.log('🎫 Matricule généré:', matricule);
+    }
+    
+    // ✅ CORRECTION CRITIQUE : TOUJOURS utiliser l'ID de agents_colarys
+    let agentId = null;
+    
+    // 1. Chercher D'ABORD dans agents_colarys (table cible de la FK)
+    const agentInColarys = await AppDataSource.query(
+      'SELECT id FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+    
+    if (agentInColarys.length > 0) {
+      agentId = agentInColarys[0].id;
+      console.log(`✅ Utilisation ID agents_colarys: ${agentId}`);
+      
+      // S'assurer que l'agent existe aussi dans agent avec le MÊME ID
+      const agentInAgent = await AppDataSource.query(
+        'SELECT id FROM agent WHERE id = $1',
+        [agentId]
+      );
+      
+      if (agentInAgent.length === 0) {
+        // Créer dans agent avec le même ID
+        await AppDataSource.query(
+          `INSERT INTO agent 
+           (id, matricule, nom, prenom, campagne, date_creation, "createdAt", "updatedAt") 
+           VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())`,
+          [
+            agentId,
+            matricule,
+            data.nom,
+            data.prenom,
+            data.campagne || 'Standard'
+          ]
+        );
+        console.log(`🔄 Créé dans agent avec ID: ${agentId}`);
+      }
+    } else {
+      // 2. Agent non trouvé, le créer
+      console.log('🆕 Création nouvel agent...');
+      
+      // Générer un nouvel ID
+      const maxIdResult = await AppDataSource.query(
+        'SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM agents_colarys'
+      );
+      agentId = parseInt(maxIdResult[0].next_id);
+      
+      // Créer dans agents_colarys
+      await AppDataSource.query(
+        `INSERT INTO agents_colarys 
+         (id, matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())`,
+        [
+          agentId,
+          matricule,
+          data.nom,
+          data.prenom,
+          data.campagne || 'Standard',
+          data.email || `${data.nom.toLowerCase()}.${data.prenom.toLowerCase()}@colarys.com`,
+          data.contact || '',
+          'Colarys Concept',
+          '/images/default-avatar.svg',
+          'default-avatar'
+        ]
+      );
+      
+      // Créer dans agent avec le MÊME ID
+      await AppDataSource.query(
+        `INSERT INTO agent 
+         (id, matricule, nom, prenom, campagne, date_creation, "createdAt", "updatedAt") 
+         VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())`,
+        [
+          agentId,
+          matricule,
+          data.nom,
+          data.prenom,
+          data.campagne || 'Standard'
+        ]
+      );
+      
+      console.log(`✅ Nouvel agent créé avec ID: ${agentId} dans les deux tables`);
+    }
+    
+    // Vérifier si présence existe déjà
+    const existingPresence = await AppDataSource.query(
+      'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
+      [agentId, today]
+    );
+    
+    if (existingPresence.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Une présence existe déjà pour aujourd'hui"
+      });
+    }
+    
+    // Insérer la présence
+    const presence = await AppDataSource.query(
+      `INSERT INTO presence 
+       (agent_id, date, heure_entree, shift, created_at) 
+       VALUES ($1, $2, $3, $4, NOW()) 
+       RETURNING id, date, heure_entree`,
+      [agentId, today, timeNow, data.shift || 'JOUR']
+    );
+    
+    console.log('🎉 Pointage RÉUSSI avec ID correct!', {
+      presence_id: presence[0].id,
+      agent_id: agentId,
+      matricule: matricule
+    });
+    
+    res.json({
+      success: true,
+      message: "Pointage d'entrée enregistré",
+      data: {
+        presence_id: presence[0].id,
+        matricule: matricule,
+        nom: data.nom,
+        prenom: data.prenom,
+        heure_entree: presence[0].heure_entree,
+        date: presence[0].date,
+        agent_id: agentId,
+        agent_source: 'agents_colarys'
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur pointage:', error);
+    
+    res.status(500).json({
+      success: false,
+      error: "Erreur pointage d'entrée",
+      details: error.message,
+      code: error.code,
+      suggestion: error.code === '23503' ? 
+        "Problème de clé étrangère. L'agent n'existe pas dans agents_colarys avec cet ID." : 
+        "Erreur inconnue"
+    });
+  }
+});
+
+// Script pour trouver et corriger tous les agents avec des IDs différents
+app.get('/api/fix-all-inconsistent-agent-ids', async (req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    console.log('🔍 Recherche agents avec IDs incohérents...');
+    
+    // Trouver les agents avec le même matricule mais des IDs différents
+    const inconsistentAgents = await AppDataSource.query(`
+      SELECT 
+        a.matricule,
+        a.id as agent_id,
+        a.nom as agent_nom,
+        a.prenom as agent_prenom,
+        ac.id as colarys_id,
+        ac.nom as colarys_nom,
+        ac.prenom as colarys_prenom,
+        CASE WHEN a.id = ac.id THEN 'OK' ELSE 'INCONSISTENT' END as status
+      FROM agent a
+      INNER JOIN agents_colarys ac ON a.matricule = ac.matricule
+      WHERE a.id != ac.id
+      ORDER BY a.matricule
+    `);
+    
+    console.log(`📊 ${inconsistentAgents.length} agent(s) incohérent(s) trouvé(s)`);
+    
+    const results = [];
+    
+    for (const agent of inconsistentAgents) {
+      try {
+        // Utiliser l'ID de agents_colarys comme référence
+        const targetId = agent.colarys_id;
+        const sourceId = agent.agent_id;
+        
+        // 1. Vérifier si l'ID target existe déjà dans agent
+        const existingWithTargetId = await AppDataSource.query(
+          'SELECT id FROM agent WHERE id = $1 AND id != $2',
+          [targetId, sourceId]
+        );
+        
+        if (existingWithTargetId.length > 0) {
+          // Supprimer le doublon
+          await AppDataSource.query(
+            'DELETE FROM agent WHERE id = $1',
+            [targetId]
+          );
+          results.push({
+            matricule: agent.matricule,
+            action: `Supprimé doublon agent ID ${targetId}`,
+            status: 'cleaned'
+          });
+        }
+        
+        // 2. Mettre à jour l'agent pour utiliser le bon ID
+        await AppDataSource.query(
+          'UPDATE agent SET id = $1 WHERE id = $2',
+          [targetId, sourceId]
+        );
+        
+        // 3. Mettre à jour les présences
+        const updatedPresences = await AppDataSource.query(
+          'UPDATE presence SET agent_id = $1 WHERE agent_id = $2 RETURNING id',
+          [targetId, sourceId]
+        );
+        
+        results.push({
+          matricule: agent.matricule,
+          old_id: sourceId,
+          new_id: targetId,
+          presences_updated: updatedPresences.length,
+          status: 'fixed'
+        });
+        
+        console.log(`✅ ${agent.matricule}: ${sourceId} → ${targetId} (${updatedPresences.length} présences)`);
+        
+      } catch (fixError) {
+        results.push({
+          matricule: agent.matricule,
+          error: fixError.message,
+          status: 'error'
+        });
+        console.error(`❌ Erreur correction ${agent.matricule}:`, fixError.message);
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: `${results.filter(r => r.status === 'fixed').length} agent(s) corrigé(s)`,
+      total_inconsistent: inconsistentAgents.length,
+      results: results,
+      summary: {
+        fixed: results.filter(r => r.status === 'fixed').length,
+        cleaned: results.filter(r => r.status === 'cleaned').length,
+        errors: results.filter(r => r.status === 'error').length
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur correction agents:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Route pour corriger tous les agents manquants
 app.get('/api/fix-all-missing-agents', async (req, res) => {
   try {
