@@ -1583,6 +1583,202 @@ app.get('/api/debug-presence-structure', async (req, res) => {
   }
 });
 
+
+// 4. Pointage de sortie - ROUTE MANQUANTE !
+app.post('/api/presences/sortie', async (req, res) => {
+  console.log('🚨 Route /api/presences/sortie appelée');
+  console.log('📦 Body:', req.body);
+  
+  try {
+    const data = req.body;
+    
+    if (!data || !data.matricule) {
+      return res.status(400).json({
+        success: false,
+        error: "Matricule requis"
+      });
+    }
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // Trouver l'agent (même logique que pour entrée)
+    let agentId = null;
+    
+    // Chercher d'abord dans 'agent'
+    try {
+      const agents = await AppDataSource.query(
+        'SELECT id FROM agent WHERE matricule = $1',
+        [data.matricule]
+      );
+      
+      if (agents.length > 0) {
+        agentId = agents[0].id;
+        console.log(`✅ Agent ${data.matricule} trouvé dans 'agent', ID: ${agentId}`);
+      }
+    } catch (error) {
+      console.log('⚠️ Table agent:', error.message);
+    }
+    
+    // Si pas trouvé, chercher dans agents_colarys
+    if (!agentId) {
+      const agentsColarys = await AppDataSource.query(
+        'SELECT id FROM agents_colarys WHERE matricule = $1',
+        [data.matricule]
+      );
+      
+      if (agentsColarys.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: `Agent ${data.matricule} non trouvé`
+        });
+      }
+      
+      agentId = agentsColarys[0].id;
+      console.log(`⚠️ Agent trouvé dans agents_colarys, ID: ${agentId}`);
+    }
+    
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const timeNow = data.heureSortieManuelle || now.toTimeString().split(' ')[0].substring(0, 8);
+    
+    console.log(`📅 Mise à jour sortie: agent_id=${agentId}, date=${today}, heure=${timeNow}`);
+    
+    // Calculer heures travaillées si entrée existe
+    let heuresTravaillees = null;
+    
+    try {
+      // Chercher l'entrée d'aujourd'hui
+      const presence = await AppDataSource.query(
+        'SELECT heure_entree FROM presence WHERE agent_id = $1 AND date = $2',
+        [agentId, today]
+      );
+      
+      if (presence.length > 0 && presence[0].heure_entree) {
+        const entree = presence[0].heure_entree;
+        const [heuresE, minutesE] = entree.split(':').map(Number);
+        const [heuresS, minutesS] = timeNow.split(':').map(Number);
+        
+        const totalMinutesEntree = heuresE * 60 + minutesE;
+        const totalMinutesSortie = heuresS * 60 + minutesS;
+        const diffMinutes = totalMinutesSortie - totalMinutesEntree;
+        
+        if (diffMinutes > 0) {
+          heuresTravaillees = (diffMinutes / 60).toFixed(2);
+          console.log(`⏱️ Heures travaillées: ${heuresTravaillees}h (${entree} → ${timeNow})`);
+        }
+      }
+    } catch (error) {
+      console.log('⚠️ Calcul heures impossible:', error.message);
+    }
+    
+    // Mettre à jour ou créer la présence
+    let result;
+    
+    try {
+      // Essayer de mettre à jour
+      result = await AppDataSource.query(
+        `UPDATE presence 
+         SET heure_sortie = $1, heures_travaillees = $2
+         WHERE agent_id = $3 AND date = $4
+         RETURNING id`,
+        [timeNow, heuresTravaillees, agentId, today]
+      );
+      
+      if (result.rowCount === 0) {
+        // Créer si n'existe pas
+        console.log('⚠️ Aucune présence trouvée, création avec sortie uniquement');
+        result = await AppDataSource.query(
+          `INSERT INTO presence (agent_id, date, heure_sortie, heures_travaillees, shift, created_at)
+           VALUES ($1, $2, $3, $4, $5, NOW())
+           RETURNING id`,
+          [agentId, today, timeNow, heuresTravaillees, data.shift || 'JOUR']
+        );
+      }
+      
+    } catch (error) {
+      console.error('❌ Erreur insertion/update:', error);
+      throw error;
+    }
+    
+    const presenceId = result.rows ? result.rows[0]?.id : result[0]?.id;
+    
+    console.log(`🎉 Sortie enregistrée! Presence ID: ${presenceId}`);
+    
+    res.json({
+      success: true,
+      message: "Pointage de sortie enregistré",
+      data: {
+        matricule: data.matricule,
+        agent_id: agentId,
+        presence_id: presenceId,
+        date: today,
+        heure_sortie: timeNow,
+        heures_travaillees: heuresTravaillees,
+        signature_sortie: data.signatureSortie ? "Signature reçue" : null
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ ERREUR sortie:', error);
+    
+    res.status(500).json({
+      success: false,
+      error: "Erreur pointage sortie",
+      details: error.message,
+      code: error.code
+    });
+  }
+});
+
+// 5. Vérifier toutes les routes de présence
+app.get('/api/presences/routes', (req, res) => {
+  res.json({
+    success: true,
+    routes: {
+      entree: "POST /api/presences/entree",
+      sortie: "POST /api/presences/sortie", 
+      aujourdhui: "GET /api/presences/aujourdhui/:matricule",
+      test: "GET /api/presences/test",
+      create_table: "GET /api/presences/create-table",
+      debug_structure: "GET /api/debug-presence-structure",
+      fix_foreign_key: "POST /api/fix-agent-foreign-key/:matricule"
+    },
+    status: "API présences opérationnelle"
+  });
+});
+
+// 6. Route pour voir les dernières présences
+app.get('/api/presences/recent', async (req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    const presences = await AppDataSource.query(`
+      SELECT p.*, a.matricule, a.nom, a.prenom 
+      FROM presence p
+      LEFT JOIN agent a ON p.agent_id = a.id
+      ORDER BY p.date DESC, p.created_at DESC
+      LIMIT 20
+    `);
+    
+    res.json({
+      success: true,
+      count: presences.length,
+      data: presences
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching recent presences:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 console.log('✅ Minimal API ready!');
 
 module.exports = app;
