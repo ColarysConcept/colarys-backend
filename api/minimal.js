@@ -3144,6 +3144,142 @@ app.post('/api/presences/entree-correct', async (req, res) => {
   }
 });
 
+// Ajoutez cette route dans minimal.js - Vers le début des routes POST
+app.post('/api/presences/entree-fixed', async (req, res) => {
+  console.log('🎯 Pointage entrée FIXED appelé:', req.body);
+  
+  try {
+    const data = req.body;
+    
+    if (!data.nom || !data.prenom) {
+      return res.status(400).json({
+        success: false,
+        error: "Nom et prénom sont requis"
+      });
+    }
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const timeNow = data.heureEntreeManuelle || 
+                    now.toTimeString().split(' ')[0].substring(0, 8);
+    
+    let matricule = data.matricule?.trim();
+    if (!matricule || matricule === '') {
+      const { v4: uuidv4 } = require('uuid');
+      matricule = `AG-${uuidv4().slice(0, 8).toUpperCase()}`;
+      console.log('🎫 Matricule généré:', matricule);
+    }
+    
+    // ✅ LOGIQUE SIMPLIFIÉE
+    let agentId = null;
+    
+    // 1. Chercher dans agents_colarys
+    const existingAgent = await AppDataSource.query(
+      'SELECT id FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+    
+    if (existingAgent.length > 0) {
+      agentId = existingAgent[0].id;
+      console.log(`✅ Agent existant: ${agentId}`);
+    } else {
+      // 2. Créer nouvel agent
+      console.log('🆕 Création nouvel agent...');
+      
+      const maxIdResult = await AppDataSource.query(
+        'SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM agents_colarys'
+      );
+      agentId = parseInt(maxIdResult[0].next_id);
+      
+      // Créer dans agents_colarys
+      await AppDataSource.query(
+        `INSERT INTO agents_colarys 
+         (id, matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())`,
+        [
+          agentId,
+          matricule,
+          data.nom,
+          data.prenom,
+          data.campagne || 'Standard',
+          data.email || `${data.nom.toLowerCase()}.${data.prenom.toLowerCase()}@colarys.com`,
+          data.contact || '',
+          'Colarys Concept',
+          '/images/default-avatar.svg',
+          'default-avatar'
+        ]
+      );
+      
+      // Créer dans agent aussi
+      await AppDataSource.query(
+        `INSERT INTO agent 
+         (id, matricule, nom, prenom, campagne, date_creation) 
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [
+          agentId,
+          matricule,
+          data.nom,
+          data.prenom,
+          data.campagne || 'Standard'
+        ]
+      );
+      
+      console.log(`✅ Nouvel agent créé: ${agentId}`);
+    }
+    
+    // Vérifier si présence existe déjà
+    const existingPresence = await AppDataSource.query(
+      'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
+      [agentId, today]
+    );
+    
+    if (existingPresence.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Une présence existe déjà pour aujourd'hui"
+      });
+    }
+    
+    // Créer la présence
+    const presence = await AppDataSource.query(
+      `INSERT INTO presence 
+       (agent_id, date, heure_entree, shift, created_at) 
+       VALUES ($1, $2, $3, $4, NOW()) 
+       RETURNING id, date, heure_entree`,
+      [agentId, today, timeNow, data.shift || 'JOUR']
+    );
+    
+    res.json({
+      success: true,
+      message: "Pointage d'entrée enregistré",
+      data: {
+        presence_id: presence[0].id,
+        matricule: matricule,
+        nom: data.nom,
+        prenom: data.prenom,
+        heure_entree: presence[0].heure_entree,
+        date: presence[0].date,
+        agent_id: agentId,
+        shift: data.shift || 'JOUR'
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur pointage:', error);
+    
+    res.status(500).json({
+      success: false,
+      error: "Erreur pointage d'entrée",
+      details: error.message,
+      code: error.code
+    });
+  }
+});
+
 // Script pour trouver et corriger tous les agents avec des IDs différents
 app.get('/api/fix-all-inconsistent-agent-ids', async (req, res) => {
   try {
