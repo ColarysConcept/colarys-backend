@@ -71,7 +71,7 @@ app.get('/', (_req, res) => {
 });
 
 // Route santé
-app.get('/api/health', (req, res) => {
+app.get('/api/health', (_req, res) => {
   res.json({
     status: "HEALTHY",
     message: "API server is running correctly",
@@ -162,7 +162,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // Route pour agents-colarys (pour votre frontend)
-app.get('/api/agents-colarys', async (req, res) => {
+app.get('/api/agents-colarys', async (_req, res) => {
   try {
     if (!dbInitialized) {
       await initializeDatabase();
@@ -207,7 +207,7 @@ app.get('/api/agents-colarys', async (req, res) => {
 });
 
 // Route pour vérifier l'utilisateur
-app.get('/api/check-my-user', async (req, res) => {
+app.get('/api/check-my-user', async (_req, res) => {
   try {
     if (!dbInitialized) {
       await initializeDatabase();
@@ -240,7 +240,7 @@ app.get('/api/check-my-user', async (req, res) => {
 });
 
 // Route de test DB
-app.get('/api/test-db-simple', async (req, res) => {
+app.get('/api/test-db-simple', async (_req, res) => {
   try {
     if (!dbInitialized) {
       await initializeDatabase();
@@ -272,7 +272,7 @@ app.get('/api/test-db-simple', async (req, res) => {
 });
 
 // Route pour créer l'utilisateur si nécessaire
-app.get('/api/ensure-user', async (req, res) => {
+app.get('/api/ensure-user', async (_req, res) => {
   try {
     if (!dbInitialized) {
       await initializeDatabase();
@@ -1012,7 +1012,7 @@ app.get('/api/test-image-url/:id', async (req, res) => {
 });
 
 // ROUTES EXISTANTES (conservées pour compatibilité)
-app.get('/api/presences', async (req, res) => {
+app.get('/api/presences', async (_req, res) => {
   try {
     if (!dbInitialized) {
       await initializeDatabase();
@@ -1055,7 +1055,7 @@ app.get('/api/presences', async (req, res) => {
   }
 });
 
-app.get('/api/plannings', async (req, res) => {
+app.get('/api/plannings', async (_req, res) => {
   try {
     if (!dbInitialized) {
       await initializeDatabase();
@@ -1097,7 +1097,7 @@ app.get('/api/plannings', async (req, res) => {
   }
 });
 
-app.get('/api/test-agents-direct', async (req, res) => {
+app.get('/api/test-agents-direct', async (_req, res) => {
   try {
     console.log('🔍 Testing direct agent query...');
     
@@ -1160,7 +1160,7 @@ app.get('/api/test-agents-direct', async (req, res) => {
   }
 });
 
-app.get('/api/debug-tables', async (req, res) => {
+app.get('/api/debug-tables', async (_req, res) => {
   try {
     if (!dbInitialized) {
       await initializeDatabase();
@@ -1654,7 +1654,7 @@ const ensureAgentExists = async (matricule, nom, prenom, campagne) => {
   }
 });
 // Voir la structure de la table presence
-app.get('/api/debug-presence-structure', async (req, res) => {
+app.get('/api/debug-presence-structure', async (_req, res) => {
   try {
     if (!dbInitialized) {
       await initializeDatabase();
@@ -2005,7 +2005,7 @@ app.post('/api/presences/sortie', async (req, res) => {
 });
 
 // 5. Vérifier toutes les routes de présence
-app.get('/api/presences/routes', (req, res) => {
+app.get('/api/presences/routes', (_req, res) => {
   res.json({
     success: true,
     routes: {
@@ -2022,7 +2022,7 @@ app.get('/api/presences/routes', (req, res) => {
 });
 
 // 6. Route pour voir les dernières présences
-app.get('/api/presences/recent', async (req, res) => {
+app.get('/api/presences/recent', async (_req, res) => {
   try {
     if (!dbInitialized) {
       await initializeDatabase();
@@ -2405,7 +2405,7 @@ app.get('/api/test-all-routes', async (req, res) => {
 });
 
 // Dans minimal.js - Ajouter ces routes
-app.get('/api/test-presence-connection', async (req, res) => {
+app.get('/api/test-presence-connection', async (_req, res) => {
   try {
     if (!dbInitialized) {
       await initializeDatabase();
@@ -2425,7 +2425,7 @@ app.get('/api/test-presence-connection', async (req, res) => {
   }
 });
 
-app.get('/api/all-routes', (req, res) => {
+app.get('/api/all-routes', (_req, res) => {
   res.json({
     success: true,
     routes: [
@@ -3281,7 +3281,7 @@ app.post('/api/presences/entree-fixed', async (req, res) => {
 });
 
 // Script pour trouver et corriger tous les agents avec des IDs différents
-app.get('/api/fix-all-inconsistent-agent-ids', async (req, res) => {
+app.get('/api/fix-all-inconsistent-agent-ids', async (_req, res) => {
   try {
     if (!dbInitialized) {
       await initializeDatabase();
@@ -3389,7 +3389,7 @@ app.get('/api/fix-all-inconsistent-agent-ids', async (req, res) => {
 });
 
 // Route pour corriger tous les agents manquants
-app.get('/api/fix-all-missing-agents', async (req, res) => {
+app.get('/api/fix-all-missing-agents', async (_req, res) => {
   try {
     if (!dbInitialized) {
       await initializeDatabase();
@@ -3474,7 +3474,7 @@ app.get('/api/fix-all-missing-agents', async (req, res) => {
 });
 
 // Route pour corriger les présences sans agent
-app.get('/api/fix-presences-without-agent', async (req, res) => {
+app.get('/api/fix-presences-without-agent', async (_req, res) => {
   try {
     if (!dbInitialized) {
       await initializeDatabase();
@@ -3876,6 +3876,228 @@ app.post('/api/presences/verifier-etat', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message
+    });
+  }
+});
+
+// Dans minimal.js - CORRECTION de la requête INSERT
+await AppDataSource.query(
+  `INSERT INTO agent 
+   (id, matricule, nom, prenom, campagne, date_creation)  // ✅ Utilisez date_creation
+   VALUES ($1, $2, $3, $4, $5, NOW())`,                   // ✅ Pas de created_at ou createdAt
+  [
+    agentId,
+    matricule,
+    data.nom,
+    data.prenom,
+    data.campagne || 'Standard'
+  ]
+);
+
+// Dans minimal.js - Ajoutez cette route
+app.get('/api/debug-agent-table', async (req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // Voir les colonnes de la table agent
+    const columns = await AppDataSource.query(`
+      SELECT column_name, data_type, is_nullable
+      FROM information_schema.columns
+      WHERE table_name = 'agent'
+      ORDER BY ordinal_position
+    `);
+    
+    // Voir la structure complète
+    const tableInfo = await AppDataSource.query(`
+      SELECT * FROM agent LIMIT 1
+    `);
+    
+    res.json({
+      success: true,
+      columns: columns,
+      sample_row: tableInfo[0] || {},
+      column_names: columns.map(c => c.column_name)
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur debug table:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ✅ ROUTE CORRIGÉE pour pointage d'entrée
+app.post('/api/presences/entree-fixed-columns', async (req, res) => {
+  console.log('🎯 Pointage entrée avec colonnes corrigées:', req.body);
+  
+  try {
+    const data = req.body;
+    
+    if (!data.nom || !data.prenom) {
+      return res.status(400).json({
+        success: false,
+        error: "Nom et prénom sont requis"
+      });
+    }
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const timeNow = data.heureEntreeManuelle || 
+                    now.toTimeString().split(' ')[0].substring(0, 8);
+    
+    let matricule = data.matricule?.trim();
+    if (!matricule || matricule === '') {
+      const { v4: uuidv4 } = require('uuid');
+      matricule = `AG-${uuidv4().slice(0, 8).toUpperCase()}`;
+      console.log('🎫 Matricule généré:', matricule);
+    }
+    
+    let agentId = null;
+    
+    // 1. Chercher dans agents_colarys
+    const existingAgent = await AppDataSource.query(
+      'SELECT id FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+    
+    if (existingAgent.length > 0) {
+      agentId = existingAgent[0].id;
+      console.log(`✅ Agent existant: ${agentId}`);
+    } else {
+      // 2. Créer nouvel agent
+      console.log('🆕 Création nouvel agent...');
+      
+      const maxIdResult = await AppDataSource.query(
+        'SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM agents_colarys'
+      );
+      agentId = parseInt(maxIdResult[0].next_id);
+      
+      // Créer dans agents_colarys
+      await AppDataSource.query(
+        `INSERT INTO agents_colarys 
+         (id, matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())`,
+        [
+          agentId,
+          matricule,
+          data.nom,
+          data.prenom,
+          data.campagne || 'Standard',
+          data.email || `${data.nom.toLowerCase()}.${data.prenom.toLowerCase()}@colarys.com`,
+          data.contact || '',
+          'Colarys Concept',
+          '/images/default-avatar.svg',
+          'default-avatar'
+        ]
+      );
+      
+      // ✅ CORRECTION : Utilisez les bonnes colonnes pour la table agent
+      // Essayez d'abord avec date_creation (la plus probable)
+      try {
+        await AppDataSource.query(
+          `INSERT INTO agent 
+           (id, matricule, nom, prenom, campagne, date_creation) 
+           VALUES ($1, $2, $3, $4, $5, NOW())`,
+          [
+            agentId,
+            matricule,
+            data.nom,
+            data.prenom,
+            data.campagne || 'Standard'
+          ]
+        );
+        console.log(`✅ Agent créé avec date_creation`);
+      } catch (error) {
+        // Si date_creation échoue, essayez created_at
+        console.log('⚠️ date_creation échoué, essayez created_at');
+        try {
+          await AppDataSource.query(
+            `INSERT INTO agent 
+             (id, matricule, nom, prenom, campagne, created_at) 
+             VALUES ($1, $2, $3, $4, $5, NOW())`,
+            [
+              agentId,
+              matricule,
+              data.nom,
+              data.prenom,
+              data.campagne || 'Standard'
+            ]
+          );
+          console.log(`✅ Agent créé avec created_at`);
+        } catch (error2) {
+          // Si les deux échouent, utilisez juste les colonnes de base
+          console.log('⚠️ created_at aussi échoué, utilisez colonnes minimales');
+          await AppDataSource.query(
+            `INSERT INTO agent 
+             (id, matricule, nom, prenom, campagne) 
+             VALUES ($1, $2, $3, $4, $5)`,
+            [
+              agentId,
+              matricule,
+              data.nom,
+              data.prenom,
+              data.campagne || 'Standard'
+            ]
+          );
+          console.log(`✅ Agent créé avec colonnes minimales`);
+        }
+      }
+    }
+    
+    // Vérifier si présence existe déjà
+    const existingPresence = await AppDataSource.query(
+      'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
+      [agentId, today]
+    );
+    
+    if (existingPresence.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Une présence existe déjà pour aujourd'hui"
+      });
+    }
+    
+    // Créer la présence
+    const presence = await AppDataSource.query(
+      `INSERT INTO presence 
+       (agent_id, date, heure_entree, shift, created_at) 
+       VALUES ($1, $2, $3, $4, NOW()) 
+       RETURNING id, date, heure_entree`,
+      [agentId, today, timeNow, data.shift || 'JOUR']
+    );
+    
+    res.json({
+      success: true,
+      message: "Pointage d'entrée enregistré",
+      data: {
+        presence_id: presence[0].id,
+        matricule: matricule,
+        nom: data.nom,
+        prenom: data.prenom,
+        heure_entree: presence[0].heure_entree,
+        date: presence[0].date,
+        agent_id: agentId,
+        shift: data.shift || 'JOUR'
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur pointage:', error);
+    
+    res.status(500).json({
+      success: false,
+      error: "Erreur pointage d'entrée",
+      details: error.message,
+      code: error.code,
+      suggestion: "Vérifiez la structure de la table agent"
     });
   }
 });
