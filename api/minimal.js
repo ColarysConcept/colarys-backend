@@ -3880,20 +3880,6 @@ app.post('/api/presences/verifier-etat', async (req, res) => {
   }
 });
 
-// Dans minimal.js - CORRECTION de la requête INSERT
-await AppDataSource.query(
-  `INSERT INTO agent 
-   (id, matricule, nom, prenom, campagne, date_creation)  // ✅ Utilisez date_creation
-   VALUES ($1, $2, $3, $4, $5, NOW())`,                   // ✅ Pas de created_at ou createdAt
-  [
-    agentId,
-    matricule,
-    data.nom,
-    data.prenom,
-    data.campagne || 'Standard'
-  ]
-);
-
 
 
 console.log('✅ Minimal API ready!');
