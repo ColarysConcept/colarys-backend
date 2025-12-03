@@ -3503,6 +3503,88 @@ app.get('/api/debug-agent-by-matricule/:matricule', async (req, res) => {
   }
 });
 
+// Dans minimal.js - Ajouter cette route
+app.post('/api/presences/verifier-etat', async (req, res) => {
+  try {
+    const { matricule, nom, prenom } = req.body;
+    
+    console.log('🔍 Vérification état présence:', { matricule, nom, prenom });
+    
+    if (!matricule && (!nom || !prenom)) {
+      return res.status(400).json({
+        success: false,
+        error: "Matricule OU nom et prénom sont requis"
+      });
+    }
+    
+    const today = new Date().toISOString().split('T')[0];
+    let presence = null;
+    
+    // Chercher par matricule
+    if (matricule) {
+      const presences = await AppDataSource.query(
+        `SELECT p.*, a.matricule, a.nom, a.prenom, a.campagne 
+         FROM presence p
+         JOIN agent a ON p.agent_id = a.id
+         WHERE a.matricule = $1 AND p.date = $2`,
+        [matricule, today]
+      );
+      
+      if (presences.length > 0) {
+        presence = presences[0];
+      }
+    }
+    
+    // Chercher par nom/prénom
+    if (!presence && nom && prenom) {
+      const presences = await AppDataSource.query(
+        `SELECT p.*, a.matricule, a.nom, a.prenom, a.campagne 
+         FROM presence p
+         JOIN agent a ON p.agent_id = a.id
+         WHERE a.nom ILIKE $1 AND a.prenom ILIKE $2 AND p.date = $3`,
+        [`%${nom}%`, `%${prenom}%`, today]
+      );
+      
+      if (presences.length > 0) {
+        presence = presences[0];
+      }
+    }
+    
+    // Déterminer l'état
+    if (!presence) {
+      return res.json({
+        success: true,
+        etat: 'ABSENT',
+        message: "Aucune présence aujourd'hui",
+        data: null
+      });
+    }
+    
+    if (presence.heure_sortie) {
+      return res.json({
+        success: true,
+        etat: 'COMPLET',
+        message: "Entrée et sortie déjà pointées",
+        data: presence
+      });
+    }
+    
+    return res.json({
+      success: true,
+      etat: 'ENTREE_ONLY',
+      message: "Entrée pointée, sortie attendue",
+      data: presence
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur vérification état:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 console.log('✅ Minimal API ready!');
 
 module.exports = app;

@@ -21,6 +21,12 @@ router.post('/sortie', (req, res) => {
   presenceController.pointageSortie(req, res);
 });
 
+// ✅ AJOUTER CETTE NOUVELLE ROUTE
+router.post('/verifier-etat', (req, res) => {
+  console.log('POST /presences/verifier-etat appelé avec body:', req.body);
+  presenceController.verifierEtatPresence(req, res);
+});
+
 router.get('/historique', (req, res) => {
   console.log('GET /presences/historique appelé avec query:', req.query);
   presenceController.getHistorique(req, res);

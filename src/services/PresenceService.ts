@@ -29,7 +29,75 @@ export class PresenceService {
     this.detailPresenceRepository = AppDataSource.getRepository(DetailPresence);
   }
 
-  // Les autres méthodes restent inchangées...
+  // Méthode pour vérifier l'état de présence
+  async verifierEtatPresence(matricule?: string, nom?: string, prenom?: string) {
+    console.log('🔍 verifierEtatPresence:', { matricule, nom, prenom });
+    
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      let presence = null;
+
+      // Chercher par matricule d'abord
+      if (matricule) {
+        presence = await this.presenceRepository.findOne({
+          where: {
+            agent: { matricule },
+            date: today
+          },
+          relations: ['agent', 'details'],
+        });
+      }
+
+      // Chercher par nom/prénom si non trouvé
+      if (!presence && nom && prenom) {
+        presence = await this.presenceRepository.findOne({
+          where: {
+            agent: { nom, prenom },
+            date: today
+          },
+          relations: ['agent', 'details'],
+        });
+      }
+
+      // Déterminer l'état
+      if (!presence) {
+        return {
+          success: true,
+          etat: 'ABSENT',
+          message: "Aucune présence aujourd'hui",
+          presence: null
+        };
+      }
+
+      if (presence.heureSortie) {
+        return {
+          success: true,
+          etat: 'COMPLET',
+          message: "Entrée et sortie déjà pointées",
+          presence: presence
+        };
+      }
+
+      return {
+        success: true,
+        etat: 'ENTREE_ONLY',
+        message: "Entrée pointée, sortie attendue",
+        presence: presence
+      };
+
+    } catch (error: unknown) {
+      console.error('❌ Erreur verifierEtatPresence:', error);
+      
+      const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
+      return {
+        success: false,
+        etat: 'ERROR',
+        message: errorMessage,
+        presence: null
+      };
+    }
+  }
+// Méthode pointageEntree améliorée
   async pointageEntree(data: {
     matricule?: string;
     nom: string;
@@ -39,20 +107,44 @@ export class PresenceService {
     signatureEntree: string;
     heureEntreeManuelle?: string;
   }) {
-    console.log('pointageEntree dans PresenceService:', data);
+    console.log('pointageEntree dans PresenceService:', {
+      ...data,
+      signatureLength: data.signatureEntree?.length,
+      signaturePreview: data.signatureEntree?.substring(0, 100)
+    });
 
     const queryRunner = AppDataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      // Validation des champs obligatoires
+      // Validation
       if (!data.nom || !data.prenom) {
         throw new Error("Le nom et le prénom sont obligatoires");
       }
 
       let agent: Agent;
       let matriculeValue = data.matricule?.trim() || '';
+
+      // Vérifier d'abord si l'agent existe aujourd'hui
+      const today = new Date().toISOString().split('T')[0];
+      if (matriculeValue) {
+        const existingPresence = await queryRunner.manager.findOne(Presence, {
+          where: {
+            agent: { matricule: matriculeValue },
+            date: today
+          },
+          relations: ['agent'],
+        });
+
+        if (existingPresence) {
+          if (!existingPresence.heureSortie) {
+            throw new Error("Une entrée existe déjà pour aujourd'hui. Veuillez pointer la sortie d'abord.");
+          } else {
+            throw new Error("Entrée et sortie déjà pointées pour aujourd'hui.");
+          }
+        }
+      }
 
       // Gestion de l'agent
       if (matriculeValue) {
@@ -63,7 +155,7 @@ export class PresenceService {
 
         if (existingAgent) {
           agent = existingAgent;
-          console.log('Agent existant trouvé:', agent);
+          console.log('✅ Agent existant trouvé:', agent);
         } else {
           // Création d'un nouvel agent avec matricule
           agent = new Agent();
@@ -74,12 +166,12 @@ export class PresenceService {
           agent.dateCreation = new Date();
 
           agent = await queryRunner.manager.save(agent);
-          console.log('Nouvel agent créé avec matricule:', agent);
+          console.log('✅ Nouvel agent créé avec matricule:', agent);
         }
       } else {
         // Création d'un nouvel agent sans matricule
         const generatedMatricule = `AG-${uuidv4().slice(0, 8).toUpperCase()}`;
-        console.log('Matricule généré:', generatedMatricule);
+        console.log('🎫 Matricule généré:', generatedMatricule);
 
         agent = new Agent();
         agent.matricule = generatedMatricule;
@@ -89,28 +181,7 @@ export class PresenceService {
         agent.dateCreation = new Date();
 
         agent = await queryRunner.manager.save(agent);
-        console.log('Nouvel agent créé sans matricule fourni:', agent);
-      }
-
-      // Vérification de présence existante
-      const today = new Date().toISOString().split('T')[0];
-      const existingPresence = await queryRunner.manager.findOne(Presence, {
-        where: {
-          agent: { id: agent.id },
-          date: today,
-        },
-        relations: ['details'],
-      });
-
-      // CORRECTION : Permettre le pointage seulement si aucune présence n'existe OU si la présence existe mais a déjà une sortie
-      if (existingPresence) {
-        if (!existingPresence.heureSortie) {
-          // Une présence existe déjà sans heure de sortie - l'agent ne peut pas pointer une nouvelle entrée
-          throw new Error("Une présence pour aujourd'hui existe déjà. Veuillez pointer la sortie d'abord.");
-        } else {
-          // L'agent a déjà une présence complète (entrée + sortie) aujourd'hui
-          throw new Error("Vous avez déjà pointé l'entrée et la sortie aujourd'hui.");
-        }
+        console.log('✅ Nouvel agent créé sans matricule fourni:', agent);
       }
 
       // Calcul de l'heure d'entrée
@@ -128,45 +199,51 @@ export class PresenceService {
       presence.shift = data.shift || "JOUR";
       presence.createdAt = new Date();
 
+      // Nettoyer la signature
+      let signatureClean = data.signatureEntree;
+      if (signatureClean && !signatureClean.startsWith('data:image/')) {
+        signatureClean = 'data:image/png;base64,' + signatureClean;
+      }
+
       // Création des détails
       const details = new DetailPresence();
-      details.signatureEntree = data.signatureEntree;
+      details.signatureEntree = signatureClean;
       details.presence = presence;
 
-      // Sauvegarde dans l'ordre correct
+      // Sauvegarde
       const savedPresence = await queryRunner.manager.save(presence);
       details.presence = savedPresence;
       await queryRunner.manager.save(details);
 
       await queryRunner.commitTransaction();
 
-      // Récupération complète de la présence créée
+      // Récupération complète
       const completePresence = await this.presenceRepository.findOne({
         where: { id: savedPresence.id },
         relations: ['agent', 'details'],
       });
 
-      return { presence: completePresence };
+      return { 
+        success: true, 
+        presence: completePresence,
+        message: "Pointage d'entrée enregistré"
+      };
 
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
-      console.error('Erreur lors du pointage d\'entrée:', error);
+      console.error('❌ Erreur pointageEntree:', error);
 
-      let errorMessage = 'Erreur inconnue lors du pointage d\'entrée';
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      } else if (typeof error === 'string') {
-        errorMessage = error;
-      }
-
+      const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
       throw new Error(errorMessage);
     } finally {
       await queryRunner.release();
     }
   }
-
-  async pointageSortie(matricule: string, signatureSortie: string, heureSortieManuelle?: string) {
-    console.log('pointageSortie dans PresenceService:', { matricule, signatureSortie, heureSortieManuelle });
+async pointageSortie(matricule: string, signatureSortie: string, heureSortieManuelle?: string) {
+    console.log('pointageSortie dans PresenceService:', {
+      matricule,
+      signatureLength: signatureSortie?.length
+    });
 
     const queryRunner = AppDataSource.createQueryRunner();
     await queryRunner.connect();
@@ -183,11 +260,11 @@ export class PresenceService {
       });
 
       if (!presence) {
-        throw new Error("Aucune présence trouvée pour aujourd'hui");
+        throw new Error("Aucune entrée trouvée pour aujourd'hui. Veuillez pointer l'entrée d'abord.");
       }
 
       if (presence.heureSortie) {
-        throw new Error("Pointage de sortie déjà effectué");
+        throw new Error("Sortie déjà pointée pour aujourd'hui.");
       }
 
       // Calcul de l'heure de sortie
@@ -199,13 +276,19 @@ export class PresenceService {
       presence.heureSortie = heureSortie;
       presence.heuresTravaillees = this.calculerHeuresTravaillees(presence.heureEntree, heureSortie);
 
+      // Nettoyer la signature
+      let signatureClean = signatureSortie;
+      if (signatureClean && !signatureClean.startsWith('data:image/')) {
+        signatureClean = 'data:image/png;base64,' + signatureClean;
+      }
+
       // Mise à jour des détails
       if (presence.details) {
-        presence.details.signatureSortie = signatureSortie;
+        presence.details.signatureSortie = signatureClean;
         await queryRunner.manager.save(DetailPresence, presence.details);
       } else {
         const detailPresence = new DetailPresence();
-        detailPresence.signatureSortie = signatureSortie;
+        detailPresence.signatureSortie = signatureClean;
         detailPresence.presence = presence;
         await queryRunner.manager.save(detailPresence);
         presence.details = detailPresence;
@@ -221,24 +304,23 @@ export class PresenceService {
         relations: ['agent', 'details'],
       });
 
-      return { success: true, presence: completePresence };
+      return { 
+        success: true, 
+        presence: completePresence,
+        message: "Pointage de sortie enregistré"
+      };
 
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
-      console.error('Erreur dans pointageSortie:', error);
+      console.error('❌ Erreur pointageSortie:', error);
 
-      let errorMessage = 'Erreur inconnue lors du pointage de sortie';
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      } else if (typeof error === 'string') {
-        errorMessage = error;
-      }
-
+      const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
       throw new Error(errorMessage);
     } finally {
       await queryRunner.release();
     }
   }
+
 
   async findAll(): Promise<any[]> {
   try {
@@ -254,6 +336,7 @@ export class PresenceService {
   }
 }
 
+    // Méthodes utilitaires (garder les existantes)
   private validerFormatHeure(heure: string): string {
     const regex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
     if (!regex.test(heure)) {
@@ -262,10 +345,10 @@ export class PresenceService {
     return heure + ':00';
   }
 
- // Dans PresenceService.ts - Remplacer la méthode calculerHeuresTravaillees
-private calculerHeuresTravaillees(heureEntree: string, heureSortie: string): number {
-  // Fixer à 8 heures pour tous les shifts
-  return 8.00;
+  private calculerHeuresTravaillees(heureEntree: string, heureSortie: string): number {
+    // Fixer à 8 heures pour tous les shifts
+    return 8.00;
+  
   
   // Ancien code (à supprimer) :
   // const [heuresEntree, minutesEntree] = heureEntree.split(':').map(Number);

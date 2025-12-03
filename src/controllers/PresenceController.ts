@@ -152,6 +152,44 @@ async getHistorique(req: Request, res: Response) {
   }
 }
 
+// Dans PresenceController.ts - Ajouter cette méthode
+async verifierEtatPresence(req: Request, res: Response) {
+  console.log('verifierEtatPresence appelé avec body:', req.body);
+  
+  try {
+    const { matricule, nom, prenom } = req.body;
+    
+    // Au moins un identifiant est requis
+    if (!matricule && (!nom || !prenom)) {
+      return res.status(400).json({
+        success: false,
+        error: "Matricule OU nom et prénom sont requis"
+      });
+    }
+    
+    const result = await this.presenceService.verifierEtatPresence(
+      matricule, 
+      nom, 
+      prenom
+    );
+    
+    res.json({
+      success: result.success,
+      etat: result.etat,
+      message: result.message,
+      data: result.presence,
+      presence: result.presence // Pour compatibilité
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur dans verifierEtatPresence:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : "Erreur de vérification"
+    });
+  }
+}
+
   async getPresenceAujourdhui(req: Request, res: Response) {
     console.log('getPresenceAujourdhui appelé avec matricule:', req.params.matricule);
     try {
