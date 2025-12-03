@@ -1855,7 +1855,6 @@ app.post('/presences/entree', async (req, res) => {
   }
 });
 
-
 // 4. Pointage de sortie - ROUTE MANQUANTE !
 app.post('/api/presences/sortie', async (req, res) => {
   console.log('🚨 Route /api/presences/sortie appelée');
@@ -1917,9 +1916,12 @@ app.post('/api/presences/sortie', async (req, res) => {
     
     console.log(`📅 Mise à jour sortie: agent_id=${agentId}, date=${today}, heure=${timeNow}`);
     
-    // Calculer heures travaillées si entrée existe
-    let heuresTravaillees = null;
+    // ✅ FIXER À 8 HEURES POUR TOUS LES SHIFTS
+    const heuresTravaillees = 8.00;
     
+    console.log(`⏱️ Heures travaillées fixées à: ${heuresTravaillees}h`);
+    
+
     try {
       // Chercher l'entrée d'aujourd'hui
       const presence = await AppDataSource.query(
@@ -1948,7 +1950,7 @@ app.post('/api/presences/sortie', async (req, res) => {
     // Mettre à jour ou créer la présence
     let result;
     
-    try {
+       try {
       // Essayer de mettre à jour
       result = await AppDataSource.query(
         `UPDATE presence 
@@ -1958,7 +1960,7 @@ app.post('/api/presences/sortie', async (req, res) => {
         [timeNow, heuresTravaillees, agentId, today]
       );
       
-      if (result.rowCount === 0) {
+   if (result.rowCount === 0) {
         // Créer si n'existe pas
         console.log('⚠️ Aucune présence trouvée, création avec sortie uniquement');
         result = await AppDataSource.query(
@@ -1974,11 +1976,11 @@ app.post('/api/presences/sortie', async (req, res) => {
       throw error;
     }
     
-    const presenceId = result.rows ? result.rows[0]?.id : result[0]?.id;
+     const presenceId = result.rows ? result.rows[0]?.id : result[0]?.id;
     
     console.log(`🎉 Sortie enregistrée! Presence ID: ${presenceId}`);
     
-    res.json({
+  res.json({
       success: true,
       message: "Pointage de sortie enregistré",
       data: {
@@ -1987,12 +1989,12 @@ app.post('/api/presences/sortie', async (req, res) => {
         presence_id: presenceId,
         date: today,
         heure_sortie: timeNow,
-        heures_travaillees: heuresTravaillees,
+        heures_travaillees: heuresTravaillees, // ✅ Toujours 8h
         signature_sortie: data.signatureSortie ? "Signature reçue" : null
       }
     });
     
-  } catch (error) {
+   } catch (error) {
     console.error('❌ ERREUR sortie:', error);
     
     res.status(500).json({
@@ -2000,6 +2002,109 @@ app.post('/api/presences/sortie', async (req, res) => {
       error: "Erreur pointage sortie",
       details: error.message,
       code: error.code
+    });
+  }
+});
+
+
+// Route pour tester les signatures d'une présence spécifique
+app.get('/api/debug-presence/:id/signatures', async (req, res) => {
+  try {
+    const presenceId = parseInt(req.params.id);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    console.log(`🔍 Debug signatures pour présence ID: ${presenceId}`);
+    
+    // Récupérer la présence avec ses détails
+    const presence = await AppDataSource.query(`
+      SELECT 
+        p.id,
+        p.date,
+        a.matricule,
+        a.nom,
+        a.prenom,
+        d.signature_entree,
+        d.signature_sortie,
+        LENGTH(d.signature_entree) as sig_entree_length,
+        LENGTH(d.signature_sortie) as sig_sortie_length,
+        LEFT(d.signature_entree, 50) as sig_entree_preview,
+        LEFT(d.signature_sortie, 50) as sig_sortie_preview
+      FROM presence p
+      LEFT JOIN agent a ON p.agent_id = a.id
+      LEFT JOIN detail_presence d ON p.id = d.presence_id
+      WHERE p.id = $1
+    `, [presenceId]);
+    
+    if (presence.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Présence non trouvée"
+      });
+    }
+    
+    const pres = presence[0];
+    
+    // Tester si les signatures sont valides
+    let signatureEntreeValide = false;
+    let signatureSortieValide = false;
+    let signatureEntreeFormattee = null;
+    let signatureSortieFormattee = null;
+    
+    if (pres.signature_entree) {
+      signatureEntreeValide = pres.signature_entree.includes('data:image/');
+      signatureEntreeFormattee = signatureEntreeValide ? 
+        pres.signature_entree : 
+        'data:image/png;base64,' + pres.signature_entree;
+    }
+    
+    if (pres.signature_sortie) {
+      signatureSortieValide = pres.signature_sortie.includes('data:image/');
+      signatureSortieFormattee = signatureSortieValide ? 
+        pres.signature_sortie : 
+        'data:image/png;base64,' + pres.signature_sortie;
+    }
+    
+    res.json({
+      success: true,
+      presence: {
+        id: pres.id,
+        date: pres.date,
+        agent: `${pres.nom} ${pres.prenom}`,
+        matricule: pres.matricule
+      },
+      signatures: {
+        entree: {
+          raw: pres.signature_entree ? 'Présente' : 'Absente',
+          length: pres.sig_entree_length,
+          preview: pres.sig_entree_preview,
+          isValid: signatureEntreeValide,
+          formatted: signatureEntreeFormattee ? 
+            signatureEntreeFormattee.substring(0, 100) + '...' : 
+            null
+        },
+        sortie: {
+          raw: pres.signature_sortie ? 'Présente' : 'Absente',
+          length: pres.sig_sortie_length,
+          preview: pres.sig_sortie_preview,
+          isValid: signatureSortieValide,
+          formatted: signatureSortieFormattee ? 
+            signatureSortieFormattee.substring(0, 100) + '...' : 
+            null
+        }
+      },
+      testImage: signatureEntreeFormattee ? `
+        <img src="${signatureEntreeFormattee}" style="max-width: 100px; max-height: 50px;" />
+      ` : 'Pas de signature'
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur debug signatures:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
@@ -2241,8 +2346,8 @@ app.get('/api/presences/aujourdhui/:matricule', async (req, res) => {
   }
 });
 
-// 4. Route pour historique des présences (manquante !)
-// Dans la route /api/presences/historique existante, modifiez la requête SQL
+
+// Remplacer la route historique existante par celle-ci
 app.get('/api/presences/historique', async (req, res) => {
   try {
     const { dateDebut, dateFin, matricule, nom, prenom, campagne, shift } = req.query;
@@ -2261,7 +2366,7 @@ app.get('/api/presences/historique', async (req, res) => {
       });
     }
     
-    // ✅ REQUETE AMÉLIORÉE avec les signatures
+    // ✅ CORRECTION : Requête qui récupère correctement les signatures
     let query = `
       SELECT 
         p.id,
@@ -2269,27 +2374,29 @@ app.get('/api/presences/historique', async (req, res) => {
         p.heure_entree,
         p.heure_sortie,
         p.shift,
-        p.heures_travaillees,
+        -- ✅ FIXER À 8 HEURES POUR TOUS LES SHIFTS
+        CASE 
+          WHEN p.heure_sortie IS NOT NULL THEN 8.00
+          ELSE NULL 
+        END as heures_travaillees,
         p.created_at,
         p.agent_id,
-        -- Chercher d'abord dans agents_colarys
+        -- Agent info
         COALESCE(
           (SELECT json_build_object(
             'id', ac.id,
             'matricule', ac.matricule,
             'nom', ac.nom,
             'prenom', ac.prenom,
-            'campagne', ac.role
+            'campagne', COALESCE(ac.role, ac.campagne, 'Standard')
           ) FROM agents_colarys ac WHERE ac.id = p.agent_id),
-          -- Sinon chercher dans agent
           (SELECT json_build_object(
             'id', a.id,
             'matricule', a.matricule,
             'nom', a.nom,
             'prenom', a.prenom,
-            'campagne', a.campagne
+            'campagne', COALESCE(a.campagne, 'Standard')
           ) FROM agent a WHERE a.id = p.agent_id),
-          -- Fallback si aucun agent trouvé
           json_build_object(
             'id', 0,
             'matricule', 'N/D',
@@ -2298,19 +2405,27 @@ app.get('/api/presences/historique', async (req, res) => {
             'campagne', 'Non défini'
           )
         ) as agent,
-        -- Récupérer les signatures
+        -- ✅ CORRECTION DES SIGNATURES
         COALESCE(
           (SELECT json_build_object(
             'signatureEntree', 
             CASE 
               WHEN signature_entree IS NOT NULL AND signature_entree != '' 
-              THEN 'data:image/png;base64,' || signature_entree
+              THEN 
+                CASE 
+                  WHEN signature_entree LIKE 'data:image/%' THEN signature_entree
+                  ELSE 'data:image/png;base64,' || signature_entree
+                END
               ELSE NULL
             END,
             'signatureSortie',
             CASE 
               WHEN signature_sortie IS NOT NULL AND signature_sortie != '' 
-              THEN 'data:image/png;base64,' || signature_sortie
+              THEN 
+                CASE 
+                  WHEN signature_sortie LIKE 'data:image/%' THEN signature_sortie
+                  ELSE 'data:image/png;base64,' || signature_sortie
+                END
               ELSE NULL
             END
           ) FROM detail_presence dp WHERE dp.presence_id = p.id),
@@ -2325,31 +2440,66 @@ app.get('/api/presences/historique', async (req, res) => {
     
     // Filtres
     if (matricule) {
-      // Chercher l'ID d'agent par matricule
-      const agentIds = await AppDataSource.query(
-        `SELECT id FROM (
-          SELECT id FROM agents_colarys WHERE matricule = $1
+      query += ` AND EXISTS (
+        SELECT 1 FROM (
+          SELECT id FROM agents_colarys WHERE matricule = $${paramIndex}
           UNION
-          SELECT id FROM agent WHERE matricule = $1
-        ) as agents`,
-        [matricule]
-      );
-      
-      if (agentIds.length > 0) {
-        const ids = agentIds.map(a => a.id);
-        query += ` AND p.agent_id IN (${ids.map((_, i) => `$${paramIndex + i}`).join(',')})`;
-        params.push(...ids);
-        paramIndex += ids.length;
-      }
+          SELECT id FROM agent WHERE matricule = $${paramIndex}
+        ) agents WHERE agents.id = p.agent_id
+      )`;
+      params.push(matricule);
+      paramIndex++;
+    }
+    
+    if (nom) {
+      query += ` AND EXISTS (
+        SELECT 1 FROM (
+          SELECT id FROM agents_colarys WHERE nom ILIKE $${paramIndex}
+          UNION
+          SELECT id FROM agent WHERE nom ILIKE $${paramIndex}
+        ) agents WHERE agents.id = p.agent_id
+      )`;
+      params.push(`%${nom}%`);
+      paramIndex++;
+    }
+    
+    if (prenom) {
+      query += ` AND EXISTS (
+        SELECT 1 FROM (
+          SELECT id FROM agents_colarys WHERE prenom ILIKE $${paramIndex}
+          UNION
+          SELECT id FROM agent WHERE prenom ILIKE $${paramIndex}
+        ) agents WHERE agents.id = p.agent_id
+      )`;
+      params.push(`%${prenom}%`);
+      paramIndex++;
+    }
+    
+    if (campagne) {
+      query += ` AND EXISTS (
+        SELECT 1 FROM (
+          SELECT id FROM agents_colarys WHERE role = $${paramIndex} OR campagne = $${paramIndex}
+          UNION
+          SELECT id FROM agent WHERE campagne = $${paramIndex}
+        ) agents WHERE agents.id = p.agent_id
+      )`;
+      params.push(campagne);
+      paramIndex++;
+    }
+    
+    if (shift) {
+      query += ` AND p.shift = $${paramIndex}`;
+      params.push(shift);
+      paramIndex++;
     }
     
     query += ' ORDER BY p.date DESC, p.id DESC LIMIT 100';
     
-    console.log('📋 Query avec signatures:', query.substring(0, 200) + '...');
+    console.log('📋 Query historique avec signatures fixées');
     
     const presences = await AppDataSource.query(query, params);
     
-    // Formater les résultats AVEC les signatures
+    // Formater les résultats
     const presencesFormatees = presences.map(p => {
       // Parse l'agent JSON
       let agent = { id: 0, matricule: 'N/D', nom: 'Inconnu', prenom: '', campagne: 'Non défini' };
@@ -2371,19 +2521,6 @@ app.get('/api/presences/historique', async (req, res) => {
         console.error('❌ Erreur parsing JSON:', e);
       }
       
-      // S'assurer que les signatures sont bien formatées
-      if (details.signatureEntree && !details.signatureEntree.startsWith('data:image/')) {
-        if (details.signatureEntree.match(/^[A-Za-z0-9+/]+=*$/)) {
-          details.signatureEntree = 'data:image/png;base64,' + details.signatureEntree;
-        }
-      }
-      
-      if (details.signatureSortie && !details.signatureSortie.startsWith('data:image/')) {
-        if (details.signatureSortie.match(/^[A-Za-z0-9+/]+=*$/)) {
-          details.signatureSortie = 'data:image/png;base64,' + details.signatureSortie;
-        }
-      }
-      
       return {
         id: p.id,
         date: p.date,
@@ -2397,10 +2534,19 @@ app.get('/api/presences/historique', async (req, res) => {
       };
     });
     
-    // Calculer le total des heures
+    // ✅ CALCULER LE TOTAL DES HEURES (8h par présence avec sortie)
     const totalHeures = presencesFormatees.reduce((sum, p) => {
       return sum + (p.heuresTravaillees || 0);
     }, 0);
+    
+    // ✅ Statistiques des signatures
+    const signaturesInfo = {
+      withEntreeSignature: presencesFormatees.filter(p => p.details?.signatureEntree).length,
+      withSortieSignature: presencesFormatees.filter(p => p.details?.signatureSortie).length,
+      totalWithSignatures: presencesFormatees.filter(p => p.details?.signatureEntree || p.details?.signatureSortie).length
+    };
+    
+    console.log('📊 Statistiques signatures:', signaturesInfo);
     
     res.json({
       success: true,
@@ -2408,11 +2554,7 @@ app.get('/api/presences/historique', async (req, res) => {
       totalHeures: parseFloat(totalHeures.toFixed(2)),
       totalPresences: presencesFormatees.length,
       message: `${presencesFormatees.length} présence(s) trouvée(s)`,
-      signaturesInfo: {
-        withEntreeSignature: presencesFormatees.filter(p => p.details?.signatureEntree).length,
-        withSortieSignature: presencesFormatees.filter(p => p.details?.signatureSortie).length,
-        totalWithSignatures: presencesFormatees.filter(p => p.details?.signatureEntree || p.details?.signatureSortie).length
-      }
+      signaturesInfo: signaturesInfo
     });
     
   } catch (error) {
@@ -2421,6 +2563,40 @@ app.get('/api/presences/historique', async (req, res) => {
       success: false,
       error: "Erreur lors de la récupération de l'historique",
       message: error.message
+    });
+  }
+});
+
+// Route pour fixer toutes les heures à 8h
+app.post('/api/fix-heures-travaillees', async (_req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    console.log('🔧 Fixation des heures travaillées à 8h...');
+    
+    // Mettre à jour toutes les présences avec sortie
+    const result = await AppDataSource.query(`
+      UPDATE presence 
+      SET heures_travaillees = 8.00 
+      WHERE heure_sortie IS NOT NULL 
+      AND (heures_travaillees IS NULL OR heures_travaillees != 8.00)
+    `);
+    
+    console.log(`✅ ${result.rowCount} présences mises à jour à 8h`);
+    
+    res.json({
+      success: true,
+      message: `${result.rowCount} présence(s) mises à jour avec 8 heures travaillées`,
+      updated: result.rowCount
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur fixation heures:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
