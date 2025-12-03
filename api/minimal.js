@@ -3585,6 +3585,165 @@ app.post('/api/presences/verifier-etat', async (req, res) => {
   }
 });
 
+// Route pour vérifier présence par nom/prénom avec espaces
+app.get('/api/presences/aujourdhui/nom/:nom/prenom/:prenom', async (req, res) => {
+  try {
+    const nom = decodeURIComponent(req.params.nom);
+    const prenom = decodeURIComponent(req.params.prenom);
+    
+    console.log(`📅 Vérification présence pour: ${nom} ${prenom}`);
+    
+    if (!nom || !prenom) {
+      return res.status(400).json({
+        success: false,
+        error: "Nom et prénom sont requis"
+      });
+    }
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Chercher l'agent par nom/prénom
+    const agents = await AppDataSource.query(
+      'SELECT id FROM agent WHERE nom ILIKE $1 AND prenom ILIKE $2',
+      [`%${nom}%`, `%${prenom}%`]
+    );
+    
+    if (agents.length === 0) {
+      // Aucun agent trouvé
+      return res.json({
+        success: true,
+        data: null,
+        count: 0
+      });
+    }
+    
+    const agentId = agents[0].id;
+    
+    // Chercher les présences
+    const presences = await AppDataSource.query(
+      'SELECT * FROM presence WHERE agent_id = $1 AND date = $2',
+      [agentId, today]
+    );
+    
+    res.json({
+      success: true,
+      data: presences.length > 0 ? presences[0] : null,
+      count: presences.length
+    });
+    
+  } catch (error) {
+    console.error('❌ Error checking presence by name:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors de la vérification de présence"
+    });
+  }
+});
+
+// Route pour vérifier état de présence (alternative)
+app.post('/api/presences/verifier-etat', async (req, res) => {
+  try {
+    const { matricule, nom, prenom } = req.body;
+    
+    console.log('🔍 Vérification état présence:', { matricule, nom, prenom });
+    
+    if (!matricule && (!nom || !prenom)) {
+      return res.status(400).json({
+        success: false,
+        error: "Matricule OU nom et prénom sont requis"
+      });
+    }
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    const today = new Date().toISOString().split('T')[0];
+    let presence = null;
+    let agentId = null;
+    
+    // Chercher par matricule d'abord
+    if (matricule) {
+      const agents = await AppDataSource.query(
+        'SELECT id FROM agent WHERE matricule = $1',
+        [matricule]
+      );
+      
+      if (agents.length > 0) {
+        agentId = agents[0].id;
+        const presences = await AppDataSource.query(
+          'SELECT * FROM presence WHERE agent_id = $1 AND date = $2',
+          [agentId, today]
+        );
+        
+        if (presences.length > 0) {
+          presence = presences[0];
+        }
+      }
+    }
+    
+    // Chercher par nom/prénom si non trouvé
+    if (!presence && nom && prenom) {
+      const agents = await AppDataSource.query(
+        'SELECT id FROM agent WHERE nom ILIKE $1 AND prenom ILIKE $2',
+        [`%${nom}%`, `%${prenom}%`]
+      );
+      
+      if (agents.length > 0) {
+        agentId = agents[0].id;
+        const presences = await AppDataSource.query(
+          'SELECT * FROM presence WHERE agent_id = $1 AND date = $2',
+          [agentId, today]
+        );
+        
+        if (presences.length > 0) {
+          presence = presences[0];
+        }
+      }
+    }
+    
+    // Déterminer l'état
+    if (!presence) {
+      return res.json({
+        success: true,
+        etat: 'ABSENT',
+        message: "Aucune présence aujourd'hui",
+        data: null,
+        presence: null
+      });
+    }
+    
+    if (presence.heure_sortie) {
+      return res.json({
+        success: true,
+        etat: 'COMPLET',
+        message: "Entrée et sortie déjà pointées",
+        data: presence,
+        presence: presence
+      });
+    }
+    
+    return res.json({
+      success: true,
+      etat: 'ENTREE_ONLY',
+      message: "Entrée pointée, sortie attendue",
+      data: presence,
+      presence: presence
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur vérification état:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 console.log('✅ Minimal API ready!');
 
 module.exports = app;
