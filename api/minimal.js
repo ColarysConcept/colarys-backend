@@ -4713,6 +4713,195 @@ app.get('/api/debug-last-error', (_req, res) => {
   });
 });
 
+// ROUTE 1 : Diagnostic d'une signature spécifique
+app.get('/api/diagnose-signatures/:presenceId', async (req, res) => {
+  try {
+    const presenceId = parseInt(req.params.presenceId);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    const presence = await AppDataSource.query(`
+      SELECT 
+        p.id,
+        p.date,
+        a.nom,
+        a.prenom,
+        d.signature_entree,
+        d.signature_sortie,
+        LENGTH(d.signature_entree) as entree_length,
+        LENGTH(d.signature_sortie) as sortie_length
+      FROM presence p
+      LEFT JOIN detail_presence d ON p.id = d.presence_id
+      LEFT JOIN agent a ON p.agent_id = a.id
+      WHERE p.id = $1
+    `, [presenceId]);
+    
+    if (presence.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Présence non trouvée"
+      });
+    }
+    
+    const sig = presence[0];
+    
+    // Analyse
+    const analyze = (signature) => {
+      if (!signature) return { valid: false, reason: 'null' };
+      if (signature.startsWith('data:image/')) return { valid: true, reason: 'valid' };
+      if (signature.match(/^[A-Za-z0-9+/]+=*$/)) return { valid: true, reason: 'base64_pure', needsFix: true };
+      return { valid: false, reason: 'invalid' };
+    };
+    
+    res.json({
+      success: true,
+      presence: {
+        id: sig.id,
+        date: sig.date,
+        agent: `${sig.nom} ${sig.prenom}`
+      },
+      entree: analyze(sig.signature_entree),
+      sortie: analyze(sig.signature_sortie),
+      lengths: {
+        entree: sig.entree_length,
+        sortie: sig.sortie_length
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur diagnostic:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ROUTE 2 : Corriger une signature
+app.post('/api/fix-signature/:presenceId', async (req, res) => {
+  try {
+    const presenceId = parseInt(req.params.presenceId);
+    const { type } = req.body; // 'entree' ou 'sortie'
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // Récupérer
+    const result = await AppDataSource.query(
+      `SELECT signature_entree, signature_sortie 
+       FROM detail_presence 
+       WHERE presence_id = $1`,
+      [presenceId]
+    );
+    
+    if (result.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Détails non trouvés"
+      });
+    }
+    
+    const details = result[0];
+    let signature = type === 'entree' ? details.signature_entree : details.signature_sortie;
+    const column = type === 'entree' ? 'signature_entree' : 'signature_sortie';
+    
+    if (!signature) {
+      return res.json({ success: true, message: "Déjà null" });
+    }
+    
+    // Corriger si base64 pur
+    if (!signature.startsWith('data:image/') && signature.match(/^[A-Za-z0-9+/]+=*$/)) {
+      const corrected = 'data:image/png;base64,' + signature;
+      
+      await AppDataSource.query(
+        `UPDATE detail_presence SET ${column} = $1 WHERE presence_id = $2`,
+        [corrected, presenceId]
+      );
+      
+      return res.json({
+        success: true,
+        message: "Corrigé",
+        before: signature.substring(0, 30),
+        after: corrected.substring(0, 30)
+      });
+    }
+    
+    res.json({ success: true, message: "Déjà correct" });
+    
+  } catch (error) {
+    console.error('❌ Erreur correction:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ROUTE 3 : Corriger TOUTES les signatures de la base
+app.post('/api/fix-all-signatures-in-db', async (_req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    console.log('🔧 Correction de TOUTES les signatures dans la base...');
+    
+    // Récupérer toutes les signatures
+    const allSignatures = await AppDataSource.query(`
+      SELECT id, presence_id, signature_entree, signature_sortie 
+      FROM detail_presence 
+      WHERE signature_entree IS NOT NULL OR signature_sortie IS NOT NULL
+    `);
+    
+    let fixedCount = 0;
+    
+    for (const sig of allSignatures) {
+      // Corriger entrée
+      if (sig.signature_entree && 
+          !sig.signature_entree.startsWith('data:image/') &&
+          sig.signature_entree.match(/^[A-Za-z0-9+/]+=*$/)) {
+        
+        const corrected = 'data:image/png;base64,' + sig.signature_entree;
+        await AppDataSource.query(
+          'UPDATE detail_presence SET signature_entree = $1 WHERE id = $2',
+          [corrected, sig.id]
+        );
+        fixedCount++;
+      }
+      
+      // Corriger sortie
+      if (sig.signature_sortie && 
+          !sig.signature_sortie.startsWith('data:image/') &&
+          sig.signature_sortie.match(/^[A-Za-z0-9+/]+=*$/)) {
+        
+        const corrected = 'data:image/png;base64,' + sig.signature_sortie;
+        await AppDataSource.query(
+          'UPDATE detail_presence SET signature_sortie = $1 WHERE id = $2',
+          [corrected, sig.id]
+        );
+        fixedCount++;
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: `${fixedCount} signatures corrigées dans la base de données`,
+      fixed: fixedCount,
+      total: allSignatures.length
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur correction massive:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 
 
 console.log('✅ Minimal API ready!');
