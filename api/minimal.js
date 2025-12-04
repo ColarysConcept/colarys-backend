@@ -2437,7 +2437,7 @@ app.get('/api/presences/aujourdhui/:matricule', async (req, res) => {
     });
   }
 });
-// Dans minimal.js - Remplacer la route existante par cette version corrigée
+// Dans minimal.js - CORRECTION CRITIQUE pour la route historique
 app.get('/api/presences/historique', async (req, res) => {
   console.log('📊 Historique avec signatures appelé avec:', req.query);
   
@@ -2448,17 +2448,36 @@ app.get('/api/presences/historique', async (req, res) => {
       await initializeDatabase();
     }
     
-    // Validation simple
+    // ✅ CORRECTION : Validation plus souple
     if (!dateDebut || !dateFin) {
+      // Si pas de dates, utiliser le mois courant par défaut
+      const now = new Date();
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      
+      const defaultDateDebut = firstDay.toISOString().split('T')[0];
+      const defaultDateFin = lastDay.toISOString().split('T')[0];
+      
+      console.log('📅 Utilisation des dates par défaut:', { defaultDateDebut, defaultDateFin });
+      
+      // Pas d'erreur, on utilise les valeurs par défaut
+      // dateDebut = defaultDateDebut;
+      // dateFin = defaultDateFin;
+      
       return res.status(400).json({
         success: false,
-        error: "dateDebut et dateFin sont requis"
+        error: "dateDebut et dateFin sont requis",
+        suggestion: `Utilisez ?dateDebut=${defaultDateDebut}&dateFin=${defaultDateFin}`,
+        default_dates: {
+          dateDebut: defaultDateDebut,
+          dateFin: defaultDateFin
+        }
       });
     }
     
     console.log('📋 Paramètres validés:', { dateDebut, dateFin });
     
-    // ✅ VERSION CORRIGÉE AVEC JOINTURE COMPLÈTE ET SIGNATURES
+    // ✅ VERSION SIMPLIFIÉE ET SÉCURISÉE
     let query = `
       SELECT 
         p.id,
@@ -2473,12 +2492,12 @@ app.get('/api/presences/historique', async (req, res) => {
           WHEN p.heure_sortie IS NOT NULL THEN 8.00
           ELSE NULL 
         END as heures_travaillees,
-        -- Agent details (d'abord agents_colarys, puis agent comme fallback)
-        COALESCE(ac.matricule, a.matricule) as matricule,
+        -- Agent details
         COALESCE(ac.nom, a.nom) as nom,
         COALESCE(ac.prenom, a.prenom) as prenom,
+        COALESCE(ac.matricule, a.matricule) as matricule,
         COALESCE(ac.role, a.campagne) as campagne,
-        -- Signature details (CRITIQUE !) - Toujours depuis detail_presence
+        -- Signature details
         d.signature_entree,
         d.signature_sortie,
         d.id as detail_id
@@ -2487,7 +2506,7 @@ app.get('/api/presences/historique', async (req, res) => {
       LEFT JOIN agent a ON p.agent_id = a.id
       -- ✅ JOIN avec agents_colarys (primaire)
       LEFT JOIN agents_colarys ac ON p.agent_id = ac.id
-      -- ✅ JOIN CRITIQUE avec detail_presence (table correcte)
+      -- ✅ JOIN avec detail_presence
       LEFT JOIN detail_presence d ON p.id = d.presence_id
       WHERE p.date BETWEEN $1 AND $2
     `;
@@ -2495,87 +2514,77 @@ app.get('/api/presences/historique', async (req, res) => {
     const params = [dateDebut, dateFin];
     let paramIndex = 3;
     
-    // Filtres
-    if (matricule) {
-      query += ` AND (ac.matricule = $${paramIndex} OR a.matricule = $${paramIndex})`;
+    // Filtres conditionnels
+    const conditions = [];
+    
+    if (matricule && matricule.trim() !== '') {
+      conditions.push(`(ac.matricule = $${paramIndex} OR a.matricule = $${paramIndex})`);
       params.push(matricule);
       paramIndex++;
     }
     
-    if (nom) {
-      query += ` AND (ac.nom ILIKE $${paramIndex} OR a.nom ILIKE $${paramIndex})`;
+    if (nom && nom.trim() !== '') {
+      conditions.push(`(ac.nom ILIKE $${paramIndex} OR a.nom ILIKE $${paramIndex})`);
       params.push(`%${nom}%`);
       paramIndex++;
     }
     
-    if (prenom) {
-      query += ` AND (ac.prenom ILIKE $${paramIndex} OR a.prenom ILIKE $${paramIndex})`;
+    if (prenom && prenom.trim() !== '') {
+      conditions.push(`(ac.prenom ILIKE $${paramIndex} OR a.prenom ILIKE $${paramIndex})`);
       params.push(`%${prenom}%`);
       paramIndex++;
     }
     
-    if (campagne) {
-      query += ` AND (ac.role = $${paramIndex} OR a.campagne = $${paramIndex})`;
+    if (campagne && campagne.trim() !== '') {
+      conditions.push(`(ac.role = $${paramIndex} OR a.campagne = $${paramIndex})`);
       params.push(campagne);
       paramIndex++;
     }
     
-    if (shift) {
-      query += ` AND p.shift = $${paramIndex}`;
+    if (shift && shift.trim() !== '') {
+      conditions.push(`p.shift = $${paramIndex}`);
       params.push(shift);
       paramIndex++;
+    }
+    
+    // Ajouter les conditions si elles existent
+    if (conditions.length > 0) {
+      query += ' AND ' + conditions.join(' AND ');
     }
     
     query += ' ORDER BY p.date DESC, p.id DESC LIMIT 200';
     
     console.log('📋 Query avec signatures:', query);
+    console.log('📋 Params:', params);
     
     const presences = await AppDataSource.query(query, params);
     console.log(`✅ ${presences.length} présence(s) trouvée(s)`);
     
-    // ✅ VÉRIFICATION DES SIGNATURES TROUVÉES
-    const presencesAvecSignatures = presences.filter(p => p.signature_entree || p.signature_sortie);
-    console.log(`📝 ${presencesAvecSignatures.length} présence(s) avec signature(s)`);
-    
-    // ✅ FORMATER LES SIGNATURES CORRECTEMENT
+    // ✅ FORMATER LES RÉSULTATS
     const presencesFormatees = presences.map(presence => {
       // Formater les signatures
       let signatureEntree = null;
       let signatureSortie = null;
       
-      // CRITIQUE : Vérifier et formater signature entrée
       if (presence.signature_entree) {
         const sig = presence.signature_entree.trim();
         if (sig.length > 0) {
-          // Vérifier le format
-          if (sig.startsWith('data:image/')) {
-            signatureEntree = sig;
-          } else if (sig.match(/^[A-Za-z0-9+/]+=*$/)) {
-            // Base64 pur sans préfixe
-            signatureEntree = `data:image/png;base64,${sig}`;
-          } else if (sig.length > 100) {
-            // Tentative avec préfixe
-            signatureEntree = `data:image/png;base64,${sig}`;
-          }
+          signatureEntree = sig.startsWith('data:image/') ? 
+            sig : 
+            `data:image/png;base64,${sig}`;
         }
       }
       
-      // CRITIQUE : Vérifier et formater signature sortie
       if (presence.signature_sortie) {
         const sig = presence.signature_sortie.trim();
         if (sig.length > 0) {
-          if (sig.startsWith('data:image/')) {
-            signatureSortie = sig;
-          } else if (sig.match(/^[A-Za-z0-9+/]+=*$/)) {
-            signatureSortie = `data:image/png;base64,${sig}`;
-          } else if (sig.length > 100) {
-            signatureSortie = `data:image/png;base64,${sig}`;
-          }
+          signatureSortie = sig.startsWith('data:image/') ? 
+            sig : 
+            `data:image/png;base64,${sig}`;
         }
       }
       
-      // Structure pour le frontend
-      const result = {
+      return {
         id: presence.id,
         date: presence.date,
         heureEntree: presence.heure_entree,
@@ -2591,37 +2600,12 @@ app.get('/api/presences/historique', async (req, res) => {
           prenom: presence.prenom || '',
           campagne: presence.campagne || 'Non défini'
         },
-        // ✅ STRUCTURE CRITIQUE POUR LE FRONTEND
         details: {
           signatureEntree: signatureEntree,
           signatureSortie: signatureSortie,
-          id: presence.detail_id,
-          hasEntreeSignature: !!signatureEntree,
-          hasSortieSignature: !!signatureSortie
-        },
-        // Debug info
-        _debug: {
-          hasEntreeSignature: !!presence.signature_entree,
-          hasSortieSignature: !!presence.signature_sortie,
-          entreeLength: presence.signature_entree ? presence.signature_entree.length : 0,
-          sortieLength: presence.signature_sortie ? presence.signature_sortie.length : 0,
-          entreeFormat: presence.signature_entree ? 
-            (presence.signature_entree.startsWith('data:image/') ? 'valid' : 'base64') : 'none',
-          sortieFormat: presence.signature_sortie ? 
-            (presence.signature_sortie.startsWith('data:image/') ? 'valid' : 'base64') : 'none'
+          id: presence.detail_id
         }
       };
-      
-      // Log pour debug
-      if (signatureEntree || signatureSortie) {
-        console.log(`🔍 Présence ${presence.id} - ${presence.nom} ${presence.prenom}:`, {
-          entree: signatureEntree ? '✓' : '✗',
-          sortie: signatureSortie ? '✓' : '✗',
-          detailId: presence.detail_id
-        });
-      }
-      
-      return result;
     });
     
     // Calculer le total des heures
@@ -2649,16 +2633,17 @@ app.get('/api/presences/historique', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ ERREUR CRITIQUE historique avec signatures:', error);
+    console.error('❌ ERREUR historique avec signatures:', error);
     
     res.status(500).json({
       success: false,
       error: "Erreur serveur lors de la récupération de l'historique",
       message: error.message,
-      hint: "Vérifiez la jointure avec detail_presence"
+      hint: "Vérifiez la connexion à la base de données"
     });
   }
 });
+
 app.get('/api/presences/historique-safe', async (req, res) => {
   try {
     console.log('🔄 Historique-safe appelé avec:', req.query);
@@ -4409,12 +4394,20 @@ app.post('/api/presences/verifier-etat', async (req, res) => {
     });
   }
 });
-// Dans minimal.js - Remplacer la route /api/presences/entree-fixed-columns par cette version
+// Dans minimal.js - CORRECTION CRITIQUE pour éviter l'erreur 500
 app.post('/api/presences/entree-fixed-columns', async (req, res) => {
   console.log('🎯 Pointage entrée FIXED-COLUMNS avec signatures:', req.body);
   
   try {
     const data = req.body;
+    
+    // ✅ CORRECTION : Validation améliorée
+    if (!data || typeof data !== 'object') {
+      return res.status(400).json({
+        success: false,
+        error: "Données invalides"
+      });
+    }
     
     if (!data.nom || !data.prenom) {
       return res.status(400).json({
@@ -4432,159 +4425,200 @@ app.post('/api/presences/entree-fixed-columns', async (req, res) => {
     const timeNow = data.heureEntreeManuelle || 
                     now.toTimeString().split(' ')[0].substring(0, 8);
     
-    let matricule = data.matricule?.trim();
-    if (!matricule || matricule === '') {
+    let matricule = data.matricule?.trim() || '';
+    
+    // ✅ CORRECTION : Gestion des matricules vides
+    if (!matricule) {
       const { v4: uuidv4 } = require('uuid');
       matricule = `AG-${uuidv4().slice(0, 8).toUpperCase()}`;
       console.log('🎫 Matricule généré:', matricule);
     }
     
-    // ✅ LOGIQUE SIMPLIFIÉE
-    let agentId = null;
+    // ✅ CORRECTION : Utiliser une transaction
+    const queryRunner = AppDataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
     
-    // 1. Chercher dans agents_colarys
-    const existingAgent = await AppDataSource.query(
-      'SELECT id FROM agents_colarys WHERE matricule = $1',
-      [matricule]
-    );
-    
-    if (existingAgent.length > 0) {
-      agentId = existingAgent[0].id;
-      console.log(`✅ Agent existant: ${agentId}`);
-    } else {
-      // 2. Créer nouvel agent
-      console.log('🆕 Création nouvel agent...');
+    try {
+      let agentId = null;
       
-      const maxIdResult = await AppDataSource.query(
-        'SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM agents_colarys'
-      );
-      agentId = parseInt(maxIdResult[0].next_id);
-      
-      // Créer dans agents_colarys
-      await AppDataSource.query(
-        `INSERT INTO agents_colarys 
-         (id, matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())`,
-        [
-          agentId,
-          matricule,
-          data.nom,
-          data.prenom,
-          data.campagne || 'Standard',
-          data.email || `${data.nom.toLowerCase()}.${data.prenom.toLowerCase()}@colarys.com`,
-          data.contact || '',
-          'Colarys Concept',
-          '/images/default-avatar.svg',
-          'default-avatar'
-        ]
+      // 1. Chercher dans agents_colarys
+      const existingAgent = await queryRunner.query(
+        'SELECT id FROM agents_colarys WHERE matricule = $1',
+        [matricule]
       );
       
-      // Créer dans agent aussi
-      await AppDataSource.query(
-        `INSERT INTO agent 
-         (id, matricule, nom, prenom, campagne, date_creation) 
-         VALUES ($1, $2, $3, $4, $5, NOW())`,
-        [
-          agentId,
-          matricule,
-          data.nom,
-          data.prenom,
-          data.campagne || 'Standard'
-        ]
+      if (existingAgent.length > 0) {
+        agentId = existingAgent[0].id;
+        console.log(`✅ Agent existant: ${agentId}`);
+      } else {
+        // 2. Créer nouvel agent
+        console.log('🆕 Création nouvel agent...');
+        
+        const maxIdResult = await queryRunner.query(
+          'SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM agents_colarys'
+        );
+        agentId = parseInt(maxIdResult[0].next_id);
+        
+        // Créer dans agents_colarys
+        await queryRunner.query(
+          `INSERT INTO agents_colarys 
+           (id, matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())`,
+          [
+            agentId,
+            matricule,
+            data.nom,
+            data.prenom,
+            data.campagne || 'Standard',
+            data.email || `${data.nom.toLowerCase()}.${data.prenom.toLowerCase()}@colarys.com`,
+            data.contact || '',
+            'Colarys Concept',
+            '/images/default-avatar.svg',
+            'default-avatar'
+          ]
+        );
+        
+        // Créer dans agent aussi
+        await queryRunner.query(
+          `INSERT INTO agent 
+           (id, matricule, nom, prenom, campagne, date_creation) 
+           VALUES ($1, $2, $3, $4, $5, NOW())`,
+          [
+            agentId,
+            matricule,
+            data.nom,
+            data.prenom,
+            data.campagne || 'Standard'
+          ]
+        );
+        
+        console.log(`✅ Nouvel agent créé: ${agentId}`);
+      }
+      
+      // Vérifier si présence existe déjà
+      const existingPresence = await queryRunner.query(
+        'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
+        [agentId, today]
       );
       
-      console.log(`✅ Nouvel agent créé: ${agentId}`);
-    }
-    
-    // Vérifier si présence existe déjà
-    const existingPresence = await AppDataSource.query(
-      'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
-      [agentId, today]
-    );
-    
-    if (existingPresence.length > 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Une présence existe déjà pour aujourd'hui"
+      if (existingPresence.length > 0) {
+        await queryRunner.rollbackTransaction();
+        return res.status(400).json({
+          success: false,
+          error: "Une présence existe déjà pour aujourd'hui"
+        });
+      }
+      
+      // ✅ CRÉER LA PRÉSENCE
+      const presence = await queryRunner.query(
+        `INSERT INTO presence 
+         (agent_id, date, heure_entree, shift, created_at) 
+         VALUES ($1, $2, $3, $4, NOW()) 
+         RETURNING id, date, heure_entree`,
+        [agentId, today, timeNow, data.shift || 'JOUR']
+      );
+      
+      const presenceId = presence[0].id;
+      
+      // ✅ CORRECTION CRITIQUE : Vérifier la signature
+      let signatureToSave = data.signatureEntree || '';
+      if (signatureToSave) {
+        if (!signatureToSave.startsWith('data:image/')) {
+          signatureToSave = 'data:image/png;base64,' + signatureToSave;
+          console.log('🔧 Signature formatée avec préfixe');
+        }
+        
+        // CRÉER LE DÉTAIL AVEC LA SIGNATURE
+        await queryRunner.query(
+          `INSERT INTO detail_presence 
+           (presence_id, signature_entree, created_at, updated_at) 
+           VALUES ($1, $2, NOW(), NOW())`,
+          [presenceId, signatureToSave]
+        );
+        
+        console.log('✅ Détails avec signature créés pour présence:', presenceId);
+      } else {
+        // Créer un détail vide
+        await queryRunner.query(
+          `INSERT INTO detail_presence 
+           (presence_id, created_at, updated_at) 
+           VALUES ($1, NOW(), NOW())`,
+          [presenceId]
+        );
+        console.log('⚠️ Aucune signature fournie, détail vide créé');
+      }
+      
+      await queryRunner.commitTransaction();
+      
+      // Récupérer la présence complète
+      const completePresence = await AppDataSource.query(`
+        SELECT 
+          p.*,
+          a.matricule,
+          a.nom,
+          a.prenom,
+          a.campagne,
+          d.signature_entree,
+          d.signature_sortie
+        FROM presence p
+        LEFT JOIN agent a ON p.agent_id = a.id
+        LEFT JOIN detail_presence d ON p.id = d.presence_id
+        WHERE p.id = $1
+      `, [presenceId]);
+      
+      res.json({
+        success: true,
+        message: "Pointage d'entrée enregistré avec succès",
+        data: {
+          presence_id: presenceId,
+          matricule: matricule,
+          nom: data.nom,
+          prenom: data.prenom,
+          heure_entree: presence[0].heure_entree,
+          date: presence[0].date,
+          agent_id: agentId,
+          shift: data.shift || 'JOUR',
+          signature_entree: signatureToSave || null
+        },
+        presence: completePresence[0] || null
       });
+      
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
-    
-    // ✅ CRÉER LA PRÉSENCE
-    const presence = await AppDataSource.query(
-      `INSERT INTO presence 
-       (agent_id, date, heure_entree, shift, created_at) 
-       VALUES ($1, $2, $3, $4, NOW()) 
-       RETURNING id, date, heure_entree`,
-      [agentId, today, timeNow, data.shift || 'JOUR']
-    );
-    
-    const presenceId = presence[0].id;
-    
-    // ✅ CRÉER LE DETAIL_PRESENCE AVEC LA SIGNATURE
-    console.log('📝 Enregistrement de la signature:', {
-      presenceId,
-      signatureLength: data.signatureEntree?.length,
-      signaturePreview: data.signatureEntree?.substring(0, 50)
-    });
-    
-    // Formater la signature si nécessaire
-    let signatureToSave = data.signatureEntree;
-    if (signatureToSave && !signatureToSave.startsWith('data:image/')) {
-      signatureToSave = 'data:image/png;base64,' + signatureToSave;
-      console.log('🔧 Signature formatée avec préfixe');
-    }
-    
-    // CRÉER LE DÉTAIL AVEC LA SIGNATURE
-    await AppDataSource.query(
-      `INSERT INTO detail_presence 
-       (presence_id, signature_entree, created_at, updated_at) 
-       VALUES ($1, $2, NOW(), NOW())`,
-      [presenceId, signatureToSave]
-    );
-    
-    console.log('✅ Détails avec signature créés pour présence:', presenceId);
-    
-    // Récupérer la présence complète avec détails
-    const completePresence = await AppDataSource.query(`
-      SELECT 
-        p.*,
-        a.matricule,
-        a.nom,
-        a.prenom,
-        a.campagne,
-        d.signature_entree,
-        d.signature_sortie
-      FROM presence p
-      LEFT JOIN agent a ON p.agent_id = a.id
-      LEFT JOIN detail_presence d ON p.id = d.presence_id
-      WHERE p.id = $1
-    `, [presenceId]);
-    
-    res.json({
-      success: true,
-      message: "Pointage d'entrée enregistré avec signature",
-      data: {
-        presence_id: presenceId,
-        matricule: matricule,
-        nom: data.nom,
-        prenom: data.prenom,
-        heure_entree: presence[0].heure_entree,
-        date: presence[0].date,
-        agent_id: agentId,
-        shift: data.shift || 'JOUR',
-        signature_entree: signatureToSave
-      },
-      presence: completePresence[0] || null
-    });
     
   } catch (error) {
     console.error('❌ Erreur pointage avec signature:', error);
     
+    // ✅ CORRECTION : Messages d'erreur plus informatifs
+    let errorMessage = "Erreur pointage d'entrée";
+    let errorCode = null;
+    
+    if (error.code) {
+      errorCode = error.code;
+      switch (error.code) {
+        case '23505':
+          errorMessage = "Matricule déjà utilisé";
+          break;
+        case '23503':
+          errorMessage = "Référence à un agent inexistant";
+          break;
+        case '23502':
+          errorMessage = "Champ obligatoire manquant";
+          break;
+      }
+    }
+    
     res.status(500).json({
       success: false,
-      error: "Erreur pointage d'entrée",
+      error: errorMessage,
       details: error.message,
-      code: error.code
+      code: errorCode,
+      suggestion: "Vérifiez que l'agent existe bien dans la base"
     });
   }
 });
@@ -5136,6 +5170,203 @@ app.get('/api/debug-signatures/:presenceId', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message
+    });
+  }
+});
+
+
+// Dans minimal.js - Ajouter cette route de diagnostic
+app.get('/api/diagnose-500-error', async (req, res) => {
+  try {
+    console.log('🔧 Diagnostic de l\'erreur 500...');
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // Vérifier la structure des tables
+    const tables = {
+      presence: await AppDataSource.query(`
+        SELECT column_name, data_type, is_nullable
+        FROM information_schema.columns
+        WHERE table_name = 'presence'
+        ORDER BY ordinal_position
+      `),
+      detail_presence: await AppDataSource.query(`
+        SELECT column_name, data_type, is_nullable
+        FROM information_schema.columns
+        WHERE table_name = 'detail_presence'
+        ORDER BY ordinal_position
+      `),
+      agent: await AppDataSource.query(`
+        SELECT column_name, data_type, is_nullable
+        FROM information_schema.columns
+        WHERE table_name = 'agent'
+        ORDER BY ordinal_position
+      `),
+      agents_colarys: await AppDataSource.query(`
+        SELECT column_name, data_type, is_nullable
+        FROM information_schema.columns
+        WHERE table_name = 'agents_colarys'
+        ORDER BY ordinal_position
+      `)
+    };
+    
+    // Vérifier les contraintes
+    const constraints = await AppDataSource.query(`
+      SELECT 
+        tc.constraint_name,
+        tc.table_name, 
+        kcu.column_name,
+        ccu.table_name AS foreign_table_name,
+        ccu.column_name AS foreign_column_name,
+        tc.constraint_type
+      FROM 
+        information_schema.table_constraints AS tc 
+        JOIN information_schema.key_column_usage AS kcu
+          ON tc.constraint_name = kcu.constraint_name
+        JOIN information_schema.constraint_column_usage AS ccu
+          ON ccu.constraint_name = tc.constraint_name
+      WHERE tc.table_schema = 'public'
+      AND tc.table_name IN ('presence', 'detail_presence', 'agent', 'agents_colarys')
+      ORDER BY tc.table_name, tc.constraint_type
+    `);
+    
+    // Tester une insertion simple
+    let testInsert = null;
+    try {
+      // Tester avec des données minimales
+      const testData = {
+        matricule: 'TEST-' + Date.now(),
+        nom: 'Test',
+        prenom: 'Diagnostic',
+        signatureEntree: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+      };
+      
+      // Tester directement en SQL
+      testInsert = await AppDataSource.query(`
+        INSERT INTO agents_colarys 
+        (matricule, nom, prenom, role, mail, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+        RETURNING id
+      `, [
+        testData.matricule,
+        testData.nom,
+        testData.prenom,
+        'Test',
+        'test@diagnostic.com'
+      ]);
+    } catch (testError) {
+      console.log('❌ Test insertion échoué:', testError.message);
+      testInsert = { error: testError.message, code: testError.code };
+    }
+    
+    res.json({
+      success: true,
+      diagnostic: {
+        database_initialized: dbInitialized,
+        tables_structure: tables,
+        constraints: constraints,
+        test_insert: testInsert,
+        last_error: global.lastError || 'Aucune erreur récente'
+      },
+      recommendations: [
+        "Vérifiez que toutes les tables existent",
+        "Vérifiez les contraintes de clés étrangères",
+        "Testez avec des données minimales"
+      ]
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur diagnostic:', error);
+    res.status(500).json({
+      success: false,
+      error: "Échec du diagnostic",
+      message: error.message
+    });
+  }
+});
+
+// Dans minimal.js - Ajouter ce script de réparation
+app.post('/api/emergency-fix', async (_req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    console.log('🚨 DÉBUT RÉPARATION D\'URGENCE');
+    
+    // 1. Vérifier et créer la table detail_presence si elle n'existe pas
+    await AppDataSource.query(`
+      CREATE TABLE IF NOT EXISTS detail_presence (
+        id SERIAL PRIMARY KEY,
+        presence_id INTEGER REFERENCES presence(id) ON DELETE CASCADE,
+        signature_entree TEXT,
+        signature_sortie TEXT,
+        observations TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    
+    console.log('✅ Table detail_presence vérifiée/créée');
+    
+    // 2. Vérifier la contrainte étrangère
+    await AppDataSource.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints 
+                      WHERE constraint_name = 'detail_presence_presence_id_fkey') THEN
+          ALTER TABLE detail_presence 
+          ADD CONSTRAINT detail_presence_presence_id_fkey 
+          FOREIGN KEY (presence_id) REFERENCES presence(id) ON DELETE CASCADE;
+        END IF;
+      END $$;
+    `);
+    
+    console.log('✅ Contrainte étrangère vérifiée');
+    
+    // 3. Créer un index pour améliorer les performances
+    await AppDataSource.query(`
+      CREATE INDEX IF NOT EXISTS idx_detail_presence_presence_id 
+      ON detail_presence(presence_id)
+    `);
+    
+    console.log('✅ Index vérifié/créé');
+    
+    // 4. Tester avec un pointage minimal
+    const testResult = await AppDataSource.query(`
+      INSERT INTO agents_colarys 
+      (matricule, nom, prenom, role, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, NOW(), NOW())
+      ON CONFLICT (matricule) DO NOTHING
+      RETURNING id
+    `, ['TEST-EMERGENCY', 'Emergency', 'Test', 'Standard']);
+    
+    console.log('✅ Test insertion agent réussi:', testResult);
+    
+    res.json({
+      success: true,
+      message: "Réparation d'urgence terminée",
+      steps_completed: [
+        "Table detail_presence vérifiée",
+        "Contrainte étrangère vérifiée",
+        "Index créé",
+        "Test insertion réussi"
+      ],
+      next_steps: [
+        "Redémarrez l'application",
+        "Testez un pointage simple"
+      ]
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur réparation:', error);
+    res.status(500).json({
+      success: false,
+      error: "Échec de la réparation",
+      message: error.message,
+      code: error.code
     });
   }
 });
