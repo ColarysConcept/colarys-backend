@@ -6147,6 +6147,243 @@ app.post('/api/presences/sortie-simple', async (req, res) => {
   }
 });
 
+// Dans minimal.js - AJOUTER ces routes
+app.get('/api/diagnose-error-entree', async (req, res) => {
+  try {
+    const { matricule } = req.query;
+    
+    if (!matricule) {
+      return res.status(400).json({
+        success: false,
+        error: "Matricule requis"
+      });
+    }
+    
+    console.log(`🔍 Diagnostic erreur pointage pour: ${matricule}`);
+    
+    // 1. Vérifier l'état de l'agent
+    const dansColarys = await AppDataSource.query(
+      'SELECT id, nom, prenom FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+    
+    const dansAgent = await AppDataSource.query(
+      'SELECT id, nom, prenom FROM agent WHERE matricule = $1',
+      [matricule]
+    );
+    
+    // 2. Vérifier les contraintes
+    const constraints = await AppDataSource.query(`
+      SELECT 
+        tc.table_name,
+        tc.constraint_name,
+        tc.constraint_type,
+        kcu.column_name,
+        ccu.table_name AS referenced_table_name,
+        ccu.column_name AS referenced_column_name
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu 
+        ON tc.constraint_name = kcu.constraint_name
+      JOIN information_schema.constraint_column_usage ccu
+        ON ccu.constraint_name = tc.constraint_name
+      WHERE tc.table_schema = 'public'
+      AND tc.table_name IN ('agents_colarys', 'agent', 'presence')
+      AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE', 'FOREIGN KEY')
+    `);
+    
+    // 3. Vérifier la table detail_presence
+    const detailColumns = await AppDataSource.query(`
+      SELECT column_name, data_type, is_nullable
+      FROM information_schema.columns
+      WHERE table_name = 'detail_presence'
+    `);
+    
+    res.json({
+      success: true,
+      matricule: matricule,
+      agent: {
+        in_agents_colarys: dansColarys.length > 0 ? dansColarys[0] : null,
+        in_agent: dansAgent.length > 0 ? dansAgent[0] : null,
+        ids_differents: dansColarys.length > 0 && dansAgent.length > 0 && 
+                       dansColarys[0].id !== dansAgent[0].id
+      },
+      constraints: constraints,
+      detail_presence_columns: detailColumns,
+      recommendations: [
+        dansColarys.length === 0 ? "Créer l'agent dans agents_colarys" : "Agent existe",
+        dansAgent.length === 0 ? "Créer l'agent dans agent" : "Agent existe dans agent",
+        "Utiliser POST /api/fix-agent-by-matricule/" + matricule + " pour corriger"
+      ]
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur diagnostic:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Route pour corriger un agent par matricule
+app.post('/api/fix-agent-by-matricule/:matricule', async (req, res) => {
+  try {
+    const matricule = req.params.matricule;
+    
+    console.log(`🔧 Correction agent: ${matricule}`);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // 1. Chercher l'agent existant
+    const dansColarys = await AppDataSource.query(
+      'SELECT * FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+    
+    const dansAgent = await AppDataSource.query(
+      'SELECT * FROM agent WHERE matricule = $1',
+      [matricule]
+    );
+    
+    let agentId = null;
+    let actions = [];
+    
+    // 2. Déterminer l'ID correct
+    if (dansColarys.length > 0) {
+      // Utiliser l'ID de agents_colarys (cible de la FK)
+      agentId = dansColarys[0].id;
+      actions.push(`✅ ID pris de agents_colarys: ${agentId}`);
+      
+      // Vérifier si existe dans agent avec le même ID
+      const agentDansAgent = await AppDataSource.query(
+        'SELECT id FROM agent WHERE id = $1',
+        [agentId]
+      );
+      
+      if (agentDansAgent.length === 0) {
+        // Créer dans agent
+        const agentInfo = dansColarys[0];
+        await AppDataSource.query(
+          `INSERT INTO agent 
+           (id, matricule, nom, prenom, campagne, date_creation)
+           VALUES ($1, $2, $3, $4, $5, NOW())`,
+          [
+            agentId,
+            matricule,
+            agentInfo.nom || 'À compléter',
+            agentInfo.prenom || 'À compléter',
+            agentInfo.role || 'Standard'
+          ]
+        );
+        actions.push(`✅ Créé dans agent avec ID ${agentId}`);
+      }
+    } else if (dansAgent.length > 0) {
+      // Existe seulement dans agent
+      agentId = dansAgent[0].id;
+      actions.push(`✅ ID pris de agent: ${agentId}`);
+      
+      // Créer dans agents_colarys
+      const agentInfo = dansAgent[0];
+      await AppDataSource.query(
+        `INSERT INTO agents_colarys 
+         (id, matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())`,
+        [
+          agentId,
+          matricule,
+          agentInfo.nom,
+          agentInfo.prenom,
+          agentInfo.campagne || 'Standard',
+          `${agentInfo.nom?.toLowerCase()}.${agentInfo.prenom?.toLowerCase()}@colarys.com`,
+          '',
+          'Colarys Concept',
+          '/images/default-avatar.svg',
+          'default-avatar'
+        ]
+      );
+      actions.push(`✅ Créé dans agents_colarys avec ID ${agentId}`);
+    } else {
+      // Nouvel agent
+      const maxIdResult = await AppDataSource.query(
+        'SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM agents_colarys'
+      );
+      agentId = parseInt(maxIdResult[0].next_id);
+      
+      // Créer dans agents_colarys
+      await AppDataSource.query(
+        `INSERT INTO agents_colarys 
+         (id, matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())`,
+        [
+          agentId,
+          matricule,
+          req.body.nom || 'À compléter',
+          req.body.prenom || 'À compléter',
+          req.body.campagne || 'Standard',
+          req.body.email || `${req.body.nom?.toLowerCase()}.${req.body.prenom?.toLowerCase()}@colarys.com`,
+          '',
+          'Colarys Concept',
+          '/images/default-avatar.svg',
+          'default-avatar'
+        ]
+      );
+      
+      // Créer dans agent
+      await AppDataSource.query(
+        `INSERT INTO agent 
+         (id, matricule, nom, prenom, campagne, date_creation)
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [
+          agentId,
+          matricule,
+          req.body.nom || 'À compléter',
+          req.body.prenom || 'À compléter',
+          req.body.campagne || 'Standard'
+        ]
+      );
+      
+      actions.push(`✅ Nouvel agent créé avec ID ${agentId}`);
+    }
+    
+    // 3. Vérifier la présence de détails de signature
+    try {
+      await AppDataSource.query(`
+        CREATE TABLE IF NOT EXISTS detail_presence (
+          id SERIAL PRIMARY KEY,
+          presence_id INTEGER REFERENCES presence(id) ON DELETE CASCADE,
+          signature_entree TEXT,
+          signature_sortie TEXT,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      actions.push(`✅ Table detail_presence vérifiée`);
+    } catch (error) {
+      console.log('ℹ️ Table detail_presence existe déjà');
+    }
+    
+    res.json({
+      success: true,
+      message: `Agent ${matricule} corrigé`,
+      agent_id: agentId,
+      actions: actions,
+      test_url: `POST /api/presences/entree-fixed-columns avec { "matricule": "${matricule}", "nom": "...", "prenom": "..." }`
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur correction agent:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: error.code,
+      detail: error.detail,
+      suggestion: "Probablement un conflit de contrainte unique. Essayez un autre matricule."
+    });
+  }
+});
+
 console.log('✅ Minimal API ready!');
 
 module.exports = app;
