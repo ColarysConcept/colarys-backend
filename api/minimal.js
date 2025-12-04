@@ -5615,6 +5615,168 @@ app.post('/api/fix-matricule/:matricule', async (req, res) => {
   }
 });
 
+// Dans minimal.js, AJOUTEZ cette route AVANT les routes POST
+app.get('/api/debug-matricule-CC0030', async (req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    console.log('🔍 Diagnostic du matricule CC0030...');
+    
+    // Chercher dans toutes les tables
+    const dansAgentsColarys = await AppDataSource.query(
+      'SELECT id, nom, prenom, role, created_at FROM agents_colarys WHERE matricule = $1',
+      ['CC0030']
+    );
+    
+    const dansAgent = await AppDataSource.query(
+      'SELECT id, nom, prenom, campagne, date_creation FROM agent WHERE matricule = $1',
+      ['CC0030']
+    );
+    
+    // Vérifier les contraintes
+    const contraintes = await AppDataSource.query(`
+      SELECT 
+        tc.constraint_name,
+        tc.table_name,
+        tc.constraint_type,
+        kcu.column_name,
+        ccu.table_name AS foreign_table_name
+      FROM information_schema.table_constraints AS tc
+      JOIN information_schema.key_column_usage AS kcu
+        ON tc.constraint_name = kcu.constraint_name
+      JOIN information_schema.constraint_column_usage AS ccu
+        ON ccu.constraint_name = tc.constraint_name
+      WHERE tc.table_schema = 'public'
+      AND tc.table_name IN ('agents_colarys', 'agent', 'presence')
+      ORDER BY tc.table_name
+    `);
+    
+    res.json({
+      success: true,
+      matricule: 'CC0030',
+      dans_agents_colarys: dansAgentsColarys,
+      dans_agent: dansAgent,
+      contraintes: contraintes,
+      analyse: {
+        existe_dans_colarys: dansAgentsColarys.length > 0,
+        existe_dans_agent: dansAgent.length > 0,
+        ids_differents: dansAgentsColarys.length > 0 && dansAgent.length > 0 && 
+                       dansAgentsColarys[0].id !== dansAgent[0].id,
+        suggestion: dansAgentsColarys.length === 0 ? 
+          "Agent n'existe pas dans agents_colarys" :
+          dansAgent.length === 0 ? 
+          "Agent n'existe pas dans agent" :
+          "Vérifier les IDs"
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur diagnostic:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: error.code
+    });
+  }
+});
+
+// Ajoutez aussi cette route de correction directe
+app.post('/api/fix-cc0030', async (req, res) => {
+  try {
+    console.log('🔧 Correction directe du matricule CC0030...');
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // 1. Chercher l'agent
+    const agentInAgent = await AppDataSource.query(
+      'SELECT id, nom, prenom, campagne FROM agent WHERE matricule = $1',
+      ['CC0030']
+    );
+    
+    const agentInColarys = await AppDataSource.query(
+      'SELECT id, nom, prenom, role FROM agents_colarys WHERE matricule = $1',
+      ['CC0030']
+    );
+    
+    if (agentInAgent.length === 0 && agentInColarys.length === 0) {
+      return res.json({
+        success: false,
+        error: "Matricule CC0030 non trouvé"
+      });
+    }
+    
+    // 2. Utiliser l'ID de agents_colarys s'il existe
+    let agentId = agentInColarys.length > 0 ? agentInColarys[0].id : null;
+    
+    if (!agentId && agentInAgent.length > 0) {
+      // Prendre l'ID de agent et créer dans agents_colarys
+      agentId = agentInAgent[0].id;
+      
+      await AppDataSource.query(
+        `INSERT INTO agents_colarys 
+         (id, matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW()) 
+         ON CONFLICT (matricule) DO UPDATE SET 
+           nom = EXCLUDED.nom,
+           prenom = EXCLUDED.prenom,
+           role = EXCLUDED.role,
+           updated_at = NOW()`,
+        [
+          agentId,
+          'CC0030',
+          'RAZANAMIARISOA',
+          'Lanja Sitrakiniaina',
+          'Standard',
+          'lanja.razanamiarisoa@colarys.com',
+          '',
+          'Colarys Concept',
+          '/images/default-avatar.svg',
+          'default-avatar'
+        ]
+      );
+    }
+    
+    // 3. S'assurer que l'agent existe aussi dans agent
+    if (agentInAgent.length === 0) {
+      await AppDataSource.query(
+        `INSERT INTO agent 
+         (id, matricule, nom, prenom, campagne, date_creation) 
+         VALUES ($1, $2, $3, $4, $5, NOW())
+         ON CONFLICT (matricule) DO UPDATE SET 
+           nom = EXCLUDED.nom,
+           prenom = EXCLUDED.prenom,
+           campagne = EXCLUDED.campagne`,
+        [
+          agentId,
+          'CC0030',
+          'RAZANAMIARISOA',
+          'Lanja Sitrakiniaina',
+          'Standard'
+        ]
+      );
+    }
+    
+    res.json({
+      success: true,
+      message: "Matricule CC0030 corrigé",
+      agent_id: agentId,
+      test_pointage: "Essayez maintenant /api/presences/entree-fixed-columns"
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur correction:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: error.code
+    });
+  }
+});
+
 console.log('✅ Minimal API ready!');
 
 module.exports = app;
