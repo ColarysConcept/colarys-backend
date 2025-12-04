@@ -7810,6 +7810,47 @@ app.post('/api/fix-agent-in-agent/:matricule', async (req, res) => {
   }
 });
 
+// Route pour vérifier l'état actuel
+app.get('/api/check-current-state', async (req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // Compter les enregistrements dans chaque table
+    const counts = {
+      user: await AppDataSource.query('SELECT COUNT(*) as count FROM "user"'),
+      agent: await AppDataSource.query('SELECT COUNT(*) as count FROM agent'),
+      agents_colarys: await AppDataSource.query('SELECT COUNT(*) as count FROM agents_colarys'),
+      presence: await AppDataSource.query('SELECT COUNT(*) as count FROM presence'),
+      detail_presence: await AppDataSource.query('SELECT COUNT(*) as count FROM detail_presence'),
+      planning: await AppDataSource.query('SELECT COUNT(*) as count FROM planning')
+    };
+    
+    res.json({
+      success: true,
+      current_state: {
+        user_count: parseInt(counts.user[0].count),
+        agent_count: parseInt(counts.agent[0].count),
+        agents_colarys_count: parseInt(counts.agents_colarys[0].count),
+        presence_count: parseInt(counts.presence[0].count),
+        detail_presence_count: parseInt(counts.detail_presence[0].count),
+        planning_count: parseInt(counts.planning[0].count)
+      },
+      status: counts.presence[0].count === '0' ? 
+        "✅ Base vide - Prête pour nouveaux pointages" :
+        "⚠️ Il reste des données"
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur vérification:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 console.log('✅ Minimal API ready!');
 
 module.exports = app;
