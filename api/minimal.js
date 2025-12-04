@@ -6647,7 +6647,226 @@ app.post('/api/test-pointage', async (req, res) => {
   }
 });
 
+// Dans minimal.js - Ajouter cette route
+app.get('/api/test-signature-pdf/:presenceId', async (req, res) => {
+  try {
+    const presenceId = parseInt(req.params.presenceId);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    console.log(`🔍 Test signature pour PDF - ID: ${presenceId}`);
+    
+    // Récupérer la présence avec les détails
+    const presence = await AppDataSource.query(`
+      SELECT 
+        p.id,
+        p.date,
+        a.nom,
+        a.prenom,
+        d.signature_entree,
+        d.signature_sortie,
+        LENGTH(d.signature_entree) as sig_entree_len,
+        LENGTH(d.signature_sortie) as sig_sortie_len
+      FROM presence p
+      LEFT JOIN detail_presence d ON p.id = d.presence_id
+      LEFT JOIN agent a ON p.agent_id = a.id
+      WHERE p.id = $1
+    `, [presenceId]);
+    
+    if (presence.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Présence non trouvée"
+      });
+    }
+    
+    const sig = presence[0];
+    
+    // Tester la conversion
+     const testConversion = (signature) => {
+    if (!signature) return { valid: false, reason: 'null' };
+      try {
+        // Nettoyer
+        let clean = signature;
+        if (!clean.startsWith('data:image/') && 
+            clean.match(/^[A-Za-z0-9+/]+=*$/)) {
+          clean = 'data:image/png;base64,' + clean;
+        }
+        
+        // Extraire base64
+        const base64Data = clean.replace(/^data:image\/\w+;base64,/, '');
+        
+        // Tester la conversion
+        const buffer = Buffer.from(base64Data, 'base64');
+        
+        return {
+          valid: buffer.length > 0,
+          bufferLength: buffer.length,
+          format: clean.startsWith('data:image/') ? 'data_uri' : 'raw_base64',
+          conversion: 'success'
+        };
+      } catch (error) {
+        return {
+          valid: false,
+          reason: 'conversion_error',
+          error: error.message
+        };
+      }
+    };
+    
+    const entreeTest = testConversion(sig.signature_entree);
+    const sortieTest = testConversion(sig.signature_sortie);
+    
+    res.json({
+      success: true,
+      presence: {
+        id: sig.id,
+        agent: `${sig.nom} ${sig.prenom}`,
+        date: sig.date
+      },
+      entree: {
+        length: sig.sig_entree_len,
+        test: entreeTest
+      },
+      sortie: {
+        length: sig.sig_sortie_len,
+        test: sortieTest
+      },
+      recommendations: [
+        "Les signatures doivent être en base64 valide",
+        "Format accepté: 'data:image/png;base64,...' ou base64 pur",
+        "Utilisez /api/fix-all-signatures-in-db pour corriger"
+      ]
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur test signature PDF:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 
+// Dans minimal.js - Correction automatique des signatures (VERSION JS CORRIGÉE)
+app.post('/api/auto-fix-all-signatures', async (_req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    console.log('🔧 Correction automatique de TOUTES les signatures...');
+    
+    // 1. Récupérer toutes les signatures
+    const allSignatures = await AppDataSource.query(`
+      SELECT id, presence_id, signature_entree, signature_sortie 
+      FROM detail_presence 
+      WHERE (signature_entree IS NOT NULL AND signature_entree != '')
+         OR (signature_sortie IS NOT NULL AND signature_sortie != '')
+    `);
+    
+    console.log(`📊 ${allSignatures.length} signature(s) à vérifier`);
+    
+    let fixedCount = 0;
+    let errors = [];
+    
+    // Fonction de correction (SANS annotations TypeScript)
+    const fixSignature = (signature) => {
+      if (!signature) return signature;
+      
+      // Supprimer les espaces et retours à la ligne
+      let clean = signature.trim();
+      
+      // Si déjà au bon format
+      if (clean.startsWith('data:image/')) {
+        return clean;
+      }
+      
+      // Si base64 pur
+      const base64Regex = /^[A-Za-z0-9+/]+=*$/;
+      if (base64Regex.test(clean)) {
+        return 'data:image/png;base64,' + clean;
+      }
+      
+      // Essayer d'enlever les caractères étranges
+      clean = clean.replace(/[\r\n\t]/g, '');
+      
+      // Réessayer
+      if (base64Regex.test(clean)) {
+        return 'data:image/png;base64,' + clean;
+      }
+      
+      // Si rien ne marche, retourner vide
+      return '';
+    };
+    
+    for (const sig of allSignatures) {
+      try {
+        let updates = [];
+        let params = [];
+        let paramIndex = 1;
+        
+        // Corriger entrée
+        if (sig.signature_entree && sig.signature_entree.trim() !== '') {
+          const fixed = fixSignature(sig.signature_entree);
+          if (fixed && fixed !== sig.signature_entree) {
+            updates.push(`signature_entree = $${paramIndex}`);
+            params.push(fixed);
+            paramIndex++;
+            fixedCount++;
+          }
+        }
+        
+        // Corriger sortie
+        if (sig.signature_sortie && sig.signature_sortie.trim() !== '') {
+          const fixed = fixSignature(sig.signature_sortie);
+          if (fixed && fixed !== sig.signature_sortie) {
+            updates.push(`signature_sortie = $${paramIndex}`);
+            params.push(fixed);
+            paramIndex++;
+            fixedCount++;
+          }
+        }
+        
+        // Appliquer les mises à jour
+        if (updates.length > 0) {
+          params.push(sig.id);
+          await AppDataSource.query(
+            `UPDATE detail_presence SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
+            params
+          );
+        }
+        
+      } catch (error) {
+        errors.push({
+          id: sig.id,
+          error: error.message
+        });
+        console.error(`❌ Erreur correction ${sig.id}:`, error.message);
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: `${fixedCount} signature(s) corrigée(s)`,
+      stats: {
+        total: allSignatures.length,
+        fixed: fixedCount,
+        errors: errors.length
+      },
+      errors: errors
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur correction automatique:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 
 console.log('✅ Minimal API ready!');
 

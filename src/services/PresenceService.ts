@@ -349,23 +349,6 @@ async pointageSortie(matricule: string, signatureSortie: string, heureSortieManu
     // Fixer à 8 heures pour tous les shifts
     return 8.00;
   
-  
-  // Ancien code (à supprimer) :
-  // const [heuresEntree, minutesEntree] = heureEntree.split(':').map(Number);
-  // const [heuresSortie, minutesSortie] = heureSortie.split(':').map(Number);
-  // 
-  // const entree = new Date();
-  // entree.setHours(heuresEntree, minutesEntree, 0);
-  // 
-  // const sortie = new Date();
-  // sortie.setHours(heuresSortie, minutesSortie, 0);
-  // 
-  // if (sortie < entree) {
-  //   sortie.setDate(sortie.getDate() + 1);
-  // }
-  // 
-  // const diffMs = sortie.getTime() - entree.getTime();
-  // return Number((diffMs / (1000 * 60 * 60)).toFixed(2));
 }
 
 
@@ -585,247 +568,341 @@ async pointageSortie(matricule: string, signatureSortie: string, heureSortieManu
   // backend/src/services/PresenceService.ts - Modifications pour le PDF avec signatures
   // backend/src/services/PresenceService.ts - Version avec texte centré
 
-  async generatePDF(presences: Presence[], totalHeures: number, totalPresences: number): Promise<Buffer> {
-    try {
-      const PDFDocument = require('pdfkit');
-      const doc = new PDFDocument({ margin: 30, size: 'A4', layout: 'landscape' });
+// backend/src/services/PresenceService.ts - VERSION CORRIGÉE
 
-      if (!presences) {
-        throw new Error('Aucune donnée de présence à exporter');
-      }
+async generatePDF(presences: Presence[], totalHeures: number, totalPresences: number): Promise<Buffer> {
+  try {
+    const PDFDocument = require('pdfkit');
+    const doc = new PDFDocument({ margin: 30, size: 'A4', layout: 'landscape' });
 
-      doc.lineWidth(0.5);
-
-      // En-tête
-      doc.fontSize(16).text('Rapport des Présences - Colarys Concept', 30, 30);
-      doc.fontSize(10);
-
-      // Informations de période
-      doc.text(`Calculé le: ${new Date().toLocaleDateString('fr-FR')}`, 30, 60);
-      doc.text(`Total des présences: ${totalPresences}`, 30, 75);
-      doc.text(`Total des heures travaillées: ${totalHeures}h`, 30, 90);
-
-      // Définitions des colonnes AVEC SIGNATURES
-      const columns = [
-        { start: 30, width: 60, align: 'center' as const }, // Date
-        { start: 90, width: 70, align: 'center' as const }, // Matricule
-        { start: 160, width: 120, align: 'center' as const }, // Nom
-        { start: 280, width: 50, align: 'center' as const }, // Entrée
-        { start: 330, width: 50, align: 'center' as const }, // Sortie
-        { start: 380, width: 50, align: 'center' as const }, // Heures
-        { start: 430, width: 40, align: 'center' as const }, // Shift
-        { start: 470, width: 60, align: 'center' as const }, // Campagne
-        { start: 530, width: 50, align: 'center' as const }, // Signature Entrée
-        { start: 580, width: 50, align: 'center' as const }  // Signature Sortie
-      ];
-
-      const verticalPositions = columns.map(col => col.start).concat(columns[columns.length - 1].start + columns[columns.length - 1].width);
-
-      let y = 120;
-      const rowHeight = 25; // Hauteur de ligne augmentée pour mieux centrer
-      const fontSize = 8;
-
-      // Fonction utilitaire pour centrer le texte verticalement dans une cellule
-      const drawCenteredText = (text: string, x: number, y: number, width: number, height: number, align: 'left' | 'center' | 'right' = 'center') => {
-        doc.fontSize(fontSize);
-
-        // Calculer la hauteur du texte
-        const textHeight = doc.heightOfString(text, {
-          width: width - 4, // Marge interne
-          align: align
-        });
-
-        // Calculer la position Y centrée
-        const centeredY = y + (height - textHeight) / 2;
-
-        // Dessiner le texte centré
-        doc.text(text, x + 2, centeredY, {
-          width: width - 4,
-          align: align,
-          lineGap: 1
-        });
-      };
-
-      // Fonction pour dessiner l'en-tête
-      const drawHeader = () => {
-        const headerY = y;
-        const headerHeight = 25; // Augmenté pour mieux centrer
-
-        // Bordure supérieure
-        doc.moveTo(verticalPositions[0], headerY).lineTo(verticalPositions[verticalPositions.length - 1], headerY).stroke();
-
-        // Lignes verticales
-        verticalPositions.forEach(pos => {
-          doc.moveTo(pos, headerY).lineTo(pos, headerY + headerHeight).stroke();
-        });
-
-        // Texte en-tête CENTRÉ
-        doc.fontSize(7).font('Helvetica-Bold');
-
-        // Calculer la position Y centrée pour l'en-tête
-        const headerTextY = headerY + (headerHeight - 7) / 2; // 7 = taille police en-tête
-
-        doc.text('Date', columns[0].start, headerTextY, { width: columns[0].width, align: 'center' });
-        doc.text('Matricule', columns[1].start, headerTextY, { width: columns[1].width, align: 'center' });
-        doc.text('Nom', columns[2].start, headerTextY, { width: columns[2].width, align: 'center' });
-        doc.text('Entrée', columns[3].start, headerTextY, { width: columns[3].width, align: 'center' });
-        doc.text('Sortie', columns[4].start, headerTextY, { width: columns[4].width, align: 'center' });
-        doc.text('Heures', columns[5].start, headerTextY, { width: columns[5].width, align: 'center' });
-        doc.text('Shift', columns[6].start, headerTextY, { width: columns[6].width, align: 'center' });
-        doc.text('Campagne', columns[7].start, headerTextY, { width: columns[7].width, align: 'center' });
-        doc.text('Sig. Entrée', columns[8].start, headerTextY, { width: columns[8].width, align: 'center' });
-        doc.text('Sig. Sortie', columns[9].start, headerTextY, { width: columns[9].width, align: 'center' });
-
-        // Bordure inférieure
-        doc.moveTo(verticalPositions[0], headerY + headerHeight).lineTo(verticalPositions[verticalPositions.length - 1], headerY + headerHeight).stroke();
-
-        y += headerHeight;
-      };
-
-      // Dessiner l'en-tête initial
-      drawHeader();
-      doc.font('Helvetica');
-
-      // Lignes des données
-      for (const presence of presences) {
-        // Vérifier si besoin d'une nouvelle page
-        if (y > 500) {
-          doc.addPage();
-          y = 30;
-          drawHeader();
-          doc.font('Helvetica');
-        }
-
-        const rowStartY = y;
-
-        // Formatage des données
-        const dateFormatee = new Date(presence.date).toLocaleDateString('fr-FR');
-        const heuresTravaillees = presence.heuresTravaillees ?
-          `${Number(presence.heuresTravaillees).toFixed(2)}h` : '-';
-        const nomComplet = `${presence.agent.nom} ${presence.agent.prenom}`;
-
-        // Dessiner les bordures verticales
-        verticalPositions.forEach(pos => {
-          doc.moveTo(pos, rowStartY).lineTo(pos, rowStartY + rowHeight).stroke();
-        });
-
-        // Écrire les données TEXTE CENTRÉ
-        doc.fontSize(fontSize);
-
-        // Date - CENTRÉ
-        drawCenteredText(dateFormatee, columns[0].start, rowStartY, columns[0].width, rowHeight, 'center');
-
-        // Matricule - CENTRÉ
-        drawCenteredText(presence.agent.matricule || 'N/D', columns[1].start, rowStartY, columns[1].width, rowHeight, 'center');
-
-        // Nom complet - CENTRÉ (avec gestion du texte long)
-        const nomCompletTronque = doc.heightOfString(nomComplet, { width: columns[2].width - 4 }) > rowHeight ?
-          presence.agent.nom + ' ' + presence.agent.prenom.substring(0, 1) + '.' :
-          nomComplet;
-        drawCenteredText(nomCompletTronque, columns[2].start, rowStartY, columns[2].width, rowHeight, 'center');
-
-        // Heure entrée - CENTRÉ
-        drawCenteredText(presence.heureEntree, columns[3].start, rowStartY, columns[3].width, rowHeight, 'center');
-
-        // Heure sortie - CENTRÉ
-        drawCenteredText(presence.heureSortie || '-', columns[4].start, rowStartY, columns[4].width, rowHeight, 'center');
-
-        // Heures travaillées - CENTRÉ
-        drawCenteredText(heuresTravaillees, columns[5].start, rowStartY, columns[5].width, rowHeight, 'center');
-
-        // Shift - CENTRÉ
-        drawCenteredText(presence.shift, columns[6].start, rowStartY, columns[6].width, rowHeight, 'center');
-
-        // Campagne - CENTRÉ
-        drawCenteredText(presence.agent.campagne, columns[7].start, rowStartY, columns[7].width, rowHeight, 'center');
-
-        // Gestion des signatures - CENTRÉES
-        const signatureHeight = 20;
-        const signatureY = rowStartY + (rowHeight - signatureHeight) / 2;
-
-        try {
-          // Signature entrée - CENTRÉE
-          if (presence.details?.signatureEntree) {
-            console.log('📝 Signature entrée trouvée pour:', nomComplet);
-            doc.image(presence.details.signatureEntree,
-              columns[8].start + (columns[8].width - 40) / 2, // Centrage horizontal
-              signatureY,
-              {
-                width: 40, // Largeur fixe pour centrage
-                height: signatureHeight,
-                fit: [40, signatureHeight],
-                align: 'center',
-                valign: 'center'
-              }
-            );
-          } else {
-            drawCenteredText('-', columns[8].start, rowStartY, columns[8].width, rowHeight, 'center');
-          }
-        } catch (error) {
-          console.error('❌ Erreur signature entrée:', error);
-          drawCenteredText('Erreur', columns[8].start, rowStartY, columns[8].width, rowHeight, 'center');
-        }
-
-        // Signature sortie - CENTRÉE
-        try {
-          if (presence.details?.signatureSortie) {
-            console.log('📝 Signature sortie trouvée pour:', nomComplet);
-            doc.image(presence.details.signatureSortie,
-              columns[9].start + (columns[9].width - 40) / 2, // Centrage horizontal
-              signatureY,
-              {
-                width: 40, // Largeur fixe pour centrage
-                height: signatureHeight,
-                fit: [40, signatureHeight],
-                align: 'center',
-                valign: 'center'
-              }
-            );
-          } else {
-            drawCenteredText('-', columns[9].start, rowStartY, columns[9].width, rowHeight, 'center');
-          }
-        } catch (error) {
-          console.error('❌ Erreur signature sortie:', error);
-          drawCenteredText('Erreur', columns[9].start, rowStartY, columns[9].width, rowHeight, 'center');
-        }
-
-        // Dessiner la bordure inférieure
-        doc.moveTo(verticalPositions[0], rowStartY + rowHeight).lineTo(verticalPositions[verticalPositions.length - 1], rowStartY + rowHeight).stroke();
-
-        y += rowHeight;
-      }
-
-      // Pied de page avec total
-      if (y > 500 - 20) {
-        doc.addPage();
-        y = 30;
-      }
-      y += 10;
-      doc.fontSize(10).font('Helvetica-Bold');
-      doc.text(`TOTAL GÉNÉRAL: ${totalHeures} heures travaillées`, 30, y);
-
-      return new Promise((resolve, reject) => {
-        try {
-          const chunks: Buffer[] = [];
-          doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-          doc.on('end', () => resolve(Buffer.concat(chunks)));
-          doc.on('error', reject);
-          doc.end();
-        } catch (error) {
-          reject(error);
-        }
-      });
-    } catch (error: unknown) {
-      console.error('Erreur dans generatePDF:', error);
-
-      let errorMessage = 'Erreur inconnue lors de la génération du PDF';
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      } else if (typeof error === 'string') {
-        errorMessage = error;
-      }
-
-      throw new Error(errorMessage);
+    if (!presences || presences.length === 0) {
+      throw new Error('Aucune donnée de présence à exporter');
     }
+
+    console.log(`📊 Génération PDF pour ${presences.length} présence(s)`);
+
+    // Fonction CRITIQUE : convertir base64 en buffer
+    const base64ToBuffer = (base64String: string | null | undefined): Buffer | null => {
+      if (!base64String || base64String.trim() === '') {
+        return null;
+      }
+
+      try {
+        console.log('📝 Conversion signature base64:', {
+          length: base64String.length,
+          startsWithDataImage: base64String.startsWith('data:image/'),
+          preview: base64String.substring(0, 30)
+        });
+
+        // Nettoyer le base64
+        let cleanBase64 = base64String;
+        
+        // Si c'est déjà du base64 pur, ajouter le préfixe PNG
+        if (!cleanBase64.startsWith('data:image/') && 
+            cleanBase64.match(/^[A-Za-z0-9+/]+=*$/)) {
+          cleanBase64 = 'data:image/png;base64,' + cleanBase64;
+        }
+        
+        // Extraire la partie base64 pure
+        const base64Data = cleanBase64.replace(/^data:image\/\w+;base64,/, '');
+        
+        // Créer le buffer
+        const buffer = Buffer.from(base64Data, 'base64');
+        
+        // Vérifier que le buffer est valide
+        if (buffer.length > 0) {
+          console.log(`✅ Buffer créé: ${buffer.length} bytes`);
+          return buffer;
+        }
+        
+        return null;
+      } catch (error) {
+        console.error('❌ Erreur conversion base64:', error);
+        console.error('Base64 problématique:', base64String?.substring(0, 50));
+        return null;
+      }
+    };
+
+    // === DÉBUT DU PDF ===
+    
+    // Titre
+    doc.fontSize(18).font('Helvetica-Bold')
+      .fillColor('#2c3e50')
+      .text('Rapport des Présences - Colarys Concept', 30, 30);
+    
+    doc.fontSize(10).font('Helvetica')
+      .fillColor('#7f8c8d')
+      .text(`Généré le ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR')}`, 30, 60);
+
+    // Statistiques
+    doc.fillColor('#3498db').font('Helvetica-Bold');
+    doc.text(`Total des présences: ${totalPresences}`, 30, 85);
+    doc.text(`Total des heures travaillées: ${totalHeures}h`, 30, 100);
+    
+    // Informations sur les signatures
+    const signaturesCount = presences.filter(p => 
+      p.details?.signatureEntree || p.details?.signatureSortie
+    ).length;
+    doc.text(`Présences avec signatures: ${signaturesCount}/${totalPresences}`, 30, 115);
+
+    // === CONFIGURATION DU TABLEAU ===
+    
+    // Définir les colonnes
+    const columns = [
+      { x: 30, width: 70, label: 'Date', align: 'center' },
+      { x: 100, width: 80, label: 'Matricule', align: 'center' },
+      { x: 180, width: 120, label: 'Nom', align: 'center' },
+      { x: 300, width: 60, label: 'Entrée', align: 'center' },
+      { x: 360, width: 60, label: 'Sortie', align: 'center' },
+      { x: 420, width: 70, label: 'Heures', align: 'center' },
+      { x: 490, width: 50, label: 'Shift', align: 'center' },
+      { x: 540, width: 80, label: 'Campagne', align: 'center' },
+      { x: 620, width: 80, label: 'Signature Entrée', align: 'center' },
+      { x: 700, width: 80, label: 'Signature Sortie', align: 'center' }
+    ];
+
+    // Position verticale initiale
+    let y = 150;
+    const rowHeight = 35;
+    const signatureSize = 25;
+
+    // === EN-TÊTE DU TABLEAU ===
+    
+    doc.rect(columns[0].x, y, columns.reduce((sum, col) => sum + col.width, 0), rowHeight)
+      .fillColor('#ecf0f1').fill()
+      .strokeColor('#bdc3c7').lineWidth(0.5);
+
+    // Bordures verticales
+    columns.forEach(col => {
+      doc.moveTo(col.x, y).lineTo(col.x, y + rowHeight).stroke();
+    });
+    doc.moveTo(columns[columns.length - 1].x + columns[columns.length - 1].width, y)
+      .lineTo(columns[columns.length - 1].x + columns[columns.length - 1].width, y + rowHeight)
+      .stroke();
+
+    // Texte de l'en-tête
+    doc.fillColor('#2c3e50').fontSize(8).font('Helvetica-Bold');
+    columns.forEach(col => {
+      doc.text(col.label, col.x, y + 12, {
+        width: col.width,
+        align: col.align
+      });
+    });
+
+    y += rowHeight;
+
+    // === DONNÉES DES PRÉSENCES ===
+    
+    doc.fontSize(8).font('Helvetica').fillColor('#2c3e50');
+
+    for (const presence of presences) {
+      // Vérifier la fin de page
+      if (y > 500) {
+        doc.addPage();
+        y = 50;
+        
+        // Réécrire l'en-tête
+        doc.rect(columns[0].x, y, columns.reduce((sum, col) => sum + col.width, 0), rowHeight)
+          .fillColor('#ecf0f1').fill()
+          .strokeColor('#bdc3c7').lineWidth(0.5);
+        
+        columns.forEach(col => {
+          doc.moveTo(col.x, y).lineTo(col.x, y + rowHeight).stroke();
+        });
+        
+        doc.fillColor('#2c3e50').fontSize(8).font('Helvetica-Bold');
+        columns.forEach(col => {
+          doc.text(col.label, col.x, y + 12, {
+            width: col.width,
+            align: col.align
+          });
+        });
+        
+        y += rowHeight;
+        doc.fontSize(8).font('Helvetica').fillColor('#2c3e50');
+      }
+
+      // Bordures de la ligne
+      doc.rect(columns[0].x, y, columns.reduce((sum, col) => sum + col.width, 0), rowHeight)
+        .strokeColor('#ecf0f1').stroke();
+
+      // Données de base
+      const nomComplet = `${presence.agent?.nom || 'Inconnu'} ${presence.agent?.prenom || ''}`;
+     const matriculeValue = presence.agent?.matricule || 'N/D';
+      const dateFormatee = new Date(presence.date).toLocaleDateString('fr-FR');
+      const heuresTravaillees = presence.heuresTravaillees ? 
+        `${Number(presence.heuresTravaillees).toFixed(2)}h` : '-';
+
+      // Colonne 1: Date
+      doc.text(dateFormatee, columns[0].x, y + 12, {
+        width: columns[0].width,
+        align: 'center'
+      });
+
+      // Colonne 2: Matricule
+      doc.text(matriculeValue, columns[1].x, y + 12, {
+        width: columns[1].width,
+        align: 'center'
+      });
+
+      // Colonne 3: Nom complet
+      const nomTronque = nomComplet.length > 15 ? 
+        nomComplet.substring(0, 12) + '...' : 
+        nomComplet;
+      doc.text(nomTronque, columns[2].x, y + 12, {
+        width: columns[2].width,
+        align: 'center'
+      });
+
+      // Colonne 4: Heure entrée
+      doc.text(presence.heureEntree || '-', columns[3].x, y + 12, {
+        width: columns[3].width,
+        align: 'center'
+      });
+
+      // Colonne 5: Heure sortie
+      doc.text(presence.heureSortie || '-', columns[4].x, y + 12, {
+        width: columns[4].width,
+        align: 'center'
+      });
+
+      // Colonne 6: Heures travaillées
+      doc.text(heuresTravaillees, columns[5].x, y + 12, {
+        width: columns[5].width,
+        align: 'center'
+      });
+
+      // Colonne 7: Shift
+      doc.text(presence.shift || '-', columns[6].x, y + 12, {
+        width: columns[6].width,
+        align: 'center'
+      });
+
+      // Colonne 8: Campagne
+      doc.text(presence.agent?.campagne || '-', columns[7].x, y + 12, {
+        width: columns[8].width,
+        align: 'center'
+      });
+
+      // === COLONNES SIGNATURES ===
+      
+      // Colonne 9: Signature Entrée
+      try {
+        if (presence.details?.signatureEntree) {
+          const signatureBuffer = base64ToBuffer(presence.details.signatureEntree);
+          
+          if (signatureBuffer) {
+            // Calculer la position centrée
+            const sigX = columns[8].x + (columns[8].width - signatureSize) / 2;
+            const sigY = y + (rowHeight - signatureSize) / 2;
+            
+            doc.image(signatureBuffer, sigX, sigY, {
+              width: signatureSize,
+              height: signatureSize
+            });
+          } else {
+            doc.text('-', columns[8].x, y + 12, {
+              width: columns[8].width,
+              align: 'center'
+            });
+          }
+        } else {
+          doc.text('-', columns[8].x, y + 12, {
+            width: columns[8].width,
+            align: 'center'
+          });
+        }
+      } catch (error) {
+        console.error('❌ Erreur signature entrée:', error);
+        doc.text('Err', columns[8].x, y + 12, {
+          width: columns[8].width,
+          align: 'center'
+        });
+      }
+
+      // Colonne 10: Signature Sortie
+      try {
+        if (presence.details?.signatureSortie) {
+          const signatureBuffer = base64ToBuffer(presence.details.signatureSortie);
+          
+          if (signatureBuffer) {
+            // Calculer la position centrée
+            const sigX = columns[9].x + (columns[9].width - signatureSize) / 2;
+            const sigY = y + (rowHeight - signatureSize) / 2;
+            
+            doc.image(signatureBuffer, sigX, sigY, {
+              width: signatureSize,
+              height: signatureSize
+            });
+          } else {
+            doc.text('-', columns[9].x, y + 12, {
+              width: columns[9].width,
+              align: 'center'
+            });
+          }
+        } else {
+          doc.text('-', columns[9].x, y + 12, {
+            width: columns[9].width,
+            align: 'center'
+          });
+        }
+      } catch (error) {
+        console.error('❌ Erreur signature sortie:', error);
+        doc.text('Err', columns[9].x, y + 12, {
+          width: columns[9].width,
+          align: 'center'
+        });
+      }
+
+      y += rowHeight;
+    }
+
+    // === PIED DE PAGE ===
+    
+    if (y > 550) {
+      doc.addPage();
+      y = 50;
+    }
+
+    doc.moveDown(2);
+    doc.fontSize(10).font('Helvetica-Bold').fillColor('#2c3e50');
+    doc.text(`TOTAL GÉNÉRAL: ${totalPresences} présence(s), ${totalHeures} heures travaillées`, 30, y);
+
+    // Légende
+    doc.fontSize(8).font('Helvetica').fillColor('#7f8c8d');
+    y += 20;
+    doc.text('* Note: Le temps de présence est fixé à 8 heures pour tous les shifts', 30, y);
+    y += 10;
+    doc.text(`* Signatures: ${signaturesCount} présence(s) avec au moins une signature`, 30, y);
+
+    // === FINALISATION ===
+    
+    return new Promise((resolve, reject) => {
+      try {
+        const chunks: Buffer[] = [];
+        doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+        doc.on('end', () => {
+          console.log(`✅ PDF généré: ${chunks.reduce((sum, chunk) => sum + chunk.length, 0)} bytes`);
+          resolve(Buffer.concat(chunks));
+        });
+        doc.on('error', reject);
+        doc.end();
+      } catch (error) {
+        reject(error);
+      }
+    });
+
+  } catch (error: unknown) {
+    console.error('❌ Erreur dans generatePDF:', error);
+
+    let errorMessage = 'Erreur inconnue lors de la génération du PDF';
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    } else if (typeof error === 'string') {
+      errorMessage = error;
+    }
+
+    throw new Error(errorMessage);
   }
+}
 }
