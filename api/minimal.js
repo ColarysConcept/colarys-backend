@@ -7060,6 +7060,379 @@ app.get('/api/test-presence', (_req, res) => {
   });
 });
 
+// Dans minimal.js - RÉPARATION URGENTE de detail_presence
+app.post('/api/fix-detail-presence-structure', async (_req, res) => {
+  try {
+    console.log('🔧 RÉPARATION URGENTE de la table detail_presence...');
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // 1. Vérifier si la table existe
+    const tableExists = await AppDataSource.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'detail_presence'
+      )
+    `);
+    
+    if (!tableExists[0].exists) {
+      // Créer la table complètement
+      await AppDataSource.query(`
+        CREATE TABLE detail_presence (
+          id SERIAL PRIMARY KEY,
+          presence_id INTEGER REFERENCES presence(id) ON DELETE CASCADE,
+          signature_entree TEXT,
+          signature_sortie TEXT,
+          observations TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('✅ Table detail_presence créée');
+    }
+    
+    // 2. Vérifier les colonnes
+    const columns = await AppDataSource.query(`
+      SELECT column_name, data_type 
+      FROM information_schema.columns 
+      WHERE table_name = 'detail_presence'
+    `);
+    
+    console.log('📊 Colonnes actuelles:', columns.map(c => c.column_name));
+    
+    // 3. Ajouter les colonnes manquantes
+    const neededColumns = [
+      { name: 'signature_entree', type: 'TEXT' },
+      { name: 'signature_sortie', type: 'TEXT' },
+      { name: 'presence_id', type: 'INTEGER' },
+      { name: 'created_at', type: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP' },
+      { name: 'updated_at', type: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP' }
+    ];
+    
+    let actions = [];
+    
+    for (const needed of neededColumns) {
+      const exists = columns.some(col => col.column_name === needed.name);
+      
+      if (!exists) {
+        try {
+          await AppDataSource.query(`
+            ALTER TABLE detail_presence 
+            ADD COLUMN ${needed.name} ${needed.type}
+          `);
+          actions.push(`✅ Ajouté ${needed.name}`);
+        } catch (alterError) {
+          actions.push(`⚠️ ${needed.name}: ${alterError.message}`);
+        }
+      }
+    }
+    
+    // 4. Créer l'index
+    await AppDataSource.query(`
+      CREATE INDEX IF NOT EXISTS idx_detail_presence_presence_id 
+      ON detail_presence(presence_id)
+    `);
+    actions.push('✅ Index créé');
+    
+    res.json({
+      success: true,
+      message: "Table detail_presence réparée",
+      actions: actions,
+      columns: columns.map(c => c.column_name)
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur réparation structure:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: error.code
+    });
+  }
+});
+
+// Dans minimal.js - ROUTE sortie-fixed CORRIGÉE
+app.post('/presences/sortie-fixed', async (req, res) => {
+  console.log('🔄 Pointage sortie FIXED - VERSION CORRIGÉE');
+  
+  try {
+    const data = req.body;
+    
+    if (!data.matricule) {
+      return res.status(400).json({
+        success: false,
+        error: "Matricule requis"
+      });
+    }
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const timeNow = data.heureSortieManuelle || now.toTimeString().split(' ')[0].substring(0, 8);
+    
+    // Heures travaillées fixes
+    const heuresTravaillees = 8.00;
+    
+    // Trouver l'agent
+    const agent = await AppDataSource.query(
+      'SELECT id FROM agents_colarys WHERE matricule = $1',
+      [data.matricule]
+    );
+    
+    if (agent.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: `Agent ${data.matricule} non trouvé`
+      });
+    }
+    
+    const agentId = agent[0].id;
+    
+    console.log(`📅 Mise à jour sortie: agent_id=${agentId}, date=${today}, heure=${timeNow}`);
+    
+    let presenceId = null;
+    
+    // Chercher la présence existante
+    const existingPresence = await AppDataSource.query(
+      'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
+      [agentId, today]
+    );
+    
+    if (existingPresence.length > 0) {
+      // Mettre à jour la présence existante
+      presenceId = existingPresence[0].id;
+      await AppDataSource.query(
+        `UPDATE presence 
+         SET heure_sortie = $1, heures_travaillees = $2
+         WHERE id = $3`,
+        [timeNow, heuresTravaillees, presenceId]
+      );
+      console.log(`✅ Présence existante mise à jour: ${presenceId}`);
+    } else {
+      // Créer une nouvelle présence
+      const newPresence = await AppDataSource.query(
+        `INSERT INTO presence 
+         (agent_id, date, heure_sortie, heures_travaillees, shift, created_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())
+         RETURNING id`,
+        [agentId, today, timeNow, heuresTravaillees, 'JOUR']
+      );
+      presenceId = newPresence[0].id;
+      console.log(`✅ Nouvelle présence créée pour sortie: ${presenceId}`);
+    }
+    
+    // ✅ GESTION SIMPLIFIÉE des signatures
+    if (data.signatureSortie) {
+      let signatureToSave = data.signatureSortie;
+      if (signatureToSave && !signatureToSave.startsWith('data:image/')) {
+        signatureToSave = 'data:image/png;base64,' + signatureToSave;
+      }
+      
+      console.log('📝 Enregistrement signature pour présence:', presenceId);
+      
+      // Vérifier si un détail existe déjà
+      const existingDetail = await AppDataSource.query(
+        'SELECT id FROM detail_presence WHERE presence_id = $1',
+        [presenceId]
+      );
+      
+      if (existingDetail.length > 0) {
+        // Mettre à jour
+        await AppDataSource.query(
+          `UPDATE detail_presence 
+           SET signature_sortie = $1, updated_at = CURRENT_TIMESTAMP
+           WHERE presence_id = $2`,
+          [signatureToSave, presenceId]
+        );
+        console.log(`✅ Signature mise à jour pour présence ${presenceId}`);
+      } else {
+        // Créer un nouveau détail
+        await AppDataSource.query(
+          `INSERT INTO detail_presence 
+           (presence_id, signature_sortie, created_at, updated_at)
+           VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          [presenceId, signatureToSave]
+        );
+        console.log(`✅ Nouveau détail créé pour présence ${presenceId}`);
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: "Pointage de sortie enregistré",
+      data: {
+        presence_id: presenceId,
+        matricule: data.matricule,
+        agent_id: agentId,
+        date: today,
+        heure_sortie: timeNow,
+        heures_travaillees: heuresTravaillees,
+        signature_sortie: data.signatureSortie ? "Signature enregistrée" : null
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ ERREUR sortie-fixed:', error);
+    
+    // Message d'erreur spécifique
+    let errorMessage = "Erreur lors du pointage de sortie";
+    let details = error.message;
+    
+    if (error.message.includes('detail_presence')) {
+      errorMessage = "Problème avec la table des détails";
+      details = "La table detail_presence nécessite une réparation";
+    } else if (error.code === '23503') {
+      errorMessage = "Erreur de référence";
+      details = "L'agent ou la présence n'existe pas";
+    }
+    
+    res.status(500).json({
+      success: false,
+      error: errorMessage,
+      details: details,
+      code: error.code,
+      fix_suggestion: "Exécutez /api/fix-detail-presence-structure"
+    });
+  }
+});
+
+// Dans minimal.js - Diagnostic des signatures
+app.get('/api/check-signatures/:presenceId', async (req, res) => {
+  try {
+    const presenceId = parseInt(req.params.presenceId);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    console.log(`🔍 Diagnostic signatures pour présence ${presenceId}`);
+    
+    // 1. Vérifier la présence
+    const presence = await AppDataSource.query(
+      'SELECT id, date, agent_id FROM presence WHERE id = $1',
+      [presenceId]
+    );
+    
+    if (presence.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Présence non trouvée"
+      });
+    }
+    
+    // 2. Vérifier les détails
+    const details = await AppDataSource.query(
+      'SELECT * FROM detail_presence WHERE presence_id = $1',
+      [presenceId]
+    );
+    
+    // 3. Vérifier l'agent
+    const agentId = presence[0].agent_id;
+    const agent = await AppDataSource.query(
+      'SELECT id, matricule, nom, prenom FROM agents_colarys WHERE id = $1',
+      [agentId]
+    );
+    
+    res.json({
+      success: true,
+      presence: presence[0],
+      agent: agent.length > 0 ? agent[0] : null,
+      details: details.length > 0 ? details[0] : null,
+      has_details: details.length > 0,
+      detail_columns: details.length > 0 ? Object.keys(details[0]) : [],
+      recommendations: details.length === 0 ? [
+        "❌ Pas de détail pour cette présence",
+        "Action: Créer un enregistrement dans detail_presence"
+      ] : [
+        "✅ Détails existent",
+        "Vérifiez les colonnes signature_entree et signature_sortie"
+      ]
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur diagnostic signatures:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Dans minimal.js - Créer un détail manquant
+app.post('/api/create-detail-for-presence/:presenceId', async (req, res) => {
+  try {
+    const presenceId = parseInt(req.params.presenceId);
+    const { signatureEntree, signatureSortie } = req.body;
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    console.log(`➕ Création détail pour présence ${presenceId}`);
+    
+    // Vérifier si la présence existe
+    const presence = await AppDataSource.query(
+      'SELECT id FROM presence WHERE id = $1',
+      [presenceId]
+    );
+    
+    if (presence.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Présence non trouvée"
+      });
+    }
+    
+    // Vérifier si un détail existe déjà
+    const existingDetail = await AppDataSource.query(
+      'SELECT id FROM detail_presence WHERE presence_id = $1',
+      [presenceId]
+    );
+    
+    if (existingDetail.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Un détail existe déjà pour cette présence",
+        detail_id: existingDetail[0].id
+      });
+    }
+    
+    // Créer le détail
+    const result = await AppDataSource.query(
+      `INSERT INTO detail_presence 
+       (presence_id, signature_entree, signature_sortie, created_at, updated_at)
+       VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       RETURNING id`,
+      [
+        presenceId,
+        signatureEntree || null,
+        signatureSortie || null
+      ]
+    );
+    
+    res.json({
+      success: true,
+      message: "Détail créé avec succès",
+      detail_id: result[0].id,
+      presence_id: presenceId
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur création détail:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: error.code
+    });
+  }
+});
+
 console.log('✅ Minimal API ready!');
 
 module.exports = app;
