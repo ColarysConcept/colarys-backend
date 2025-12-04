@@ -6384,6 +6384,271 @@ app.post('/api/fix-agent-by-matricule/:matricule', async (req, res) => {
   }
 });
 
+// ========== ROUTE ULTRA SIMPLE POUR POINTAGE ENTREE ==========
+app.post('/api/presences/entree-ultra-simple', async (req, res) => {
+  console.log('🚀 Pointage entrée ULTRA SIMPLE appelé:', req.body);
+  
+  try {
+    const data = req.body;
+    
+    // Validation minimale
+    if (!data.nom || !data.prenom) {
+      return res.status(400).json({
+        success: false,
+        error: "Nom et prénom sont requis"
+      });
+    }
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const timeNow = data.heureEntreeManuelle || 
+                    now.toTimeString().split(' ')[0].substring(0, 8);
+    
+    // Matricule
+    let matricule = data.matricule?.trim() || `AG-${Date.now()}`;
+    
+    // 1. Trouver ou créer l'agent
+    let agentId = null;
+    
+    // Chercher d'abord dans agents_colarys
+    const existingAgent = await AppDataSource.query(
+      'SELECT id FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+    
+    if (existingAgent.length > 0) {
+      agentId = existingAgent[0].id;
+      console.log(`✅ Agent existant trouvé: ${agentId}`);
+    } else {
+      // Créer un nouvel agent
+      const maxIdResult = await AppDataSource.query(
+        'SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM agents_colarys'
+      );
+      agentId = parseInt(maxIdResult[0].next_id);
+      
+      // Créer dans agents_colarys
+      await AppDataSource.query(
+        `INSERT INTO agents_colarys 
+         (id, matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())`,
+        [
+          agentId,
+          matricule,
+          data.nom,
+          data.prenom,
+          data.campagne || 'Standard',
+          data.email || `${data.nom.toLowerCase()}.${data.prenom.toLowerCase()}@colarys.com`,
+          data.contact || '',
+          'Colarys Concept',
+          '/images/default-avatar.svg',
+          'default-avatar'
+        ]
+      );
+      
+      // Créer aussi dans agent pour cohérence
+      await AppDataSource.query(
+        `INSERT INTO agent 
+         (id, matricule, nom, prenom, campagne, date_creation) 
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [
+          agentId,
+          matricule,
+          data.nom,
+          data.prenom,
+          data.campagne || 'Standard'
+        ]
+      );
+      
+      console.log(`✅ Nouvel agent créé: ${agentId}`);
+    }
+    
+    // 2. Vérifier si présence existe déjà
+    const existingPresence = await AppDataSource.query(
+      'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
+      [agentId, today]
+    );
+    
+    if (existingPresence.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Une présence existe déjà pour aujourd'hui"
+      });
+    }
+    
+    // 3. Créer la présence
+    const presence = await AppDataSource.query(
+      `INSERT INTO presence 
+       (agent_id, date, heure_entree, shift, created_at) 
+       VALUES ($1, $2, $3, $4, NOW()) 
+       RETURNING id, date, heure_entree`,
+      [agentId, today, timeNow, data.shift || 'JOUR']
+    );
+    
+    const presenceId = presence[0].id;
+    
+    // 4. Créer un détail de présence (vide)
+    try {
+      await AppDataSource.query(
+        `INSERT INTO detail_presence 
+         (presence_id, created_at, updated_at) 
+         VALUES ($1, NOW(), NOW())`,
+        [presenceId]
+      );
+      console.log('✅ Détail créé pour présence:', presenceId);
+    } catch (detailError) {
+      console.log('ℹ️ Note: Impossible de créer détail, mais ce n\'est pas grave:', detailError.message);
+    }
+    
+    res.json({
+      success: true,
+      message: "Pointage ultra simple réussi",
+      data: {
+        presence_id: presenceId,
+        matricule: matricule,
+        nom: data.nom,
+        prenom: data.prenom,
+        heure_entree: presence[0].heure_entree,
+        date: presence[0].date,
+        agent_id: agentId,
+        shift: data.shift || 'JOUR'
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur pointage ultra simple:', error);
+    
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors du pointage",
+      details: error.message,
+      code: error.code,
+      suggestion: "Vérifiez les logs du serveur"
+    });
+  }
+});
+
+// ========== ROUTE SIMPLE (alternative) ==========
+app.post('/api/presences/entree-simple', async (req, res) => {
+  console.log('🎯 Pointage SIMPLE appelé:', req.body);
+  
+  try {
+    const data = req.body;
+    
+    if (!data.nom || !data.prenom) {
+      return res.status(400).json({
+        success: false,
+        error: "Nom et prénom sont requis"
+      });
+    }
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const timeNow = data.heureEntreeManuelle || 
+                    now.toTimeString().split(' ')[0].substring(0, 8);
+    
+    let matricule = data.matricule?.trim() || 'CC0005';
+    
+    // SIMPLE: Créer ou récupérer l'agent
+    let agentId = null;
+    
+    // Essayer de trouver dans agents_colarys
+    const existing = await AppDataSource.query(
+      'SELECT id FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+    
+    if (existing.length > 0) {
+      agentId = existing[0].id;
+    } else {
+      // Créer avec un nouvel ID
+      const maxId = await AppDataSource.query(
+        'SELECT COALESCE(MAX(id), 0) + 1 as new_id FROM agents_colarys'
+      );
+      agentId = parseInt(maxId[0].new_id);
+      
+      await AppDataSource.query(
+        `INSERT INTO agents_colarys 
+         (id, matricule, nom, prenom, role, mail, "created_at") 
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+        [
+          agentId,
+          matricule,
+          data.nom,
+          data.prenom,
+          data.campagne || 'Standard',
+          `${data.nom.toLowerCase()}.${data.prenom.toLowerCase()}@colarys.com`
+        ]
+      );
+    }
+    
+    // Créer la présence
+    const presence = await AppDataSource.query(
+      `INSERT INTO presence 
+       (agent_id, date, heure_entree, shift, created_at) 
+       VALUES ($1, $2, $3, $4, NOW()) 
+       RETURNING id, date, heure_entree`,
+      [agentId, today, timeNow, data.shift || 'JOUR']
+    );
+    
+    res.json({
+      success: true,
+      message: "Pointage simple réussi",
+      data: {
+        presence_id: presence[0].id,
+        matricule: matricule,
+        agent_id: agentId,
+        heure_entree: presence[0].heure_entree
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur pointage simple:', error);
+    
+    res.status(500).json({
+      success: false,
+      error: "Erreur simple",
+      details: error.message,
+      code: error.code
+    });
+  }
+});
+
+// ========== ROUTE DE TEST ==========
+app.post('/api/test-pointage', async (req, res) => {
+  console.log('🧪 TEST de pointage:', req.body);
+  
+  try {
+    // Test simple de la base de données
+    const testDB = await AppDataSource.query('SELECT NOW() as time, version() as version');
+    
+    res.json({
+      success: true,
+      message: "Test réussi",
+      database: testDB[0],
+      received_data: req.body,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('❌ Test échoué:', error);
+    res.status(500).json({
+      success: false,
+      error: "Test échoué",
+      details: error.message
+    });
+  }
+});
+
+
+
 console.log('✅ Minimal API ready!');
 
 module.exports = app;
