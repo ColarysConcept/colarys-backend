@@ -6868,6 +6868,198 @@ app.post('/api/auto-fix-all-signatures', async (_req, res) => {
   }
 });
 
+// Dans minimal.js - Ajouter cette route ULTRA SIMPLE
+app.post('/presences/entree-ultra-simple', async (req, res) => {
+  console.log('🚀 Route ultra simple appelée:', req.body);
+  
+  try {
+    const data = req.body;
+    
+    // Validation minimale
+    if (!data.nom || !data.prenom) {
+      return res.status(400).json({
+        success: false,
+        error: "Nom et prénom sont requis"
+      });
+    }
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const timeNow = data.heureEntreeManuelle || 
+                    now.toTimeString().split(' ')[0].substring(0, 8);
+    
+    // Matricule ou générer un
+    let matricule = data.matricule?.trim();
+    if (!matricule || matricule === '') {
+      const { v4: uuidv4 } = require('uuid');
+      matricule = `AG-${uuidv4().slice(0, 8).toUpperCase()}`;
+      console.log('🎫 Matricule généré:', matricule);
+    }
+    
+    // 1. Vérifier/créer dans agents_colarys
+    let agentId = null;
+    
+    // Chercher d'abord
+    const existingAgent = await AppDataSource.query(
+      'SELECT id FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+    
+    if (existingAgent.length > 0) {
+      agentId = existingAgent[0].id;
+      console.log(`✅ Agent existant: ${agentId}`);
+    } else {
+      // Créer nouvel agent
+      const maxIdResult = await AppDataSource.query(
+        'SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM agents_colarys'
+      );
+      agentId = parseInt(maxIdResult[0].next_id);
+      
+      await AppDataSource.query(
+        `INSERT INTO agents_colarys 
+         (id, matricule, nom, prenom, role, "created_at", "updated_at") 
+         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
+        [
+          agentId,
+          matricule,
+          data.nom,
+          data.prenom,
+          data.campagne || 'Standard'
+        ]
+      );
+      console.log(`✅ Nouvel agent créé: ${agentId}`);
+    }
+    
+    // 2. Vérifier si présence existe déjà
+    const existingPresence = await AppDataSource.query(
+      'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
+      [agentId, today]
+    );
+    
+    if (existingPresence.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Une présence existe déjà pour aujourd'hui"
+      });
+    }
+    
+    // 3. Créer la présence
+    const presence = await AppDataSource.query(
+      `INSERT INTO presence 
+       (agent_id, date, heure_entree, shift, created_at) 
+       VALUES ($1, $2, $3, $4, NOW()) 
+       RETURNING id, date, heure_entree`,
+      [agentId, today, timeNow, data.shift || 'JOUR']
+    );
+    
+    res.json({
+      success: true,
+      message: "Pointage ultra simple réussi",
+      data: {
+        presence_id: presence[0].id,
+        matricule: matricule,
+        nom: data.nom,
+        prenom: data.prenom,
+        heure_entree: presence[0].heure_entree,
+        date: presence[0].date,
+        agent_id: agentId
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur route ultra simple:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur serveur",
+      details: error.message,
+      code: error.code
+    });
+  }
+});
+
+// Dans minimal.js - Ajouter une route historique simple
+app.get('/presences/historique', async (req, res) => {
+  console.log('📊 Historique simple appelé avec:', req.query);
+  
+  try {
+    const { dateDebut, dateFin } = req.query;
+    
+    if (!dateDebut || !dateFin) {
+      return res.status(400).json({
+        success: false,
+        error: "dateDebut et dateFin sont requis"
+      });
+    }
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // Requête ultra simple
+    const presences = await AppDataSource.query(
+      `SELECT 
+        p.id,
+        p.date,
+        p.heure_entree,
+        p.heure_sortie,
+        p.shift,
+        p.heures_travaillees,
+        p.created_at,
+        a.id as agent_id,
+        a.matricule,
+        a.nom,
+        a.prenom,
+        a.campagne
+      FROM presence p
+      LEFT JOIN agent a ON p.agent_id = a.id
+      WHERE p.date BETWEEN $1 AND $2
+      ORDER BY p.date DESC, p.id DESC
+      LIMIT 100`,
+      [dateDebut, dateFin]
+    );
+    
+    // Calculer le total des heures
+    const totalHeures = presences.reduce((sum, p) => {
+      return sum + (p.heures_travaillees || 0);
+    }, 0);
+    
+    res.json({
+      success: true,
+      data: presences,
+      totalHeures: totalHeures,
+      totalPresences: presences.length,
+      message: `${presences.length} présence(s) trouvée(s)`
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur historique simple:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors de la récupération de l'historique",
+      message: error.message
+    });
+  }
+});
+
+// Dans minimal.js - Ajouter une route de test
+app.get('/api/test-presence', (_req, res) => {
+  res.json({
+    success: true,
+    message: "API Présence fonctionnelle",
+    timestamp: new Date().toISOString(),
+    routes_disponibles: [
+      "GET /presences/historique?dateDebut=YYYY-MM-DD&dateFin=YYYY-MM-DD",
+      "POST /presences/entree-ultra-simple",
+      "POST /presences/sortie-fixed",
+      "GET /agents/matricule/:matricule"
+    ]
+  });
+});
+
 console.log('✅ Minimal API ready!');
 
 module.exports = app;
