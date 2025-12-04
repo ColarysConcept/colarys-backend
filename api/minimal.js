@@ -4394,21 +4394,14 @@ app.post('/api/presences/verifier-etat', async (req, res) => {
     });
   }
 });
-// Dans minimal.js - CORRECTION CRITIQUE pour éviter l'erreur 500
+// Dans minimal.js - CORRECTION ULTIME pour gérer les conflits de matricule
 app.post('/api/presences/entree-fixed-columns', async (req, res) => {
-  console.log('🎯 Pointage entrée FIXED-COLUMNS avec signatures:', req.body);
+  console.log('🎯 Pointage entrée FIXED-COLUMNS - Gestion de conflits:', req.body);
   
   try {
     const data = req.body;
     
-    // ✅ CORRECTION : Validation améliorée
-    if (!data || typeof data !== 'object') {
-      return res.status(400).json({
-        success: false,
-        error: "Données invalides"
-      });
-    }
-    
+    // Validation
     if (!data.nom || !data.prenom) {
       return res.status(400).json({
         success: false,
@@ -4434,34 +4427,126 @@ app.post('/api/presences/entree-fixed-columns', async (req, res) => {
       console.log('🎫 Matricule généré:', matricule);
     }
     
-    // ✅ CORRECTION : Utiliser une transaction
-    const queryRunner = AppDataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+    // ✅ CORRECTION : Recherche intelligente de l'agent
+    let agentId = null;
+    let agentTrouveDans = null;
     
-    try {
-      let agentId = null;
+    // 1. Chercher EXACTEMENT dans agents_colarys (table cible de la FK)
+    const agentDansColarys = await AppDataSource.query(
+      'SELECT id FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+    
+    if (agentDansColarys.length > 0) {
+      agentId = agentDansColarys[0].id;
+      agentTrouveDans = 'agents_colarys';
+      console.log(`✅ Agent trouvé dans agents_colarys: ${agentId}`);
       
-      // 1. Chercher dans agents_colarys
-      const existingAgent = await queryRunner.query(
-        'SELECT id FROM agents_colarys WHERE matricule = $1',
+      // Vérifier qu'il existe aussi dans agent avec le même ID
+      const agentDansAgent = await AppDataSource.query(
+        'SELECT id FROM agent WHERE id = $1',
+        [agentId]
+      );
+      
+      if (agentDansAgent.length === 0) {
+        // Créer dans agent avec le même ID
+        console.log(`⚠️ Agent ${matricule} existe dans agents_colarys mais pas dans agent, création...`);
+        
+        const agentInfo = await AppDataSource.query(
+          'SELECT nom, prenom, role FROM agents_colarys WHERE id = $1',
+          [agentId]
+        );
+        
+        if (agentInfo.length > 0) {
+          const info = agentInfo[0];
+          await AppDataSource.query(
+            `INSERT INTO agent 
+             (id, matricule, nom, prenom, campagne, date_creation) 
+             VALUES ($1, $2, $3, $4, $5, NOW())`,
+            [
+              agentId,
+              matricule,
+              data.nom || info.nom,
+              data.prenom || info.prenom,
+              data.campagne || info.role || 'Standard'
+            ]
+          );
+          console.log(`✅ Agent créé dans table agent avec ID: ${agentId}`);
+        }
+      }
+    } else {
+      // 2. Chercher dans agent
+      const agentDansAgent = await AppDataSource.query(
+        'SELECT id FROM agent WHERE matricule = $1',
         [matricule]
       );
       
-      if (existingAgent.length > 0) {
-        agentId = existingAgent[0].id;
-        console.log(`✅ Agent existant: ${agentId}`);
+      if (agentDansAgent.length > 0) {
+        agentId = agentDansAgent[0].id;
+        agentTrouveDans = 'agent';
+        console.log(`⚠️ Agent trouvé dans agent mais pas dans agents_colarys: ${agentId}`);
+        
+        // Créer dans agents_colarys avec le même ID
+        const agentInfo = await AppDataSource.query(
+          'SELECT nom, prenom, campagne FROM agent WHERE id = $1',
+          [agentId]
+        );
+        
+        if (agentInfo.length > 0) {
+          const info = agentInfo[0];
+          await AppDataSource.query(
+            `INSERT INTO agents_colarys 
+             (id, matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())`,
+            [
+              agentId,
+              matricule,
+              data.nom || info.nom,
+              data.prenom || info.prenom,
+              data.campagne || info.campagne || 'Standard',
+              `${(data.nom || info.nom).toLowerCase()}.${(data.prenom || info.prenom).toLowerCase()}@colarys.com`,
+              '',
+              'Colarys Concept',
+              '/images/default-avatar.svg',
+              'default-avatar'
+            ]
+          );
+          console.log(`✅ Agent créé dans agents_colarys avec ID: ${agentId}`);
+        }
       } else {
-        // 2. Créer nouvel agent
+        // 3. Nouvel agent - générer un ID unique
         console.log('🆕 Création nouvel agent...');
         
-        const maxIdResult = await queryRunner.query(
-          'SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM agents_colarys'
+        // Vérifier le prochain ID disponible dans agents_colarys
+        const maxIdResult = await AppDataSource.query(
+          'SELECT COALESCE(MAX(id), 0) as max_id FROM agents_colarys'
         );
-        agentId = parseInt(maxIdResult[0].next_id);
+        agentId = parseInt(maxIdResult[0].max_id) + 1;
+        
+        // Vérifier que cet ID n'existe pas déjà dans agent
+        const idExisteDansAgent = await AppDataSource.query(
+          'SELECT id FROM agent WHERE id = $1',
+          [agentId]
+        );
+        
+        if (idExisteDansAgent.length > 0) {
+          // Trouver un ID libre
+          let idLibre = agentId;
+          while (true) {
+            const existe = await AppDataSource.query(
+              'SELECT id FROM agent WHERE id = $1',
+              [idLibre]
+            );
+            if (existe.length === 0) {
+              agentId = idLibre;
+              break;
+            }
+            idLibre++;
+          }
+        }
         
         // Créer dans agents_colarys
-        await queryRunner.query(
+        await AppDataSource.query(
           `INSERT INTO agents_colarys 
            (id, matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())`,
@@ -4480,7 +4565,7 @@ app.post('/api/presences/entree-fixed-columns', async (req, res) => {
         );
         
         // Créer dans agent aussi
-        await queryRunner.query(
+        await AppDataSource.query(
           `INSERT INTO agent 
            (id, matricule, nom, prenom, campagne, date_creation) 
            VALUES ($1, $2, $3, $4, $5, NOW())`,
@@ -4493,132 +4578,104 @@ app.post('/api/presences/entree-fixed-columns', async (req, res) => {
           ]
         );
         
-        console.log(`✅ Nouvel agent créé: ${agentId}`);
+        console.log(`✅ Nouvel agent créé: ${agentId} dans les deux tables`);
       }
-      
-      // Vérifier si présence existe déjà
-      const existingPresence = await queryRunner.query(
-        'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
-        [agentId, today]
-      );
-      
-      if (existingPresence.length > 0) {
-        await queryRunner.rollbackTransaction();
-        return res.status(400).json({
-          success: false,
-          error: "Une présence existe déjà pour aujourd'hui"
-        });
-      }
-      
-      // ✅ CRÉER LA PRÉSENCE
-      const presence = await queryRunner.query(
-        `INSERT INTO presence 
-         (agent_id, date, heure_entree, shift, created_at) 
-         VALUES ($1, $2, $3, $4, NOW()) 
-         RETURNING id, date, heure_entree`,
-        [agentId, today, timeNow, data.shift || 'JOUR']
-      );
-      
-      const presenceId = presence[0].id;
-      
-      // ✅ CORRECTION CRITIQUE : Vérifier la signature
-      let signatureToSave = data.signatureEntree || '';
-      if (signatureToSave) {
-        if (!signatureToSave.startsWith('data:image/')) {
-          signatureToSave = 'data:image/png;base64,' + signatureToSave;
-          console.log('🔧 Signature formatée avec préfixe');
-        }
-        
-        // CRÉER LE DÉTAIL AVEC LA SIGNATURE
-        await queryRunner.query(
-          `INSERT INTO detail_presence 
-           (presence_id, signature_entree, created_at, updated_at) 
-           VALUES ($1, $2, NOW(), NOW())`,
-          [presenceId, signatureToSave]
-        );
-        
-        console.log('✅ Détails avec signature créés pour présence:', presenceId);
-      } else {
-        // Créer un détail vide
-        await queryRunner.query(
-          `INSERT INTO detail_presence 
-           (presence_id, created_at, updated_at) 
-           VALUES ($1, NOW(), NOW())`,
-          [presenceId]
-        );
-        console.log('⚠️ Aucune signature fournie, détail vide créé');
-      }
-      
-      await queryRunner.commitTransaction();
-      
-      // Récupérer la présence complète
-      const completePresence = await AppDataSource.query(`
-        SELECT 
-          p.*,
-          a.matricule,
-          a.nom,
-          a.prenom,
-          a.campagne,
-          d.signature_entree,
-          d.signature_sortie
-        FROM presence p
-        LEFT JOIN agent a ON p.agent_id = a.id
-        LEFT JOIN detail_presence d ON p.id = d.presence_id
-        WHERE p.id = $1
-      `, [presenceId]);
-      
-      res.json({
-        success: true,
-        message: "Pointage d'entrée enregistré avec succès",
-        data: {
-          presence_id: presenceId,
-          matricule: matricule,
-          nom: data.nom,
-          prenom: data.prenom,
-          heure_entree: presence[0].heure_entree,
-          date: presence[0].date,
-          agent_id: agentId,
-          shift: data.shift || 'JOUR',
-          signature_entree: signatureToSave || null
-        },
-        presence: completePresence[0] || null
-      });
-      
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
     }
     
-  } catch (error) {
-    console.error('❌ Erreur pointage avec signature:', error);
+    // Vérifier si présence existe déjà
+    const existingPresence = await AppDataSource.query(
+      'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
+      [agentId, today]
+    );
     
-    // ✅ CORRECTION : Messages d'erreur plus informatifs
-    let errorMessage = "Erreur pointage d'entrée";
-    let errorCode = null;
+    if (existingPresence.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Une présence existe déjà pour aujourd'hui"
+      });
+    }
     
-    if (error.code) {
-      errorCode = error.code;
-      switch (error.code) {
-        case '23505':
-          errorMessage = "Matricule déjà utilisé";
-          break;
-        case '23503':
-          errorMessage = "Référence à un agent inexistant";
-          break;
-        case '23502':
-          errorMessage = "Champ obligatoire manquant";
-          break;
+    // ✅ CRÉER LA PRÉSENCE
+    const presence = await AppDataSource.query(
+      `INSERT INTO presence 
+       (agent_id, date, heure_entree, shift, created_at) 
+       VALUES ($1, $2, $3, $4, NOW()) 
+       RETURNING id, date, heure_entree`,
+      [agentId, today, timeNow, data.shift || 'JOUR']
+    );
+    
+    const presenceId = presence[0].id;
+    
+    // ✅ ENREGISTRER LA SIGNATURE
+    let signatureToSave = data.signatureEntree || '';
+    if (signatureToSave) {
+      if (!signatureToSave.startsWith('data:image/')) {
+        signatureToSave = 'data:image/png;base64,' + signatureToSave;
       }
+      
+      // CRÉER LE DÉTAIL AVEC LA SIGNATURE
+      await AppDataSource.query(
+        `INSERT INTO detail_presence 
+         (presence_id, signature_entree, created_at, updated_at) 
+         VALUES ($1, $2, NOW(), NOW())`,
+        [presenceId, signatureToSave]
+      );
+      
+      console.log(`✅ Signature enregistrée pour présence ${presenceId}`);
+    } else {
+      // Créer un détail vide
+      await AppDataSource.query(
+        `INSERT INTO detail_presence 
+         (presence_id, created_at, updated_at) 
+         VALUES ($1, NOW(), NOW())`,
+        [presenceId]
+      );
+      console.log('⚠️ Aucune signature fournie');
+    }
+    
+    res.json({
+      success: true,
+      message: "Pointage d'entrée enregistré avec succès",
+      data: {
+        presence_id: presenceId,
+        matricule: matricule,
+        nom: data.nom,
+        prenom: data.prenom,
+        heure_entree: presence[0].heure_entree,
+        date: presence[0].date,
+        agent_id: agentId,
+        shift: data.shift || 'JOUR',
+        signature_entree: signatureToSave || null,
+        agent_source: agentTrouveDans || 'nouveau'
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur pointage:', error);
+    
+    let errorMessage = "Erreur lors du pointage";
+    let errorDetails = error.message;
+    
+    if (error.code === '23505') {
+      // Violation de contrainte unique
+      if (error.detail?.includes('matricule')) {
+        errorMessage = "Ce matricule existe déjà avec un ID différent";
+        errorDetails = "Le matricule existe déjà mais avec un ID incompatible. Utilisez un autre matricule.";
+      } else if (error.detail?.includes('id')) {
+        errorMessage = "Conflit d'ID dans la base de données";
+        errorDetails = "L'ID généré existe déjà. Réessayez.";
+      }
+    } else if (error.code === '23503') {
+      errorMessage = "Erreur de référence à un agent inexistant";
+      errorDetails = "L'agent n'existe pas dans la table cible de la clé étrangère.";
     }
     
     res.status(500).json({
       success: false,
       error: errorMessage,
-      details: error.message,
-      code: errorCode,
-      suggestion: "Vérifiez que l'agent existe bien dans la base"
+      details: errorDetails,
+      code: error.code,
+      suggestion: "Essayez avec un matricule différent ou contactez l'administrateur"
     });
   }
 });
@@ -5372,6 +5429,191 @@ app.post('/api/emergency-fix', async (_req, res) => {
 });
 
 
+// Dans minimal.js - Ajouter cette route de diagnostic
+app.get('/api/diagnose-matricule/:matricule', async (req, res) => {
+  try {
+    const matricule = req.params.matricule;
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    console.log(`🔍 Diagnostic du matricule: ${matricule}`);
+    
+    // Rechercher dans toutes les tables
+    const dansAgentsColarys = await AppDataSource.query(
+      'SELECT id, nom, prenom, role, created_at FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+    
+    const dansAgent = await AppDataSource.query(
+      'SELECT id, nom, prenom, campagne, date_creation FROM agent WHERE matricule = $1',
+      [matricule]
+    );
+    
+    // Vérifier les présences existantes
+    let presences = [];
+    if (dansAgentsColarys.length > 0) {
+      presences = await AppDataSource.query(
+        'SELECT id, date, heure_entree FROM presence WHERE agent_id = $1 ORDER BY date DESC LIMIT 5',
+        [dansAgentsColarys[0].id]
+      );
+    } else if (dansAgent.length > 0) {
+      presences = await AppDataSource.query(
+        'SELECT id, date, heure_entree FROM presence WHERE agent_id = $1 ORDER BY date DESC LIMIT 5',
+        [dansAgent[0].id]
+      );
+    }
+    
+    res.json({
+      success: true,
+      matricule: matricule,
+      dans_agents_colarys: dansAgentsColarys,
+      dans_agent: dansAgent,
+      presences: presences,
+      analyse: {
+        existe_dans_colarys: dansAgentsColarys.length > 0,
+        existe_dans_agent: dansAgent.length > 0,
+        ids_differents: dansAgentsColarys.length > 0 && dansAgent.length > 0 && 
+                       dansAgentsColarys[0].id !== dansAgent[0].id,
+        suggestion: dansAgentsColarys.length === 0 ? 
+          "Agent n'existe pas dans agents_colarys (table cible de la FK)" :
+          dansAgent.length === 0 ? 
+          "Agent n'existe pas dans agent" :
+          dansAgentsColarys[0].id === dansAgent[0].id ? 
+          "Agent cohérent dans les deux tables" :
+          "⚠️ IDs différents! Corriger avec /api/fix-matricule/" + matricule
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur diagnostic matricule:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+
+// Dans minimal.js - Ajouter cette route de correction
+app.post('/api/fix-matricule/:matricule', async (req, res) => {
+  try {
+    const matricule = req.params.matricule;
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    console.log(`🔧 Correction du matricule: ${matricule}`);
+    
+    // 1. Vérifier l'état actuel
+    const dansAgentsColarys = await AppDataSource.query(
+      'SELECT id, nom, prenom FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+    
+    const dansAgent = await AppDataSource.query(
+      'SELECT id, nom, prenom FROM agent WHERE matricule = $1',
+      [matricule]
+    );
+    
+    if (dansAgentsColarys.length === 0 && dansAgent.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Matricule non trouvé"
+      });
+    }
+    
+    let agentIdColarys = dansAgentsColarys.length > 0 ? dansAgentsColarys[0].id : null;
+    let agentIdAgent = dansAgent.length > 0 ? dansAgent[0].id : null;
+    
+    // 2. Déterminer l'ID cible (priorité à agents_colarys car c'est la cible de la FK)
+    let targetId = agentIdColarys || agentIdAgent;
+    let actions = [];
+    
+    // 3. Corriger les IDs si différents
+    if (agentIdColarys && agentIdAgent && agentIdColarys !== agentIdAgent) {
+      console.log(`⚠️ IDs différents: ${agentIdAgent} (agent) vs ${agentIdColarys} (agents_colarys)`);
+      
+      // Utiliser l'ID de agents_colarys comme référence
+      targetId = agentIdColarys;
+      
+      // Supprimer l'entrée dans agent avec l'ancien ID si elle existe
+      await AppDataSource.query(
+        'DELETE FROM agent WHERE id = $1',
+        [agentIdAgent]
+      );
+      actions.push(`Supprimé agent avec ancien ID ${agentIdAgent}`);
+      
+      // Créer une nouvelle entrée dans agent avec le bon ID
+      const agentInfo = dansAgentsColarys[0];
+      await AppDataSource.query(
+        `INSERT INTO agent 
+         (id, matricule, nom, prenom, campagne, date_creation)
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [
+          targetId,
+          matricule,
+          agentInfo.nom,
+          agentInfo.prenom,
+          'Standard'
+        ]
+      );
+      actions.push(`Créé agent avec ID ${targetId}`);
+      
+      // Mettre à jour les présences
+      const presencesUpdates = await AppDataSource.query(
+        'UPDATE presence SET agent_id = $1 WHERE agent_id = $2 RETURNING id',
+        [targetId, agentIdAgent]
+      );
+      
+      if (presencesUpdates.length > 0) {
+        actions.push(`Mis à jour ${presencesUpdates.length} présence(s) de ${agentIdAgent} à ${targetId}`);
+      }
+    } else if (!agentIdColarys && agentIdAgent) {
+      // Existe seulement dans agent, créer dans agents_colarys
+      targetId = agentIdAgent;
+      const agentInfo = dansAgent[0];
+      
+      await AppDataSource.query(
+        `INSERT INTO agents_colarys 
+         (id, matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())`,
+        [
+          targetId,
+          matricule,
+          agentInfo.nom,
+          agentInfo.prenom,
+          'Standard',
+          `${agentInfo.nom.toLowerCase()}.${agentInfo.prenom.toLowerCase()}@colarys.com`,
+          '',
+          'Colarys Concept',
+          '/images/default-avatar.svg',
+          'default-avatar'
+        ]
+      );
+      actions.push(`Créé dans agents_colarys avec ID ${targetId}`);
+    }
+    
+    res.json({
+      success: true,
+      message: "Matricule corrigé",
+      matricule: matricule,
+      final_agent_id: targetId,
+      actions: actions,
+      test_pointage: `POST /api/presences/entree-fixed-columns avec { "matricule": "${matricule}", "nom": "...", "prenom": "..." }`
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur correction matricule:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: error.code
+    });
+  }
+});
 
 console.log('✅ Minimal API ready!');
 
