@@ -162,29 +162,151 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.post('/api/presences/entree-ultra-simple', async (req, res) => {
-  console.log('🚀 ULTRA SIMPLE appelé:', req.body.matricule);
+  console.log('🚀 ULTRA SIMPLE - Création RÉELLE pour:', req.body.matricule);
   
   try {
     const data = req.body;
     
-    // Réponse de test SIMPLE
+    // Validation
+    if (!data.nom || !data.prenom) {
+      return res.status(400).json({
+        success: false,
+        error: "Nom et prénom sont requis"
+      });
+    }
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    const today = new Date().toISOString().split('T')[0];
+    const timeNow = '08:00:00';
+    let matricule = data.matricule?.trim() || '';
+    
+    // Vérifier si déjà pointé aujourd'hui
+    if (matricule) {
+      const existingToday = await AppDataSource.query(`
+        SELECT p.id 
+        FROM presence p
+        JOIN agent a ON p.agent_id = a.id
+        WHERE a.matricule = $1 AND p.date = $2
+      `, [matricule, today]);
+      
+      if (existingToday.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: "Entrée déjà pointée aujourd'hui",
+          presence_id: existingToday[0].id
+        });
+      }
+    }
+    
+    // ÉTAPE 1: Trouver ou créer l'agent
+    let agentId = null;
+    
+    if (matricule && matricule !== '') {
+      const agent = await AppDataSource.query(
+        'SELECT id FROM agent WHERE matricule = $1',
+        [matricule]
+      );
+      
+      if (agent.length > 0) {
+        agentId = agent[0].id;
+        console.log(`✅ Agent trouvé: ${agentId}`);
+      } else {
+        // Créer nouvel agent
+        const newAgent = await AppDataSource.query(`
+          INSERT INTO agent (matricule, nom, prenom, campagne, "createdAt")
+          VALUES ($1, $2, $3, $4, NOW())
+          RETURNING id
+        `, [matricule, data.nom, data.prenom, data.campagne || 'Standard']);
+        
+        agentId = newAgent[0].id;
+        console.log(`✅ Nouvel agent créé: ${agentId}`);
+      }
+    } else {
+      // Matricule vide, générer un
+      matricule = `AG-${Date.now().toString().slice(-6)}`;
+      
+      const newAgent = await AppDataSource.query(`
+        INSERT INTO agent (matricule, nom, prenom, campagne, "createdAt")
+        VALUES ($1, $2, $3, $4, NOW())
+        RETURNING id
+      `, [matricule, data.nom, data.prenom, data.campagne || 'Standard']);
+      
+      agentId = newAgent[0].id;
+      console.log(`✅ Nouvel agent sans matricule: ${agentId}`);
+    }
+    
+    // ÉTAPE 2: S'assurer que l'agent existe dans agents_colarys (pour la FK)
+    try {
+      const inColarys = await AppDataSource.query(
+        'SELECT id FROM agents_colarys WHERE id = $1',
+        [agentId]
+      );
+      
+      if (inColarys.length === 0) {
+        await AppDataSource.query(`
+          INSERT INTO agents_colarys (id, matricule, nom, prenom, role, mail, entreprise, "created_at")
+          VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+        `, [
+          agentId,
+          matricule,
+          data.nom,
+          data.prenom,
+          data.campagne || 'Standard',
+          `${data.nom.toLowerCase()}.${data.prenom.toLowerCase()}@colarys.com`,
+          'Colarys Concept'
+        ]);
+        console.log(`✅ Agent ajouté à agents_colarys: ${agentId}`);
+      }
+    } catch (colarysError) {
+      console.log('⚠️ agents_colarys ignoré:', colarysError.message);
+    }
+    
+    // ÉTAPE 3: Créer la présence
+    const presence = await AppDataSource.query(`
+      INSERT INTO presence (agent_id, date, heure_entree, shift, created_at)
+      VALUES ($1, $2, $3, $4, NOW())
+      RETURNING id, date, heure_entree
+    `, [agentId, today, timeNow, data.shift || 'JOUR']);
+    
+    const presenceId = presence[0].id;
+    
+    console.log(`🎉 SUCCÈS! Présence créée: ${presenceId}`);
+    
     res.json({
       success: true,
-      message: "✅ Route /api/presences/entree-ultra-simple AJOUTÉE avec succès!",
-      received_data: {
-        matricule: data.matricule,
+      message: "Pointage d'entrée RÉUSSI!",
+      data: {
+        presence_id: presenceId,
+        matricule: matricule,
         nom: data.nom,
         prenom: data.prenom,
-        signature_length: data.signatureEntree?.length || 0
+        heure_entree: presence[0].heure_entree,
+        date: presence[0].date,
+        agent_id: agentId
       },
-      test: "Cette route existe maintenant. Le pointage va fonctionner."
+      test: "Vérifiez maintenant dans l'historique"
     });
     
   } catch (error) {
     console.error('❌ Erreur ultra simple:', error);
+    
+    // Gestion spécifique des erreurs
+    let errorMessage = "Erreur lors du pointage";
+    
+    if (error.code === '23505') {
+      errorMessage = "Matricule déjà existant";
+    } else if (error.code === '23503') {
+      errorMessage = "Erreur de clé étrangère (agent manquant dans agents_colarys)";
+    }
+    
     res.status(500).json({
       success: false,
-      error: error.message
+      error: errorMessage,
+      details: error.message,
+      code: error.code
     });
   }
 });
