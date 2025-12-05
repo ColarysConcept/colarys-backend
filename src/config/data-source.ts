@@ -19,6 +19,7 @@ console.log('🔧 Database configuration - Loading entities...');
 // ✅ CONFIGURATION AVEC ENTITÉS EXPLICITES POUR SUPABASE
 export const AppDataSource = new DataSource({
   type: "postgres",
+  url: process.env.DATABASE_URL || undefined,
   host: process.env.POSTGRES_HOST,
   port: parseInt(process.env.POSTGRES_PORT || "5432"),
   username: process.env.POSTGRES_USER,
