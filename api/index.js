@@ -1,7 +1,13 @@
-// api/index.js
+// api/index.js - MODIFIEZ-LE AUSSI
 console.log('Colarys API – Démarrage version COMPLÈTE')
 
 const path = require('path')
+
+// ⚠️ Désactiver la vérification SSL pour Supabase
+if (process.env.NODE_ENV === 'production') {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  console.log('🔓 SSL verification disabled globally');
+}
 
 module.exports = async (req, res) => {
   try {

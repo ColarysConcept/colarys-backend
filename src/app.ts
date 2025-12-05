@@ -1,4 +1,10 @@
 import "reflect-metadata";
+
+if (process.env.NODE_ENV === 'production') {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  console.log('🔓 SSL verification disabled for Supabase Pooler');
+}
+
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";

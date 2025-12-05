@@ -1,8 +1,10 @@
 // src/config/data-source.ts
 import { DataSource } from "typeorm";
 import dotenv from "dotenv";
+import fs from "fs";
+import path from "path";
 
-// Importez TOUTES vos entités
+// Imports de vos entités
 import { User } from "../entities/User";
 import { Agent } from "../entities/Agent";
 import { Presence } from "../entities/Presence";
@@ -14,26 +16,28 @@ import { AgentColarys } from "../entities/AgentColarys";
 
 dotenv.config();
 
-console.log('🔧 Loading database configuration for Supabase Pooler...');
+console.log('🔧 Configuring database with SSL fix for Supabase Pooler...');
 
-// Configuration spécifique pour Supabase Pooler
-const isProduction = process.env.NODE_ENV === 'production';
-const databaseUrl = process.env.DATABASE_URL;
+// IMPORTANT: Désactiver la vérification SSL pour Supabase Pooler
+// Nécessaire car Supabase utilise un certificat self-signed
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
+// Construction de l'URL de connexion
+const databaseUrl = process.env.DATABASE_URL || 
+  `postgresql://${process.env.POSTGRES_USER}:${encodeURIComponent(process.env.POSTGRES_PASSWORD || '')}@${process.env.POSTGRES_HOST}:${process.env.POSTGRES_PORT || '6543'}/${process.env.POSTGRES_DB}?sslmode=require&ssl=true`;
+
+console.log('🔗 Database URL configured (masked):', 
+  databaseUrl.replace(/:[^:@]+@/, ':****@'));
 
 export const AppDataSource = new DataSource({
   type: "postgres",
   
-  // ✅ UTILISEZ DATABASE_URL (obligatoire avec le pooler)
+  // ✅ Utilisez l'URL complète (la plus fiable)
   url: databaseUrl,
   
-  // Fallback (ne sera pas utilisé si DATABASE_URL est défini)
-  host: process.env.POSTGRES_HOST,
-  port: parseInt(process.env.POSTGRES_PORT || "6543"), // Note: 6543 pour le pooler
-  username: process.env.POSTGRES_USER,
-  password: process.env.POSTGRES_PASSWORD,
-  database: process.env.POSTGRES_DB,
+  // ❌ NE PAS spécifier host/port/user séparément quand on utilise url
   
-  // ENTITÉS - Toutes vos entités
+  // Entités
   entities: [
     User,
     Agent,
@@ -45,113 +49,106 @@ export const AppDataSource = new DataSource({
     AgentColarys
   ],
   
-  // IMPORTANT: FALSE en production avec des tables existantes
+  // IMPORTANT pour Supabase
   synchronize: false,
   migrationsRun: false,
   
-  // Logging pour debug
-  logging: isProduction ? ["error", "warn"] : ["error", "warn", "query"],
+  // Logging
+  logging: ["error", "warn"],
   
-  // SSL OBLIGATOIRE avec Supabase Pooler
-  ssl: true, // Toujours true avec le pooler
+  // ✅ CONFIGURATION SSL SPÉCIALE POUR SUPABASE POOLER
+  ssl: true, // Force SSL
   
-  // Configuration du pool de connexions
+  // ✅ CONFIGURATION CRITIQUE POUR DÉSACTIVER LA VÉRIFICATION SSL
   extra: {
-    max: 20, // Augmentez pour le pooler
+    ssl: {
+      rejectUnauthorized: false, // ⚠️ Désactive la vérification du certificat
+      require: true
+    },
+    // Configuration du pool
+    max: 20,
     connectionTimeoutMillis: 10000,
     idleTimeoutMillis: 30000,
-    ssl: {
-      rejectUnauthorized: false, // IMPORTANT pour Supabase
-      require: true
-    }
-  },
-  
-  // Schéma
-  schema: "public"
+    // Timeouts
+    statement_timeout: 30000,
+    query_timeout: 30000
+  }
 });
 
 export const initializeDatabase = async (): Promise<boolean> => {
   try {
-    console.log('🔄 Initializing database connection to Supabase Pooler...');
-    console.log('📊 Using Pooler host:', process.env.POSTGRES_HOST);
+    console.log('🔄 Initializing database with SSL bypass...');
     
     if (AppDataSource.isInitialized) {
-      console.log('✅ Database already connected');
+      console.log('✅ Database already initialized');
       return true;
     }
     
-    // Debug info (sans mot de passe)
-    console.log('🔍 Connection details:', {
-      host: process.env.POSTGRES_HOST,
-      port: process.env.POSTGRES_PORT,
-      user: process.env.POSTGRES_USER?.substring(0, 15) + '...',
-      database: process.env.POSTGRES_DB,
-      hasURL: !!databaseUrl,
-      ssl: 'enabled'
-    });
+    // Forcer la désactivation de la vérification SSL au niveau Node.js
+    const originalReject = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
     
-    // Initialisation
-    await AppDataSource.initialize();
-    
-    // Test de connexion
-    const result = await AppDataSource.query(`
-      SELECT 
-        current_database() as db,
-        current_user as user,
-        inet_client_addr() as client_ip,
-        version() as pg_version
-    `);
-    
-    console.log('✅ Database connected successfully:', {
-      database: result[0]?.db,
-      user: result[0]?.user,
-      clientIP: result[0]?.client_ip,
-      version: result[0]?.pg_version?.split(',')[0]
-    });
-    
-    // Vérifier les tables
-    const tables = await AppDataSource.query(`
-      SELECT table_name, table_type
-      FROM information_schema.tables 
-      WHERE table_schema = 'public'
-      ORDER BY table_name
-    `);
-    
-    console.log(`📊 Found ${tables.length} tables in database`);
-    
-    // Afficher les tables importantes
-    const importantTables = tables.filter((t: any) => 
-      ['users', 'agents', 'presences', 'roles', 'agents_colarys'].includes(t.table_name)
-    );
-    
-    if (importantTables.length > 0) {
-      console.log('✅ Important tables found:', importantTables.map((t: any) => t.table_name));
-    } else {
-      console.warn('⚠️ Important tables not found - database might be empty');
+    try {
+      console.log('🔧 SSL verification disabled for connection attempt');
+      
+      // Debug info
+      console.log('📊 Connection details:', {
+        host: process.env.POSTGRES_HOST,
+        port: process.env.POSTGRES_PORT,
+        user: process.env.POSTGRES_USER?.substring(0, 10) + '...',
+        hasSSL: true,
+        sslRejectUnauthorized: false
+      });
+      
+      await AppDataSource.initialize();
+      
+      // Test query
+      const result = await AppDataSource.query(`
+        SELECT 
+          current_database() as db,
+          current_user as user,
+          version() as version,
+          now() as server_time
+      `);
+      
+      console.log('✅ Database connected successfully!');
+      console.log('📊 Connection info:', {
+        database: result[0].db,
+        user: result[0].user,
+        version: result[0].version.split(',')[0],
+        time: result[0].server_time
+      });
+      
+      // Restaurer le paramètre SSL
+      if (originalReject !== undefined) {
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = originalReject;
+      } else {
+        delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+      }
+      
+      return true;
+      
+    } catch (initError: any) {
+      // Restaurer même en cas d'erreur
+      if (originalReject !== undefined) {
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = originalReject;
+      }
+      throw initError;
     }
     
-    return true;
-    
   } catch (error: any) {
-    console.error('❌ Database connection failed:', {
+    console.error('❌ Database initialization failed:', {
       message: error.message,
       code: error.code,
-      detail: error.detail,
-      hint: error.hint
+      detail: error.detail
     });
     
-    // Diagnostic spécifique pour le pooler
-    console.log('\n🔧 TROUBLESHOOTING SUPABASE POOLER:');
-    console.log('1. Vérifiez que DATABASE_URL est défini dans Vercel');
-    console.log('2. Le pooler utilise le port 6543 (pas 5432)');
-    console.log('3. SSL est obligatoire: sslmode=require');
-    console.log('4. Vérifiez les permissions dans Supabase Dashboard');
-    console.log('5. Vérifiez que le compte a accès à la base de données');
-    
-    // Afficher l'URL (masquée) pour debug
-    if (databaseUrl) {
-      const maskedUrl = databaseUrl.replace(/:[^:@]+@/, ':***@');
-      console.log('🔗 DATABASE_URL (masked):', maskedUrl);
+    // Diagnostic spécifique SSL
+    if (error.message.includes('SSL') || error.message.includes('certificate')) {
+      console.log('\n🔧 SSL FIX REQUIRED:');
+      console.log('1. Supabase Pooler uses self-signed certificates');
+      console.log('2. Node.js rejects them by default');
+      console.log('3. Solution: rejectUnauthorized: false in SSL config');
     }
     
     return false;
