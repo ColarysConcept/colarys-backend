@@ -1,8 +1,6 @@
 // src/config/data-source.ts
 import { DataSource } from "typeorm";
 import dotenv from "dotenv";
-import fs from "fs";
-import path from "path";
 
 // Imports de vos entités
 import { User } from "../entities/User";
@@ -16,26 +14,37 @@ import { AgentColarys } from "../entities/AgentColarys";
 
 dotenv.config();
 
-console.log('🔧 Configuring database with SSL fix for Supabase Pooler...');
+console.log('🔧 Loading database config for Vercel + Supabase...');
 
-// IMPORTANT: Désactiver la vérification SSL pour Supabase Pooler
-// Nécessaire car Supabase utilise un certificat self-signed
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+// Désactiver la vérification SSL pour Supabase (nécessaire)
+if (process.env.NODE_ENV === 'production') {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
 
 // Construction de l'URL de connexion
-const databaseUrl = process.env.DATABASE_URL || 
-  `postgresql://${process.env.POSTGRES_USER}:${encodeURIComponent(process.env.POSTGRES_PASSWORD || '')}@${process.env.POSTGRES_HOST}:${process.env.POSTGRES_PORT || '6543'}/${process.env.POSTGRES_DB}?sslmode=require&ssl=true`;
+const getDatabaseUrl = () => {
+  // Priorité 1: DATABASE_URL
+  if (process.env.DATABASE_URL) {
+    return process.env.DATABASE_URL;
+  }
+  
+  // Priorité 2: Construction à partir des variables
+  const host = process.env.POSTGRES_HOST;
+  const port = process.env.POSTGRES_PORT || '6543';
+  const user = process.env.POSTGRES_USER;
+  const password = encodeURIComponent(process.env.POSTGRES_PASSWORD || '');
+  const database = process.env.POSTGRES_DB || 'postgres';
+  
+  return `postgresql://${user}:${password}@${host}:${port}/${database}?sslmode=require`;
+};
 
-console.log('🔗 Database URL configured (masked):', 
-  databaseUrl.replace(/:[^:@]+@/, ':****@'));
+const databaseUrl = getDatabaseUrl();
 
 export const AppDataSource = new DataSource({
   type: "postgres",
   
-  // ✅ Utilisez l'URL complète (la plus fiable)
+  // ✅ Utilisez SEULEMENT l'URL (évite les problèmes de compatibilité)
   url: databaseUrl,
-  
-  // ❌ NE PAS spécifier host/port/user séparément quand on utilise url
   
   // Entités
   entities: [
@@ -49,107 +58,66 @@ export const AppDataSource = new DataSource({
     AgentColarys
   ],
   
-  // IMPORTANT pour Supabase
+  // Configuration critique pour Vercel
   synchronize: false,
   migrationsRun: false,
   
-  // Logging
-  logging: ["error", "warn"],
+  // Logging minimal en production
+  logging: process.env.NODE_ENV === 'production' ? ["error"] : ["error", "query"],
   
-  // ✅ CONFIGURATION SSL SPÉCIALE POUR SUPABASE POOLER
-  ssl: true, // Force SSL
-  
-  // ✅ CONFIGURATION CRITIQUE POUR DÉSACTIVER LA VÉRIFICATION SSL
+  // Configuration SSL simplifiée mais efficace
+  ssl: true,
   extra: {
     ssl: {
-      rejectUnauthorized: false, // ⚠️ Désactive la vérification du certificat
-      require: true
+      rejectUnauthorized: false
     },
-    // Configuration du pool
-    max: 20,
-    connectionTimeoutMillis: 10000,
-    idleTimeoutMillis: 30000,
-    // Timeouts
-    statement_timeout: 30000,
-    query_timeout: 30000
+    max: 10,
+    connectionTimeoutMillis: 10000
   }
 });
 
 export const initializeDatabase = async (): Promise<boolean> => {
   try {
-    console.log('🔄 Initializing database with SSL bypass...');
+    console.log('🔄 Attempting database connection...');
     
     if (AppDataSource.isInitialized) {
-      console.log('✅ Database already initialized');
+      console.log('✅ Already connected');
       return true;
     }
     
-    // Forcer la désactivation de la vérification SSL au niveau Node.js
-    const originalReject = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    console.log('📊 Using URL:', databaseUrl.replace(/:[^:@]+@/, ':****@'));
+    
+    // Forcer désactivation SSL pour cette tentative
+    const originalSSLSetting = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
     
     try {
-      console.log('🔧 SSL verification disabled for connection attempt');
-      
-      // Debug info
-      console.log('📊 Connection details:', {
-        host: process.env.POSTGRES_HOST,
-        port: process.env.POSTGRES_PORT,
-        user: process.env.POSTGRES_USER?.substring(0, 10) + '...',
-        hasSSL: true,
-        sslRejectUnauthorized: false
-      });
-      
       await AppDataSource.initialize();
       
-      // Test query
-      const result = await AppDataSource.query(`
-        SELECT 
-          current_database() as db,
-          current_user as user,
-          version() as version,
-          now() as server_time
-      `);
-      
-      console.log('✅ Database connected successfully!');
-      console.log('📊 Connection info:', {
-        database: result[0].db,
-        user: result[0].user,
-        version: result[0].version.split(',')[0],
-        time: result[0].server_time
-      });
+      // Test simple
+      const result = await AppDataSource.query('SELECT 1 as test, NOW() as time');
+      console.log('✅ Connection successful! Test query:', result[0].test);
       
       // Restaurer le paramètre SSL
-      if (originalReject !== undefined) {
-        process.env.NODE_TLS_REJECT_UNAUTHORIZED = originalReject;
-      } else {
-        delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+      if (originalSSLSetting !== undefined) {
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = originalSSLSetting;
       }
       
       return true;
-      
-    } catch (initError: any) {
+    } catch (initError) {
       // Restaurer même en cas d'erreur
-      if (originalReject !== undefined) {
-        process.env.NODE_TLS_REJECT_UNAUTHORIZED = originalReject;
+      if (originalSSLSetting !== undefined) {
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = originalSSLSetting;
       }
       throw initError;
     }
     
   } catch (error: any) {
-    console.error('❌ Database initialization failed:', {
+    console.error('❌ Database connection failed:', {
       message: error.message,
       code: error.code,
       detail: error.detail
     });
-    
-    // Diagnostic spécifique SSL
-    if (error.message.includes('SSL') || error.message.includes('certificate')) {
-      console.log('\n🔧 SSL FIX REQUIRED:');
-      console.log('1. Supabase Pooler uses self-signed certificates');
-      console.log('2. Node.js rejects them by default');
-      console.log('3. Solution: rejectUnauthorized: false in SSL config');
-    }
     
     return false;
   }

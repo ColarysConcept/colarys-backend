@@ -4,6 +4,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 require("reflect-metadata");
+if (process.env.NODE_ENV === 'production') {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    console.log('🔓 SSL verification disabled for Supabase Pooler');
+}
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const dotenv_1 = __importDefault(require("dotenv"));
@@ -249,6 +253,74 @@ app.get(`${API_PREFIX}/debug-entities`, async (_req, res) => {
         });
     }
 });
+app.get(`${API_PREFIX}/pooler-test`, async (_req, res) => {
+    var _a;
+    try {
+        const testResults = {
+            timestamp: new Date().toISOString(),
+            environment: {
+                NODE_ENV: process.env.NODE_ENV,
+                VERCEL: !!process.env.VERCEL,
+                HOST: process.env.POSTGRES_HOST,
+                PORT: process.env.POSTGRES_PORT,
+                USER: ((_a = process.env.POSTGRES_USER) === null || _a === void 0 ? void 0 : _a.substring(0, 10)) + '...',
+                HAS_DATABASE_URL: !!process.env.DATABASE_URL
+            },
+            connection: {
+                typeorm: data_source_1.AppDataSource.isInitialized ? 'Connected' : 'Disconnected',
+                direct: 'Not tested'
+            }
+        };
+        try {
+            const { Client } = require('pg');
+            const client = new Client({
+                connectionString: process.env.DATABASE_URL,
+                ssl: { rejectUnauthorized: false }
+            });
+            await client.connect();
+            const pgResult = await client.query('SELECT version(), current_database()');
+            await client.end();
+            testResults.connection.direct = 'Connected';
+            testResults.direct = {
+                version: pgResult.rows[0].version.split(',')[0],
+                database: pgResult.rows[0].current_database
+            };
+        }
+        catch (pgError) {
+            testResults.connection.direct = 'Failed: ' + pgError.message;
+        }
+        if (data_source_1.AppDataSource.isInitialized) {
+            try {
+                const tables = await data_source_1.AppDataSource.query(`
+          SELECT table_name 
+          FROM information_schema.tables 
+          WHERE table_schema = 'public'
+          ORDER BY table_name
+        `);
+                testResults.tables = tables.map((t) => t.table_name);
+                testResults.tableCount = tables.length;
+            }
+            catch (error) {
+                testResults.tableError = error.message;
+            }
+        }
+        res.json({
+            success: data_source_1.AppDataSource.isInitialized,
+            testResults,
+            recommendations: !process.env.DATABASE_URL ? [
+                'Add DATABASE_URL to environment variables',
+                'Format: postgresql://user:password@pooler.supabase.com:6543/db?sslmode=require'
+            ] : []
+        });
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+});
 console.log('📋 Mounting API routes...');
 app.use(`${API_PREFIX}/auth`, authRoutes_1.default);
 console.log('✅ Mounted: /api/auth');
@@ -306,36 +378,94 @@ app.use((err, _req, res, _next) => {
         database: data_source_1.AppDataSource.isInitialized ? "Connected" : "Disconnected"
     });
 });
-const startServer = async () => {
+const diagnoseDatabase = async () => {
+    console.log('🔍 Database diagnosis for Supabase Pooler...');
+    const envCheck = {
+        DATABASE_URL: process.env.DATABASE_URL ? '✅ Set' : '❌ Missing',
+        POSTGRES_HOST: process.env.POSTGRES_HOST || '❌ Missing',
+        POSTGRES_PORT: process.env.POSTGRES_PORT || '❌ Missing',
+        POSTGRES_USER: process.env.POSTGRES_USER ? '✅ Set' : '❌ Missing',
+        POSTGRES_DB: process.env.POSTGRES_DB || '❌ Missing',
+        NODE_ENV: process.env.NODE_ENV || 'development'
+    };
+    console.log('📋 Environment check:', envCheck);
     try {
-        console.log('🚀 Starting server initialization...');
-        try {
-            console.log('🔄 Database initialization started...');
-            const connected = await (0, data_source_1.initializeDatabase)();
-            if (connected) {
-                console.log('✅ Database connected successfully');
-                try {
-                    await createDefaultUser();
-                }
-                catch (userError) {
-                    console.warn('⚠️ Default user creation failed:', userError.message);
-                }
-            }
-            else {
-                console.warn('⚠️ Database connection failed, running in limited mode');
-            }
-        }
-        catch (dbError) {
-            console.error('❌ Database initialization error:', dbError.message);
-            console.warn('⚠️ Continuing without database connection');
-        }
-        console.log("✅ Server ready and listening for requests");
-        console.log("📊 Database status:", data_source_1.AppDataSource.isInitialized ? "CONNECTED" : "DISCONNECTED");
+        const { Client } = require('pg');
+        const client = new Client({
+            connectionString: process.env.DATABASE_URL,
+            ssl: { rejectUnauthorized: false }
+        });
+        await client.connect();
+        const res = await client.query('SELECT NOW() as time, version() as version');
+        console.log('✅ Direct pg connection successful:', {
+            time: res.rows[0].time,
+            version: res.rows[0].version.split(',')[0]
+        });
+        await client.end();
+        return true;
     }
-    catch (error) {
-        console.error("❌ Server startup error:", error);
+    catch (pgError) {
+        console.error('❌ Direct pg connection failed:', pgError.message);
+        if (pgError.message.includes('password authentication failed')) {
+            console.log('💡 Password might be incorrect or user lacks permissions');
+        }
+        else if (pgError.message.includes('no pg_hba.conf entry')) {
+            console.log('💡 Check Supabase network settings - allow all IPs temporarily');
+        }
+        else if (pgError.message.includes('SSL')) {
+            console.log('💡 SSL issue - ensure sslmode=require in DATABASE_URL');
+        }
+        return false;
     }
 };
+const startServer = async () => {
+    try {
+        console.log('🚀 Starting server with Supabase Pooler...');
+        await diagnoseDatabase();
+        let connected = false;
+        const maxRetries = 3;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            console.log(`\n🔄 TypeORM connection attempt ${attempt}/${maxRetries}`);
+            try {
+                connected = await (0, data_source_1.initializeDatabase)();
+                if (connected) {
+                    await checkInitialData();
+                    break;
+                }
+            }
+            catch (error) {
+                console.log(`⚠️ TypeORM attempt failed: ${error.message}`);
+            }
+            if (attempt < maxRetries) {
+                await new Promise(resolve => setTimeout(resolve, 3000));
+            }
+        }
+        console.log(`\n📊 FINAL STATUS: Database ${connected ? '✅ CONNECTED' : '❌ DISCONNECTED'}`);
+    }
+    catch (error) {
+        console.error('❌ Server startup error:', error);
+    }
+};
+async function checkInitialData() {
+    try {
+        const userRepo = data_source_1.AppDataSource.getRepository(User_1.User);
+        const adminUser = await userRepo.findOne({
+            where: { email: 'ressource.prod@gmail.com' }
+        });
+        if (adminUser) {
+            console.log('✅ Admin user found in database');
+        }
+        else {
+            console.log('⚠️ Admin user not found - creating...');
+            await createDefaultUser();
+        }
+        const agentCount = await data_source_1.AppDataSource.query('SELECT COUNT(*) FROM agents');
+        console.log(`📊 Agents in database: ${agentCount[0].count}`);
+    }
+    catch (error) {
+        console.log('⚠️ Could not check initial data:', error.message);
+    }
+}
 if (require.main === module || process.env.VERCEL) {
     startServer();
 }
