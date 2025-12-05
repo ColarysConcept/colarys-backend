@@ -85,4 +85,4 @@ node_modules/
 
 # Cloudinary
 uploads/
-temp/
+temp/.env 
