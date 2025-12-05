@@ -19,14 +19,15 @@ console.log('🔧 Database configuration - Loading entities...');
 // ✅ CONFIGURATION AVEC ENTITÉS EXPLICITES POUR SUPABASE
 export const AppDataSource = new DataSource({
   type: "postgres",
-  url: process.env.DATABASE_URL || undefined,
+  url: process.env.DATABASE_URL, // Utilisez l'URL complète
+  
+  // Fallback pour compatibilité
   host: process.env.POSTGRES_HOST,
   port: parseInt(process.env.POSTGRES_PORT || "5432"),
   username: process.env.POSTGRES_USER,
   password: process.env.POSTGRES_PASSWORD,
   database: process.env.POSTGRES_DB,
   
-  // ✅ LISTE EXPLICITE DE TOUTES LES ENTITÉS
   entities: [
     User,
     Agent, 
@@ -38,15 +39,18 @@ export const AppDataSource = new DataSource({
     AgentColarys
   ],
   
- synchronize: false, // IMPORTANT: false en production
-  logging: false,
-  extra: {
+  synchronize: false,
+  logging: true, // Activez pour debug
+  ssl: process.env.NODE_ENV === 'production' ? {
+    rejectUnauthorized: false
+  } : false,
+  
+  extra: process.env.NODE_ENV === 'production' ? {
     ssl: {
       rejectUnauthorized: false
     }
-  }
+  } : {}
 });
-
 export const initializeDatabase = async (): Promise<boolean> => {
   try {
     if (!AppDataSource.isInitialized) {

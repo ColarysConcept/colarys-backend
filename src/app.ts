@@ -351,37 +351,50 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
     database: AppDataSource.isInitialized ? "Connected" : "Disconnected"
   });
 });
-
-// ========== DÉMARRAGE CONDITIONNEL ==========
-
 const startServer = async () => {
   try {
     console.log('🚀 Starting server initialization...');
+    console.log('📊 Environment:', process.env.NODE_ENV);
+    console.log('🔗 DB Host:', process.env.POSTGRES_HOST ? '***' : 'MISSING');
     
-    // ✅ INITIALISATION DB AVEC GESTION D'ERREUR ROBUSTE
-    try {
-      console.log('🔄 Database initialization started...');
-      const connected = await initializeDatabase();
+    // ✅ FORCE LA CONNEXION AU DÉMARRAGE
+    const maxRetries = 3;
+    let connected = false;
+    
+    for (let i = 1; i <= maxRetries; i++) {
+      console.log(`🔄 Database connection attempt ${i}/${maxRetries}...`);
+      connected = await initializeDatabase();
       
       if (connected) {
-        console.log('✅ Database connected successfully');
-        
-        // Créer l'utilisateur par défaut
-        try {
-          await createDefaultUser();
-        } catch (userError) {
-          console.warn('⚠️ Default user creation failed:', userError.message);
-        }
-      } else {
-        console.warn('⚠️ Database connection failed, running in limited mode');
+        break;
       }
-    } catch (dbError) {
-      console.error('❌ Database initialization error:', dbError.message);
-      console.warn('⚠️ Continuing without database connection');
+      
+      if (i < maxRetries) {
+        console.log(`⏱️ Waiting 2 seconds before retry...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+    
+    if (connected) {
+      console.log('✅ Database connected successfully');
+      
+      // Test query immédiat
+      try {
+        await AppDataSource.query('SELECT version()');
+        console.log('✅ Database version query successful');
+      } catch (queryError) {
+        console.error('❌ Database query failed:', queryError.message);
+      }
+      
+      // Créer l'utilisateur par défaut
+      await createDefaultUser();
+    } else {
+      console.error('❌ Database connection failed after all retries');
+      console.log('⚠️ Running in limited mode - some features will not work');
     }
     
     console.log("✅ Server ready and listening for requests");
-    console.log("📊 Database status:", AppDataSource.isInitialized ? "CONNECTED" : "DISCONNECTED");
+    console.log("📊 Final database status:", AppDataSource.isInitialized ? "CONNECTED" : "DISCONNECTED");
 
   } catch (error) {
     console.error("❌ Server startup error:", error);
