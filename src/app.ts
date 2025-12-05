@@ -275,6 +275,81 @@ app.get(`${API_PREFIX}/debug-entities`, async (_req, res) => {
   }
 });
 
+// Test spécifique pour Supabase Pooler
+app.get(`${API_PREFIX}/pooler-test`, async (_req, res) => {
+  try {
+    const testResults: any = {
+      timestamp: new Date().toISOString(),
+      environment: {
+        NODE_ENV: process.env.NODE_ENV,
+        VERCEL: !!process.env.VERCEL,
+        HOST: process.env.POSTGRES_HOST,
+        PORT: process.env.POSTGRES_PORT,
+        USER: process.env.POSTGRES_USER?.substring(0, 10) + '...',
+        HAS_DATABASE_URL: !!process.env.DATABASE_URL
+      },
+      connection: {
+        typeorm: AppDataSource.isInitialized ? 'Connected' : 'Disconnected',
+        direct: 'Not tested'
+      }
+    };
+    
+    // Test de connexion directe avec pg
+    try {
+      const { Client } = require('pg');
+      const client = new Client({
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false }
+      });
+      
+      await client.connect();
+      const pgResult = await client.query('SELECT version(), current_database()');
+      await client.end();
+      
+      testResults.connection.direct = 'Connected';
+      testResults.direct = {
+        version: pgResult.rows[0].version.split(',')[0],
+        database: pgResult.rows[0].current_database
+      };
+    } catch (pgError: any) {
+      testResults.connection.direct = 'Failed: ' + pgError.message;
+    }
+    
+    // Si TypeORM est connecté, vérifier les tables
+    if (AppDataSource.isInitialized) {
+      try {
+        const tables = await AppDataSource.query(`
+          SELECT table_name 
+          FROM information_schema.tables 
+          WHERE table_schema = 'public'
+          ORDER BY table_name
+        `);
+        
+        testResults.tables = tables.map((t: any) => t.table_name);
+        testResults.tableCount = tables.length;
+      } catch (error) {
+        testResults.tableError = error.message;
+      }
+    }
+    
+    res.json({
+      success: AppDataSource.isInitialized,
+      testResults,
+      recommendations: !process.env.DATABASE_URL ? [
+        'Add DATABASE_URL to environment variables',
+        'Format: postgresql://user:password@pooler.supabase.com:6543/db?sslmode=require'
+      ] : []
+    });
+    
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
 // ========== MOUNT DES ROUTES API ==========
 
 console.log('📋 Mounting API routes...');
@@ -351,56 +426,116 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
     database: AppDataSource.isInitialized ? "Connected" : "Disconnected"
   });
 });
-const startServer = async () => {
+// Dans app.ts, ajoutez cette fonction
+const diagnoseDatabase = async () => {
+  console.log('🔍 Database diagnosis for Supabase Pooler...');
+  
+  const envCheck = {
+    DATABASE_URL: process.env.DATABASE_URL ? '✅ Set' : '❌ Missing',
+    POSTGRES_HOST: process.env.POSTGRES_HOST || '❌ Missing',
+    POSTGRES_PORT: process.env.POSTGRES_PORT || '❌ Missing',
+    POSTGRES_USER: process.env.POSTGRES_USER ? '✅ Set' : '❌ Missing',
+    POSTGRES_DB: process.env.POSTGRES_DB || '❌ Missing',
+    NODE_ENV: process.env.NODE_ENV || 'development'
+  };
+  
+  console.log('📋 Environment check:', envCheck);
+  
+  // Tester la connexion directe avec pg (bypass TypeORM)
   try {
-    console.log('🚀 Starting server initialization...');
-    console.log('📊 Environment:', process.env.NODE_ENV);
-    console.log('🔗 DB Host:', process.env.POSTGRES_HOST ? '***' : 'MISSING');
+    const { Client } = require('pg');
+    const client = new Client({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false }
+    });
     
-    // ✅ FORCE LA CONNEXION AU DÉMARRAGE
-    const maxRetries = 3;
-    let connected = false;
+    await client.connect();
+    const res = await client.query('SELECT NOW() as time, version() as version');
+    console.log('✅ Direct pg connection successful:', {
+      time: res.rows[0].time,
+      version: res.rows[0].version.split(',')[0]
+    });
+    await client.end();
     
-    for (let i = 1; i <= maxRetries; i++) {
-      console.log(`🔄 Database connection attempt ${i}/${maxRetries}...`);
-      connected = await initializeDatabase();
-      
-      if (connected) {
-        break;
-      }
-      
-      if (i < maxRetries) {
-        console.log(`⏱️ Waiting 2 seconds before retry...`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
+    return true;
+  } catch (pgError: any) {
+    console.error('❌ Direct pg connection failed:', pgError.message);
+    
+    // Suggestions
+    if (pgError.message.includes('password authentication failed')) {
+      console.log('💡 Password might be incorrect or user lacks permissions');
+    } else if (pgError.message.includes('no pg_hba.conf entry')) {
+      console.log('💡 Check Supabase network settings - allow all IPs temporarily');
+    } else if (pgError.message.includes('SSL')) {
+      console.log('💡 SSL issue - ensure sslmode=require in DATABASE_URL');
     }
     
-    if (connected) {
-      console.log('✅ Database connected successfully');
-      
-      // Test query immédiat
-      try {
-        await AppDataSource.query('SELECT version()');
-        console.log('✅ Database version query successful');
-      } catch (queryError) {
-        console.error('❌ Database query failed:', queryError.message);
-      }
-      
-      // Créer l'utilisateur par défaut
-      await createDefaultUser();
-    } else {
-      console.error('❌ Database connection failed after all retries');
-      console.log('⚠️ Running in limited mode - some features will not work');
-    }
-    
-    console.log("✅ Server ready and listening for requests");
-    console.log("📊 Final database status:", AppDataSource.isInitialized ? "CONNECTED" : "DISCONNECTED");
-
-  } catch (error) {
-    console.error("❌ Server startup error:", error);
+    return false;
   }
 };
 
+// Modifiez startServer()
+const startServer = async () => {
+  try {
+    console.log('🚀 Starting server with Supabase Pooler...');
+    
+    // Diagnostic initial
+    await diagnoseDatabase();
+    
+    // Tentative de connexion TypeORM
+    let connected = false;
+    const maxRetries = 3;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      console.log(`\n🔄 TypeORM connection attempt ${attempt}/${maxRetries}`);
+      
+      try {
+        connected = await initializeDatabase();
+        
+        if (connected) {
+          // Vérifier les données
+          await checkInitialData();
+          break;
+        }
+      } catch (error: any) {
+        console.log(`⚠️ TypeORM attempt failed: ${error.message}`);
+      }
+      
+      if (attempt < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+    }
+    
+    console.log(`\n📊 FINAL STATUS: Database ${connected ? '✅ CONNECTED' : '❌ DISCONNECTED'}`);
+    
+  } catch (error) {
+    console.error('❌ Server startup error:', error);
+  }
+};
+
+async function checkInitialData() {
+  try {
+    // Vérifier l'utilisateur admin
+    const userRepo = AppDataSource.getRepository(User);
+    const adminUser = await userRepo.findOne({ 
+      where: { email: 'ressource.prod@gmail.com' } 
+    });
+    
+    if (adminUser) {
+      console.log('✅ Admin user found in database');
+    } else {
+      console.log('⚠️ Admin user not found - creating...');
+      await createDefaultUser();
+    }
+    
+    // Compter les agents
+    const agentCount = await AppDataSource.query('SELECT COUNT(*) FROM agents');
+    console.log(`📊 Agents in database: ${agentCount[0].count}`);
+    
+  } catch (error) {
+    console.log('⚠️ Could not check initial data:', error.message);
+  }
+}
 // Démarrage conditionnel
 if (require.main === module || process.env.VERCEL) {
   startServer();
