@@ -46,28 +46,17 @@ export class PresenceController {
       }
     }
   }
-// Dans src/controllers/PresenceController.ts → méthode pointageSortie
-
-async pointageSortie(req: Request, res: Response) {
-  const { matricule, nom, prenom, signatureSortie, heureSortieManuelle } = req.body;
-
-  if (!signatureSortie) {
-    return res.status(400).json({ success: false, error: 'Signature obligatoire' });
-  }
-
-  try {
-    // Recherche de l'agent : soit par matricule, soit par nom + prénom
-    let agent = null;
-
-    if (matricule?.trim()) {
-      agent = await this.presenceService.findAgentByMatricule(matricule.trim());
-    } else if (nom && prenom) {
-      agent = await this.presenceService.findAgentByNomPrenom(nom.trim(), prenom.trim());
-    }
-
-    if (!agent) {
-      return res.status(404).json({ success: false, error: 'Agent non trouvé' });}
-      
+  
+  async pointageSortie(req: Request, res: Response) {
+    console.log('pointageSortie appelé avec body:', req.body);
+    try {
+      const { matricule, signatureSortie, heureSortieManuelle } = req.body;
+      if (!matricule || !signatureSortie) {
+        return res.status(400).json({
+          success: false,
+          error: "Matricule et signature sont obligatoires"
+        });
+      }
       const result = await this.presenceService.pointageSortie(matricule, signatureSortie, heureSortieManuelle);
       res.json({
         message: "Pointage de sortie enregistré avec succès",
@@ -140,7 +129,7 @@ async getHistorique(req: Request, res: Response) {
     }
   }
 
-  public async getAllPresences(_req: Request, res: Response): Promise<void> {
+  public async getAllPresences(req: Request, res: Response): Promise<void> {
   try {
     console.log('🔄 Getting all presences...');
     

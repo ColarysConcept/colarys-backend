@@ -18,7 +18,6 @@ interface HistoriqueFilters {
   shift?: string;
 }
 
-
 export class PresenceService {
   private presenceRepository: Repository<Presence>;
   private agentRepository: Repository<Agent>;
@@ -240,122 +239,87 @@ export class PresenceService {
       await queryRunner.release();
     }
   }
-
 async pointageSortie(matricule: string, signatureSortie: string, heureSortieManuelle?: string) {
-  console.log('pointageSortie dans PresenceService:', {
-    matricule,
-    signatureLength: signatureSortie?.length,
-    signaturePreview: signatureSortie?.substring(0, 100)
-  });
-
-  const queryRunner = AppDataSource.createQueryRunner();
-  await queryRunner.connect();
-  await queryRunner.startTransaction();
-
-  try {
-    const today = new Date().toISOString().split('T')[0];
-    console.log(`Recherche présence pour ${matricule} le ${today}`);
-
-    // Trouver la présence
-    const presence = await queryRunner.manager.findOne(Presence, {
-      where: {
-        agent: { matricule },
-        date: today
-      },
-      relations: ['agent', 'details'],
+    console.log('pointageSortie dans PresenceService:', {
+      matricule,
+      signatureLength: signatureSortie?.length
     });
 
-    if (!presence) {
-      throw new Error(`Aucune entrée trouvée pour ${matricule} aujourd'hui (${today}). Veuillez pointer l'entrée d'abord.`);
-    }
+    const queryRunner = AppDataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    console.log('Présence trouvée:', {
-      id: presence.id,
-      heureEntree: presence.heureEntree,
-      heureSortie: presence.heureSortie,
-      hasDetails: !!presence.details
-    });
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const presence = await queryRunner.manager.findOne(Presence, {
+        where: {
+          agent: { matricule },
+          date: today
+        },
+        relations: ['agent', 'details'],
+      });
 
-    if (presence.heureSortie) {
-      throw new Error(`Sortie déjà pointée à ${presence.heureSortie} pour aujourd'hui.`);
-    }
+      if (!presence) {
+        throw new Error("Aucune entrée trouvée pour aujourd'hui. Veuillez pointer l'entrée d'abord.");
+      }
 
-    // Calcul de l'heure de sortie
-    let heureSortie: string;
-    if (heureSortieManuelle) {
-      heureSortie = this.validerFormatHeure(heureSortieManuelle);
-    } else {
-      const now = new Date();
-      heureSortie = now.toTimeString().split(' ')[0].substring(0, 5);
-      heureSortie += ':00'; // Ajouter les secondes
-    }
+      if (presence.heureSortie) {
+        throw new Error("Sortie déjà pointée pour aujourd'hui.");
+      }
 
-    // Nettoyer la signature
-    let signatureClean = signatureSortie;
-    if (signatureClean && !signatureClean.startsWith('data:image/')) {
-      signatureClean = 'data:image/png;base64,' + signatureClean;
-    }
+      // Calcul de l'heure de sortie
+      const heureSortie = heureSortieManuelle
+        ? this.validerFormatHeure(heureSortieManuelle)
+        : new Date().toTimeString().split(' ')[0];
 
-    console.log('Mise à jour avec:', {
-      heureSortie,
-      signatureLength: signatureClean?.length,
-      signatureClean: signatureClean?.substring(0, 50)
-    });
-
-    // Mise à jour de la présence
-    presence.heureSortie = heureSortie;
-    
-    // Calculer les heures travaillées
-    if (presence.heureEntree) {
+      // Mise à jour de la présence
+      presence.heureSortie = heureSortie;
       presence.heuresTravaillees = this.calculerHeuresTravaillees(presence.heureEntree, heureSortie);
+
+      // Nettoyer la signature
+      let signatureClean = signatureSortie;
+      if (signatureClean && !signatureClean.startsWith('data:image/')) {
+        signatureClean = 'data:image/png;base64,' + signatureClean;
+      }
+
+      // Mise à jour des détails
+      if (presence.details) {
+        presence.details.signatureSortie = signatureClean;
+        await queryRunner.manager.save(DetailPresence, presence.details);
+      } else {
+        const detailPresence = new DetailPresence();
+        detailPresence.signatureSortie = signatureClean;
+        detailPresence.presence = presence;
+        await queryRunner.manager.save(detailPresence);
+        presence.details = detailPresence;
+      }
+
+      // Sauvegarde finale
+      await queryRunner.manager.save(Presence, presence);
+      await queryRunner.commitTransaction();
+
+      // Récupération complète
+      const completePresence = await this.presenceRepository.findOne({
+        where: { id: presence.id },
+        relations: ['agent', 'details'],
+      });
+
+      return { 
+        success: true, 
+        presence: completePresence,
+        message: "Pointage de sortie enregistré"
+      };
+
+    } catch (error: unknown) {
+      await queryRunner.rollbackTransaction();
+      console.error('❌ Erreur pointageSortie:', error);
+
+      const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
+      throw new Error(errorMessage);
+    } finally {
+      await queryRunner.release();
     }
-
-    // Mise à jour des détails
-    if (presence.details) {
-      presence.details.signatureSortie = signatureClean;
-      await queryRunner.manager.save(DetailPresence, presence.details);
-    } else {
-      // Créer un détail si inexistant
-      const detailPresence = new DetailPresence();
-      detailPresence.signatureSortie = signatureClean;
-      detailPresence.presence = presence;
-      await queryRunner.manager.save(detailPresence);
-      presence.details = detailPresence;
-    }
-
-    // Sauvegarder la présence
-    await queryRunner.manager.save(Presence, presence);
-    await queryRunner.commitTransaction();
-
-    // Récupération complète
-    const completePresence = await this.presenceRepository.findOne({
-      where: { id: presence.id },
-      relations: ['agent', 'details'],
-    });
-
-    console.log('✅ Sortie enregistrée avec succès:', {
-      id: completePresence?.id,
-      matricule: completePresence?.agent?.matricule,
-      heureSortie: completePresence?.heureSortie,
-      hasSignature: !!completePresence?.details?.signatureSortie
-    });
-
-    return { 
-      success: true, 
-      presence: completePresence,
-      message: "Pointage de sortie enregistré"
-    };
-
-  } catch (error: unknown) {
-    await queryRunner.rollbackTransaction();
-    console.error('❌ Erreur détaillée pointageSortie:', error);
-
-    const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
-    throw new Error(`Échec du pointage de sortie: ${errorMessage}`);
-  } finally {
-    await queryRunner.release();
   }
-}
 
 
   async findAll(): Promise<any[]> {
@@ -416,18 +380,6 @@ async pointageSortie(matricule: string, signatureSortie: string, heureSortieManu
     }
   }
 
-  // Dans src/services/PresenceService.ts
-
-async findAgentByMatricule(matricule: string) {
-  return await this.agentRepository.findOne({ where: { matricule } });
-}
-
-async findAgentByNomPrenom(nom: string, prenom: string) {
-  return await this.agentRepository.findOne({
-    where: { nom: nom, prenom: prenom }
-  });
-}
-
   // Dans PresenceService.ts
   async getPresenceAujourdhuiByNomPrenom(nom: string, prenom: string) {
     console.log('getPresenceAujourdhuiByNomPrenom dans PresenceService:', { nom, prenom });
@@ -466,109 +418,115 @@ async findAgentByNomPrenom(nom: string, prenom: string) {
     const lastDay = new Date(year, month, 0).getDate();
     return `${annee}-${month.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}`;
   }
-async getHistoriquePresences(filters: HistoriqueFilters): Promise<{ data: Presence[]; totalHeures: number; totalPresences: number }> {
-  console.log('getHistoriquePresences avec filtres:', filters);
 
-  try {
-    // Utiliser queryBuilder avec leftJoinAndSelect pour bien récupérer les relations
-    const queryBuilder = this.presenceRepository.createQueryBuilder('presence')
-      .leftJoinAndSelect('presence.agent', 'agent')
-      .leftJoinAndSelect('presence.details', 'details');
+  async getHistoriquePresences(filters: HistoriqueFilters): Promise<{ data: Presence[]; totalHeures: number; totalPresences: number }> {
+    console.log('getHistoriquePresences avec filtres:', filters);
 
-    // Construction des conditions
-    const whereConditions: string[] = [];
-    const parameters: any = {};
+    try {
+      const queryBuilder = this.presenceRepository.createQueryBuilder('presence')
+        .leftJoinAndSelect('presence.agent', 'agent')
+        .leftJoinAndSelect('presence.details', 'details');
 
-    // Filtre par période
-    if (filters.dateDebut && filters.dateFin) {
-      whereConditions.push('presence.date BETWEEN :dateDebut AND :dateFin');
-      parameters.dateDebut = filters.dateDebut;
-      parameters.dateFin = filters.dateFin;
-    } else if (filters.annee) {
-      const startDate = `${filters.annee}-${filters.mois || '01'}-01`;
-      const endDate = this.getLastDayOfMonth(filters.annee, filters.mois);
-      whereConditions.push('presence.date BETWEEN :startDate AND :endDate');
-      parameters.startDate = startDate;
-      parameters.endDate = endDate;
-    } else {
-      // Par défaut, ce mois-ci
-      const today = new Date();
-      const startDate = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-01`;
-      const endDate = this.getLastDayOfMonth(today.getFullYear().toString(), (today.getMonth() + 1).toString());
-      whereConditions.push('presence.date BETWEEN :startDate AND :endDate');
-      parameters.startDate = startDate;
-      parameters.endDate = endDate;
-    }
+      // Construction de la condition WHERE
+      const whereConditions: any[] = [];
+      const parameters: any = {};
 
-    // Filtres additionnels
-    if (filters.matricule && filters.matricule.trim()) {
-      whereConditions.push('agent.matricule ILIKE :matricule');
-      parameters.matricule = `%${filters.matricule.trim()}%`;
-    }
-
-    if (filters.nom && filters.nom.trim()) {
-      whereConditions.push('agent.nom ILIKE :nom');
-      parameters.nom = `%${filters.nom.trim()}%`;
-    }
-
-    if (filters.prenom && filters.prenom.trim()) {
-      whereConditions.push('agent.prenom ILIKE :prenom');
-      parameters.prenom = `%${filters.prenom.trim()}%`;
-    }
-
-    if (filters.campagne && filters.campagne.trim()) {
-      whereConditions.push('agent.campagne ILIKE :campagne');
-      parameters.campagne = `%${filters.campagne.trim()}%`;
-    }
-
-    if (filters.shift && filters.shift.trim()) {
-      whereConditions.push('presence.shift ILIKE :shift');
-      parameters.shift = `%${filters.shift.trim()}%`;
-    }
-
-    // Appliquer les conditions
-    if (whereConditions.length > 0) {
-      queryBuilder.where(whereConditions.join(' AND '), parameters);
-    }
-
-    // Tri
-    queryBuilder.orderBy('presence.date', 'DESC')
-      .addOrderBy('agent.nom', 'ASC')
-      .addOrderBy('agent.prenom', 'ASC');
-
-    // Exécuter la requête
-    const presences = await queryBuilder.getMany();
-
-    console.log(`✅ ${presences.length} présence(s) trouvée(s)`);
-
-    // Debug des signatures
-    presences.forEach((presence, index) => {
-      console.log(`Présence ${index + 1}: ${presence.agent?.nom} ${presence.agent?.prenom}`);
-      console.log('  - Details:', presence.details ? 'OUI' : 'NON');
-      if (presence.details) {
-        console.log('  - Signature entrée:', presence.details.signatureEntree ? 
-          `${presence.details.signatureEntree.length} chars` : 'VIDE');
-        console.log('  - Signature sortie:', presence.details.signatureSortie ? 
-          `${presence.details.signatureSortie.length} chars` : 'VIDE');
+      // Filtre par période (dateDebut/dateFin OU année/mois)
+      if (filters.dateDebut && filters.dateFin) {
+        whereConditions.push('presence.date BETWEEN :dateDebut AND :dateFin');
+        parameters.dateDebut = filters.dateDebut;
+        parameters.dateFin = filters.dateFin;
+      } else if (filters.annee) {
+        const startDate = `${filters.annee}-${filters.mois || '01'}-01`;
+        const endDate = this.getLastDayOfMonth(filters.annee, filters.mois);
+        whereConditions.push('presence.date BETWEEN :startDate AND :endDate');
+        parameters.startDate = startDate;
+        parameters.endDate = endDate;
+      } else {
+        throw new Error('Période non spécifiée');
       }
-    });
 
-    // Calcul du total des heures
-    const totalHeures = presences.reduce((sum, presence) => {
-      return sum + (presence.heuresTravaillees || 0);
-    }, 0);
+      // CORRECTION : Recherche par matricule
+      if (filters.matricule) {
+        whereConditions.push('agent.matricule = :matricule');
+        parameters.matricule = filters.matricule;
+      }
 
-    return {
-      data: presences,
-      totalHeures,
-      totalPresences: presences.length,
-    };
+      // CORRECTION : Recherche par nom (avec LIKE pour plus de flexibilité)
+      if (filters.nom) {
+        whereConditions.push('agent.nom ILIKE :nom');
+        parameters.nom = `%${filters.nom}%`;
+      }
 
-  } catch (error: unknown) {
-    console.error('Erreur dans getHistoriquePresences:', error);
-    throw error;
+      // CORRECTION : Recherche par prénom (avec LIKE pour plus de flexibilité)
+      if (filters.prenom) {
+        whereConditions.push('agent.prenom ILIKE :prenom');
+        parameters.prenom = `%${filters.prenom}%`;
+      }
+
+      if (filters.campagne) {
+        whereConditions.push('agent.campagne = :campagne');
+        parameters.campagne = filters.campagne;
+      }
+
+      if (filters.shift) {
+        whereConditions.push('presence.shift = :shift');
+        parameters.shift = filters.shift;
+      }
+
+      // CORRECTION : Appel temporaire pour le débogage
+      if (filters.nom) {
+        await this.debugAgentsByNom(filters.nom);
+      }
+
+      // CORRECTION : Log des conditions pour le débogage
+      console.log('Conditions de recherche:', whereConditions);
+      console.log('Paramètres:', parameters);
+
+      // Appliquer toutes les conditions
+      if (whereConditions.length > 0) {
+        queryBuilder.where(whereConditions.join(' AND '), parameters);
+      }
+
+      // CORRECTION : Ajouter un ordre par défaut
+      queryBuilder.orderBy('presence.date', 'DESC')
+        .addOrderBy('agent.nom', 'ASC')
+        .addOrderBy('agent.prenom', 'ASC');
+
+      const presences = await queryBuilder.getMany();
+
+      console.log(`✅ ${presences.length} présence(s) trouvée(s) avec les filtres appliqués`);
+
+      // S'assurer que toutes les données sont bien formatées
+      const presencesAvecTypesCorrects = presences.map(presence => ({
+        ...presence,
+        heuresTravaillees: presence.heuresTravaillees != null ? Number(presence.heuresTravaillees) : null
+      }));
+
+      // Calculer le total des heures travaillées
+      const totalHeures = presencesAvecTypesCorrects.reduce((sum, presence) => {
+        return sum + (presence.heuresTravaillees != null ? presence.heuresTravaillees : 0);
+      }, 0);
+
+      return {
+        data: presencesAvecTypesCorrects,
+        totalHeures,
+        totalPresences: presencesAvecTypesCorrects.length,
+      };
+    } catch (error: unknown) {
+      console.error('Erreur dans getHistoriquePresences:', error);
+
+      let errorMessage = 'Erreur inconnue lors de la récupération de l\'historique';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+
+      throw new Error(errorMessage);
+    }
   }
-}
+
 
   async debugAgentsByNom(nom: string): Promise<Agent[]> {
     try {
@@ -607,6 +565,10 @@ async getHistoriquePresences(filters: HistoriqueFilters): Promise<{ data: Presen
       console.error('Erreur de vérification:', error);
     }
   }
+  // backend/src/services/PresenceService.ts - Modifications pour le PDF avec signatures
+  // backend/src/services/PresenceService.ts - Version avec texte centré
+
+// backend/src/services/PresenceService.ts - VERSION CORRIGÉE
 
 async generatePDF(presences: Presence[], totalHeures: number, totalPresences: number): Promise<Buffer> {
   try {
