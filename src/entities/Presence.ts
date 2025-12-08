@@ -28,4 +28,8 @@ export class Presence {
 
   @Column({ name: "created_at", default: () => "CURRENT_TIMESTAMP" })
   createdAt!: Date;
+
+  // SUPPRIME CES LIGNES SI ELLES EXISTENT :
+  // @OneToOne(() => DetailPresence, (detail) => detail.presence)
+  // details!: DetailPresence;
 }
