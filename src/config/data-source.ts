@@ -6,10 +6,8 @@ import dotenv from "dotenv";
 import { User } from "../entities/User";
 import { Agent } from "../entities/Agent";
 import { Presence } from "../entities/Presence";
-import { DetailPresence } from "../entities/DetailPresence";
 import { HistoAgents } from "../entities/HistoAgents";
 import { Role } from "../entities/Role";
-import { Trashpresence } from "../entities/Trashpresence";
 import { AgentColarys } from "../entities/AgentColarys";
 
 dotenv.config();
@@ -51,10 +49,8 @@ export const AppDataSource = new DataSource({
     User,
     Agent,
     Presence,
-    DetailPresence,
     HistoAgents,
     Role,
-    Trashpresence,
     AgentColarys
   ],
   

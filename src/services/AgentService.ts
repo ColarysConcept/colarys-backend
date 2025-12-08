@@ -50,22 +50,6 @@ export class AgentService {
     });
   }
 
-  async updateAgentSignature(matricule: string | null, signature: string): Promise<Agent> {
-    if (!matricule) {
-      throw new Error("Matricule requis pour mise à jour");
-    }
-    
-    const repository = this.getRepository();
-    const agent = await this.findAgentByMatricule(matricule);
-    
-    if (!agent) {
-      throw new Error("Agent non trouvé");
-    }
-    
-    agent.signature = signature;
-    return await repository.save(agent);
-  }
-
   async getAllAgents(): Promise<Agent[]> {
     const repository = this.getRepository();
     return await repository.find({

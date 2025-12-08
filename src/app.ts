@@ -15,7 +15,6 @@ import userRoutes from "./routes/userRoutes";
 import authRoutes from "./routes/authRoutes";
 import agentRoutes from "./routes/agentRoutes";
 import presenceRoutes from "./routes/presenceRoutes";
-import detailPresenceRoutes from "./routes/detailPresenceRoutes";
 import histoAgentsRoutes from "./routes/histoAgentsRoutes";
 import roleRoutes from "./routes/roleRoutes";
 import planningRoutes from "./routes/planningRoutes";
@@ -372,7 +371,6 @@ console.log('✅ Mounted: /api/agents');
 app.use(`${API_PREFIX}/presences`, presenceRoutes);
 console.log('✅ Mounted: /api/presences');
 
-app.use(`${API_PREFIX}/attendance-details`, detailPresenceRoutes);
 console.log('✅ Mounted: /api/attendance-details');
 
 app.use(`${API_PREFIX}/agent-history`, histoAgentsRoutes);
