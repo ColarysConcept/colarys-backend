@@ -1,3 +1,12 @@
+// Au début de votre fichier, après les imports :
+console.log('🔧 Environment variables check:', {
+  NODE_ENV: process.env.NODE_ENV,
+  hasDATABASE_URL: !!process.env.DATABASE_URL,
+  hasPOSTGRES_HOST: !!process.env.POSTGRES_HOST,
+  hasPOSTGRES_USER: !!process.env.POSTGRES_USER,
+  allKeys: Object.keys(process.env).filter(key => key.includes('POSTGRES') || key.includes('DATABASE'))
+});
+
 // api/index.js - Version simplifiée avec toutes les routes
 const express = require('express');
 const cors = require('cors');
@@ -46,60 +55,63 @@ const DB_CONFIG = {
 
 let AppDataSource = null;
 
-// Fonction de connexion DB
 const connectDB = async () => {
-  if (AppDataSource?.isInitialized) {
-    return AppDataSource;
-  }
-  
   try {
-    console.log('🔄 Connecting to DB with config:', {
+    // Log pour debug
+    console.log('🔄 DB Connection attempt. Env vars:', {
       hasUrl: !!process.env.DATABASE_URL,
-      host: process.env.POSTGRES_HOST,
-      user: process.env.POSTGRES_USER
+      hasHost: !!process.env.POSTGRES_HOST,
+      hasUser: !!process.env.POSTGRES_USER
     });
-    
-    // Configuration simple
-    const config = {
+
+    // Configuration avec fallbacks
+    const dbConfig = {
       type: "postgres",
-      // Priorité 1: DATABASE_URL
+      // Essayer DATABASE_URL d'abord
       url: process.env.DATABASE_URL,
-      // Priorité 2: Variables séparées
+      // Fallback aux variables individuelles
       host: process.env.POSTGRES_HOST || 'aws-0-eu-central-1.pooler.supabase.com',
       port: parseInt(process.env.POSTGRES_PORT || "6543"),
-      username: process.env.POSTGRES_USER,
-      password: process.env.POSTGRES_PASSWORD,
+      username: process.env.POSTGRES_USER || 'postgres',
+      password: process.env.POSTGRES_PASSWORD || '',
       database: process.env.POSTGRES_DB || 'postgres',
-      // SSL pour Supabase
       ssl: {
         rejectUnauthorized: false,
         require: true
-      },
-      extra: {
-        ssl: {
-          rejectUnauthorized: false
-        }
       }
     };
-    
-    AppDataSource = new DataSource(config);
-    await AppDataSource.initialize();
-    console.log('✅ Database connected successfully!');
-    return AppDataSource;
 
-    } catch (error) {
-    console.error('❌ Database connection failed:', {
+    console.log('📊 DB Config:', { ...dbConfig, password: '***' });
+
+    AppDataSource = new DataSource(dbConfig);
+    await AppDataSource.initialize();
+    
+    console.log('✅ DB Connected successfully!');
+    return AppDataSource;
+    
+  } catch (error) {
+    console.error('❌ DB Connection failed:', {
       message: error.message,
       code: error.code,
-      hasEnvVars: {
-        DATABASE_URL: !!process.env.DATABASE_URL,
-        POSTGRES_HOST: !!process.env.POSTGRES_HOST,
-        POSTGRES_USER: !!process.env.POSTGRES_USER
-      }
+      stack: error.stack
     });
     return null;
   }
 };
+
+app.get('/api/debug-env', (req, res) => {
+  res.json({
+    env: {
+      DATABASE_URL: process.env.DATABASE_URL ? 'PRESENT (hidden)' : 'MISSING',
+      POSTGRES_HOST: process.env.POSTGRES_HOST || 'MISSING',
+      POSTGRES_USER: process.env.POSTGRES_USER ? 'PRESENT (hidden)' : 'MISSING',
+      POSTGRES_PASSWORD: process.env.POSTGRES_PASSWORD ? 'PRESENT (hidden)' : 'MISSING',
+      POSTGRES_DB: process.env.POSTGRES_DB || 'MISSING',
+      NODE_ENV: process.env.NODE_ENV || 'MISSING'
+    },
+    timestamp: new Date().toISOString()
+  });
+});
 
 // ========== ROUTES DE BASE ==========
 
