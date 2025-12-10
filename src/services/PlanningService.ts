@@ -1,9 +1,31 @@
-// Définir les interfaces manquantes si elles n'existent pas
+// PlanningService.ts - Interface améliorée
 interface Planning {
   id: number;
+  agent_name: string;
   semaine: string;
-  days: any[];
+  year: string;
+  month: string[];
+  days: DaySchedule[];
+  total_heures: number;
+  remarques: string | null;
+  lundi: string;
+  mardi: string;
+  mercredi: string;
+  jeudi: string;
+  vendredi: string;
+  samedi: string;
+  dimanche: string;
   [key: string]: any;
+}
+
+interface DaySchedule {
+  day: string;
+  name: string;
+  date: string;
+  fullDate: string;
+  shift: string;
+  hours: number;
+  remarques?: string;
 }
 
 interface UnifiedPlanningFilters {
@@ -45,6 +67,7 @@ interface DeleteResponse {
 export class PlanningService {
   private static baseUrl: string = 'http://localhost:3000/api/plannings';
 // PlanningService.ts - Méthode getPlannings mise à jour avec typage
+// PlanningService.ts - Méthode getPlannings robuste
 static async getPlannings(filters: Partial<UnifiedPlanningFilters> = {}): Promise<Planning[]> {
   try {
     const completeFilters: UnifiedPlanningFilters = {
@@ -78,29 +101,65 @@ static async getPlannings(filters: Partial<UnifiedPlanningFilters> = {}): Promis
       throw new Error(`HTTP ${response.status}: ${errorText}`);
     }
 
-    // Définir un type pour la réponse
-    interface ApiResponse {
-      success?: boolean;
-      data?: Planning[];
-      message?: string;
-      [key: string]: any;
-    }
-
-    const responseData = await response.json() as ApiResponse;
+    const responseData = await response.json();
     
-    // Extraire le tableau data de l'objet de réponse
-    const dataArray = responseData.data || (Array.isArray(responseData) ? responseData : []);
+    // Gérer les deux formats de réponse
+    let dataArray = [];
     
-    // S'assurer que nous travaillons avec un tableau
-    if (!Array.isArray(dataArray)) {
-      console.warn('Les données de réponse ne sont pas un tableau:', dataArray);
-      return [];
+    if (Array.isArray(responseData)) {
+      dataArray = responseData;
+    } else if (responseData && Array.isArray(responseData.data)) {
+      dataArray = responseData.data;
     }
     
-    return dataArray.map((agent: Planning) => ({
-      ...agent,
-      days: agent.days || [],
-    }));
+    // Convertir le format simple au format attendu
+    return dataArray.map((item: any) => {
+      // Si c'est déjà au bon format, retourner tel quel
+      if (item.semaine && item.agent_name) {
+        return {
+          ...item,
+          days: item.days || [],
+        };
+      }
+      
+      // Sinon, convertir du format simple au format planning
+      const currentDate = new Date();
+      const year = currentDate.getFullYear().toString();
+      const month = (currentDate.getMonth() + 1).toString().padStart(2, '0');
+      const weekNumber = Math.ceil(
+        (currentDate.getDate() + 
+         new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getDay()) / 7
+      );
+      
+      return {
+        id: item.id || 0,
+        agent_name: item.agent?.nom && item.agent?.prenom 
+          ? `${item.agent.nom} ${item.agent.prenom}`
+          : `Agent ${item.agent_id}`,
+        semaine: `${year}-W${weekNumber.toString().padStart(2, '0')}`,
+        year: year,
+        month: [month],
+        days: [
+          { day: "LUNDI", name: "LUN", date: "09/12", fullDate: "2025-12-09", shift: item.shift || "JOUR", hours: 8 },
+          { day: "MARDI", name: "MAR", date: "10/12", fullDate: "2025-12-10", shift: item.shift || "JOUR", hours: 8 },
+          { day: "MERCREDI", name: "MER", date: "11/12", fullDate: "2025-12-11", shift: "OFF", hours: 0 },
+          { day: "JEUDI", name: "JEU", date: "12/12", fullDate: "2025-12-12", shift: "OFF", hours: 0 },
+          { day: "VENDREDI", name: "VEN", date: "13/12", fullDate: "2025-12-13", shift: "OFF", hours: 0 },
+          { day: "SAMEDI", name: "SAM", date: "14/12", fullDate: "2025-12-14", shift: "OFF", hours: 0 },
+          { day: "DIMANCHE", name: "DIM", date: "15/12", fullDate: "2025-12-15", shift: "OFF", hours: 0 }
+        ],
+        total_heures: 16,
+        remarques: null,
+        lundi: item.shift || "JOUR",
+        mardi: item.shift || "JOUR",
+        mercredi: "OFF",
+        jeudi: "OFF",
+        vendredi: "OFF",
+        samedi: "OFF",
+        dimanche: "OFF",
+        originalData: item // Garder les données originales
+      };
+    });
   } catch (error: any) {
     console.error('Erreur getPlannings:', error);
     throw new Error(error.message || 'Erreur lors de la récupération des plannings');

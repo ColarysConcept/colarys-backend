@@ -2613,51 +2613,212 @@ app.get('/api/check-signatures/:id', async (req, res) => {
     });
   }
 });
-
-// Route pour obtenir les plannings (basique)
-// Dans minimal.js, mettez à jour la route /api/plannings
+// Dans minimal.js - route /api/plannings mise à jour
 app.get('/api/plannings', async (req, res) => {
   try {
-    console.log('📅 Plannings appelés avec query:', req.query);
+    const { searchQuery, selectedFilter, selectedYear, selectedMonth, selectedWeek } = req.query;
     
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
+    console.log('📅 Plannings filtrés demandés avec:', {
+      searchQuery, selectedFilter, selectedYear, selectedMonth, selectedWeek
+    });
     
-    // Données mockées pour le planning - retourner directement le tableau
+    // Données au format attendu par le frontend
     const plannings = [
       {
         id: 1,
-        agent_id: 1,
-        date: new Date().toISOString().split('T')[0],
-        shift: 'JOUR',
-        agent: {
-          matricule: 'AG001',
-          nom: 'Dupont',
-          prenom: 'Jean',
-          role: 'Développeur'
-        }
+        agent_name: "Jean Dupont",
+        semaine: "2025-W50",
+        year: "2025",
+        month: ["12"],
+        days: [
+          { 
+            day: "LUNDI", 
+            name: "LUN",
+            date: "09/12",
+            fullDate: "2025-12-09",
+            shift: "JOUR", 
+            hours: 8 
+          },
+          { 
+            day: "MARDI", 
+            name: "MAR",
+            date: "10/12", 
+            fullDate: "2025-12-10",
+            shift: "JOUR", 
+            hours: 8 
+          },
+          { 
+            day: "MERCREDI", 
+            name: "MER",
+            date: "11/12",
+            fullDate: "2025-12-11",
+            shift: "OFF", 
+            hours: 0 
+          },
+          { 
+            day: "JEUDI", 
+            name: "JEU",
+            date: "12/12",
+            fullDate: "2025-12-12",
+            shift: "NUIT", 
+            hours: 10 
+          },
+          { 
+            day: "VENDREDI", 
+            name: "VEN",
+            date: "13/12",
+            fullDate: "2025-12-13",
+            shift: "JOUR", 
+            hours: 8 
+          },
+          { 
+            day: "SAMEDI", 
+            name: "SAM",
+            date: "14/12",
+            fullDate: "2025-12-14",
+            shift: "OFF", 
+            hours: 0 
+          },
+          { 
+            day: "DIMANCHE", 
+            name: "DIM",
+            date: "15/12",
+            fullDate: "2025-12-15",
+            shift: "OFF", 
+            hours: 0 
+          }
+        ],
+        total_heures: 34,
+        remarques: null,
+        lundi: "JOUR",
+        mardi: "JOUR",
+        mercredi: "OFF",
+        jeudi: "NUIT",
+        vendredi: "JOUR",
+        samedi: "OFF",
+        dimanche: "OFF"
       },
       {
         id: 2,
-        agent_id: 2,
-        date: new Date().toISOString().split('T')[0],
-        shift: 'NUIT',
-        agent: {
-          matricule: 'AG002',
-          nom: 'Martin',
-          prenom: 'Marie',
-          role: 'Designer'
-        }
+        agent_name: "Marie Martin",
+        semaine: "2025-W50",
+        year: "2025",
+        month: ["12"],
+        days: [
+          { 
+            day: "LUNDI", 
+            name: "LUN",
+            date: "09/12",
+            fullDate: "2025-12-09",
+            shift: "NUIT", 
+            hours: 10 
+          },
+          { 
+            day: "MARDI", 
+            name: "MAR",
+            date: "10/12",
+            fullDate: "2025-12-10",
+            shift: "OFF", 
+            hours: 0 
+          },
+          { 
+            day: "MERCREDI", 
+            name: "MER",
+            date: "11/12",
+            fullDate: "2025-12-11",
+            shift: "JOUR", 
+            hours: 8 
+          },
+          { 
+            day: "JEUDI", 
+            name: "JEU",
+            date: "12/12",
+            fullDate: "2025-12-12",
+            shift: "JOUR", 
+            hours: 8 
+          },
+          { 
+            day: "VENDREDI", 
+            name: "VEN",
+            date: "13/12",
+            fullDate: "2025-12-13",
+            shift: "JOUR", 
+            hours: 8 
+          },
+          { 
+            day: "SAMEDI", 
+            name: "SAM",
+            date: "14/12",
+            fullDate: "2025-12-14",
+            shift: "MATIN", 
+            hours: 5 
+          },
+          { 
+            day: "DIMANCHE", 
+            name: "DIM",
+            date: "15/12",
+            fullDate: "2025-12-15",
+            shift: "OFF", 
+            hours: 0 
+          }
+        ],
+        total_heures: 39,
+        remarques: "Formation mercredi",
+        lundi: "NUIT",
+        mardi: "OFF",
+        mercredi: "JOUR",
+        jeudi: "JOUR",
+        vendredi: "JOUR",
+        samedi: "MATIN",
+        dimanche: "OFF"
       }
     ];
     
-    // MODIFICATION : Retourner directement le tableau au lieu d'un objet
-    res.json(plannings);
+    // Appliquer les filtres
+    let filteredPlannings = [...plannings];
+    
+    if (searchQuery && searchQuery !== 'all') {
+      filteredPlannings = filteredPlannings.filter(p => 
+        p.agent_name.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+    
+    if (selectedYear && selectedYear !== 'all') {
+      filteredPlannings = filteredPlannings.filter(p => 
+        p.year === selectedYear
+      );
+    }
+    
+    if (selectedMonth && selectedMonth !== 'all') {
+      filteredPlannings = filteredPlannings.filter(p => 
+        p.month.includes(selectedMonth)
+      );
+    }
+    
+    if (selectedWeek && selectedWeek !== 'all') {
+      filteredPlannings = filteredPlannings.filter(p => 
+        p.semaine === selectedWeek
+      );
+    }
+    
+    if (selectedFilter && selectedFilter !== 'all') {
+      filteredPlannings = filteredPlannings.filter(p => 
+        p.lundi === selectedFilter ||
+        p.mardi === selectedFilter ||
+        p.mercredi === selectedFilter ||
+        p.jeudi === selectedFilter ||
+        p.vendredi === selectedFilter ||
+        p.samedi === selectedFilter ||
+        p.dimanche === selectedFilter
+      );
+    }
+    
+    console.log(`✅ ${filteredPlannings.length} planning(s) retourné(s)`);
+    res.json(filteredPlannings);
     
   } catch (error) {
-    console.error('❌ Erreur plannings:', error);
-    res.status(500).json([]); // Retourner un tableau vide en cas d'erreur
+    console.error('❌ Erreur récupération plannings:', error);
+    res.status(500).json([]);
   }
 });
 
