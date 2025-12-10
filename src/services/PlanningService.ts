@@ -1,6 +1,3 @@
-// PlanningService.ts
-import * as XLSX from 'xlsx';
-
 // Définir les interfaces manquantes si elles n'existent pas
 interface Planning {
   id: number;
@@ -47,50 +44,68 @@ interface DeleteResponse {
 
 export class PlanningService {
   private static baseUrl: string = 'http://localhost:3000/api/plannings';
+// PlanningService.ts - Méthode getPlannings mise à jour avec typage
+static async getPlannings(filters: Partial<UnifiedPlanningFilters> = {}): Promise<Planning[]> {
+  try {
+    const completeFilters: UnifiedPlanningFilters = {
+      searchQuery: '',
+      selectedFilter: 'all',
+      selectedYear: 'all',
+      selectedMonth: 'all',
+      selectedWeek: 'all',
+      ...filters,
+    };
 
-  static async getPlannings(filters: Partial<UnifiedPlanningFilters> = {}): Promise<Planning[]> {
-    try {
-      const completeFilters: UnifiedPlanningFilters = {
-        searchQuery: '',
-        selectedFilter: 'all',
-        selectedYear: 'all',
-        selectedMonth: 'all',
-        selectedWeek: 'all',
-        ...filters,
-      };
+    const query = new URLSearchParams();
+    if (completeFilters.searchQuery) query.append('searchQuery', completeFilters.searchQuery);
+    if (completeFilters.selectedFilter && completeFilters.selectedFilter !== 'all') 
+      query.append('selectedFilter', completeFilters.selectedFilter);
+    if (completeFilters.selectedYear && completeFilters.selectedYear !== 'all') 
+      query.append('selectedYear', completeFilters.selectedYear);
+    if (completeFilters.selectedMonth && completeFilters.selectedMonth !== 'all') 
+      query.append('selectedMonth', completeFilters.selectedMonth);
+    if (completeFilters.selectedWeek && completeFilters.selectedWeek !== 'all') 
+      query.append('selectedWeek', completeFilters.selectedWeek);
 
-      const query = new URLSearchParams();
-      if (completeFilters.searchQuery) query.append('searchQuery', completeFilters.searchQuery);
-      if (completeFilters.selectedFilter && completeFilters.selectedFilter !== 'all') 
-        query.append('selectedFilter', completeFilters.selectedFilter);
-      if (completeFilters.selectedYear && completeFilters.selectedYear !== 'all') 
-        query.append('selectedYear', completeFilters.selectedYear);
-      if (completeFilters.selectedMonth && completeFilters.selectedMonth !== 'all') 
-        query.append('selectedMonth', completeFilters.selectedMonth);
-      if (completeFilters.selectedWeek && completeFilters.selectedWeek !== 'all') 
-        query.append('selectedWeek', completeFilters.selectedWeek);
+    console.log('Envoi requête getPlannings avec params:', query.toString());
 
-      console.log('Envoi requête getPlannings avec params:', query.toString());
+    const response = await fetch(`${this.baseUrl}?${query.toString()}`, {
+      method: 'GET',
+    });
 
-      const response = await fetch(`${this.baseUrl}?${query.toString()}`, {
-        method: 'GET',
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-
-      const responseData = await response.json() as Planning[];
-      return responseData.map((agent: Planning) => ({
-        ...agent,
-        days: agent.days || [],
-      }));
-    } catch (error: any) {
-      console.error('Erreur getPlannings:', error);
-      throw new Error(error.message || 'Erreur lors de la récupération des plannings');
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
     }
+
+    // Définir un type pour la réponse
+    interface ApiResponse {
+      success?: boolean;
+      data?: Planning[];
+      message?: string;
+      [key: string]: any;
+    }
+
+    const responseData = await response.json() as ApiResponse;
+    
+    // Extraire le tableau data de l'objet de réponse
+    const dataArray = responseData.data || (Array.isArray(responseData) ? responseData : []);
+    
+    // S'assurer que nous travaillons avec un tableau
+    if (!Array.isArray(dataArray)) {
+      console.warn('Les données de réponse ne sont pas un tableau:', dataArray);
+      return [];
+    }
+    
+    return dataArray.map((agent: Planning) => ({
+      ...agent,
+      days: agent.days || [],
+    }));
+  } catch (error: any) {
+    console.error('Erreur getPlannings:', error);
+    throw new Error(error.message || 'Erreur lors de la récupération des plannings');
   }
+}
 
   static async uploadPlanning(file: File): Promise<UploadResponse> {
     try {
@@ -309,52 +324,64 @@ export class PlanningService {
     }
   }
 
-  static async getStats(filters: Partial<UnifiedPlanningFilters> = {}): Promise<PlanningStats> {
-    try {
-      const completeFilters: UnifiedPlanningFilters = {
-        searchQuery: '',
-        selectedFilter: 'all',
-        selectedYear: 'all',
-        selectedMonth: 'all',
-        selectedWeek: 'all',
-        ...filters,
-      };
+// PlanningService.ts - Méthode getStats mise à jour
+// PlanningService.ts - Méthode getStats mise à jour avec typage
+static async getStats(filters: Partial<UnifiedPlanningFilters> = {}): Promise<PlanningStats> {
+  try {
+    const completeFilters: UnifiedPlanningFilters = {
+      searchQuery: '',
+      selectedFilter: 'all',
+      selectedYear: 'all',
+      selectedMonth: 'all',
+      selectedWeek: 'all',
+      ...filters,
+    };
 
-      const query = new URLSearchParams();
-      if (completeFilters.searchQuery) query.append('searchQuery', completeFilters.searchQuery);
-      if (completeFilters.selectedFilter && completeFilters.selectedFilter !== 'all') 
-        query.append('selectedFilter', completeFilters.selectedFilter);
-      if (completeFilters.selectedYear && completeFilters.selectedYear !== 'all') 
-        query.append('selectedYear', completeFilters.selectedYear);
-      if (completeFilters.selectedMonth && completeFilters.selectedMonth !== 'all') 
-        query.append('selectedMonth', completeFilters.selectedMonth);
-      if (completeFilters.selectedWeek && completeFilters.selectedWeek !== 'all') 
-        query.append('selectedWeek', completeFilters.selectedWeek);
+    const query = new URLSearchParams();
+    if (completeFilters.searchQuery) query.append('searchQuery', completeFilters.searchQuery);
+    if (completeFilters.selectedFilter && completeFilters.selectedFilter !== 'all') 
+      query.append('selectedFilter', completeFilters.selectedFilter);
+    if (completeFilters.selectedYear && completeFilters.selectedYear !== 'all') 
+      query.append('selectedYear', completeFilters.selectedYear);
+    if (completeFilters.selectedMonth && completeFilters.selectedMonth !== 'all') 
+      query.append('selectedMonth', completeFilters.selectedMonth);
+    if (completeFilters.selectedWeek && completeFilters.selectedWeek !== 'all') 
+      query.append('selectedWeek', completeFilters.selectedWeek);
 
-      const response = await fetch(`${this.baseUrl}/stats?${query.toString()}`, {
-        method: 'GET',
-      });
+    const response = await fetch(`${this.baseUrl}/stats?${query.toString()}`, {
+      method: 'GET',
+    });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-
-      return await response.json() as PlanningStats;
-    } catch (error: any) {
-      console.error('Erreur getStats:', error);
-      return {
-        totalAgents: 0,
-        totalHours: 0,
-        avgHours: 0,
-        present: 0,
-        absent: 0,
-        dayShift: 0,
-        nightShift: 0,
-        shiftCounts: {},
-      };
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
     }
+
+    // Définir un type pour la réponse des stats
+    interface StatsApiResponse {
+      success?: boolean;
+      data?: PlanningStats;
+      [key: string]: any;
+    }
+
+    const responseData = await response.json() as StatsApiResponse;
+    const stats = responseData.data || responseData;
+    
+    return stats as PlanningStats;
+  } catch (error: any) {
+    console.error('Erreur getStats:', error);
+    return {
+      totalAgents: 0,
+      totalHours: 0,
+      avgHours: 0,
+      present: 0,
+      absent: 0,
+      dayShift: 0,
+      nightShift: 0,
+      shiftCounts: {},
+    };
   }
+}
 
   static async searchWeeks(criteria: { year?: string; month?: string; partialWeek?: string }): Promise<string[]> {
     try {

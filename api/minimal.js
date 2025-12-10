@@ -2613,6 +2613,7 @@ app.get('/api/check-signatures/:id', async (req, res) => {
 });
 
 // Route pour obtenir les plannings (basique)
+// Dans minimal.js, mettez à jour la route /api/plannings
 app.get('/api/plannings', async (req, res) => {
   try {
     console.log('📅 Plannings appelés avec query:', req.query);
@@ -2621,7 +2622,7 @@ app.get('/api/plannings', async (req, res) => {
       await initializeDatabase();
     }
     
-    // Données mockées pour le planning
+    // Données mockées pour le planning - retourner directement le tableau
     const plannings = [
       {
         id: 1,
@@ -2649,19 +2650,12 @@ app.get('/api/plannings', async (req, res) => {
       }
     ];
     
-    res.json({
-      success: true,
-      data: plannings,
-      count: plannings.length,
-      query: req.query
-    });
+    // MODIFICATION : Retourner directement le tableau au lieu d'un objet
+    res.json(plannings);
     
   } catch (error) {
     console.error('❌ Erreur plannings:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    res.status(500).json([]); // Retourner un tableau vide en cas d'erreur
   }
 });
 
