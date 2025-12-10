@@ -30,16 +30,17 @@ export class PresenceService {
   // ──────────────────────────────────────────────────────────────
   // POINTAGE D'ENTRÉE
   // ──────────────────────────────────────────────────────────────
-  async pointageEntree(data: {
-    matricule?: string;
-    nom: string;
-    prenom: string;
-    campagne?: string;
-    shift?: string;
-    heureEntreeManuelle?: string;
-  }) {
-    const today = new Date().toISOString().split('T')[0];
-    const heure = data.heureEntreeManuelle || new Date().toTimeString().slice(0, 8);
+ async pointageEntree(data: {
+  matricule?: string;
+  nom: string;
+  prenom: string;
+  campagne?: string;
+  shift?: string;
+  heureEntreeManuelle?: string;
+  signatureEntree?: string; // ✅ NOUVEAU
+}) {
+  const today = new Date().toISOString().split('T')[0];
+  const heure = data.heureEntreeManuelle || new Date().toTimeString().slice(0, 8);
 
     // Recherche ou création de l'agent
     let agent = data.matricule
@@ -67,12 +68,14 @@ export class PresenceService {
       throw new Error("Entrée déjà pointée aujourd'hui");
     }
 
-    const presence = this.presenceRepo.create({
-      agent,
-      date: today,
-      heureEntree: heure,
-      shift: data.shift || 'JOUR',
-    });
+     const presence = this.presenceRepo.create({
+    agent,
+    date: today,
+    heureEntree: heure,
+    shift: data.shift || 'JOUR',
+    signatureEntree: data.signatureEntree || null, // ✅ STOCKAGE SIGNATURE ENTREE
+  });
+
 
     await this.presenceRepo.save(presence);
     return { presence };
@@ -81,25 +84,73 @@ export class PresenceService {
   // ──────────────────────────────────────────────────────────────
   // POINTAGE DE SORTIE
   // ──────────────────────────────────────────────────────────────
-  async pointageSortie(matricule: string, heureSortieManuelle?: string) {
-    const today = new Date().toISOString().split('T')[0];
-    const heure = heureSortieManuelle || new Date().toTimeString().slice(0, 8);
+async pointageSortie(
+  matricule: string, 
+  signatureSortie: string, // ✅ OBLIGATOIRE MAINTENANT
+  heureSortieManuelle?: string
+) {
+  const today = new Date().toISOString().split('T')[0];
+  const heure = heureSortieManuelle || new Date().toTimeString().slice(0, 8);
 
-    const agent = await this.agentRepo.findOne({ where: { matricule } });
-    if (!agent) throw new Error('Agent non trouvé');
+  const agent = await this.agentRepo.findOne({ where: { matricule } });
+  if (!agent) throw new Error('Agent non trouvé');
 
-    const presence = await this.presenceRepo.findOne({
-      where: { agent: { id: agent.id }, date: today, heureSortie: null },
+  const presence = await this.presenceRepo.findOne({
+    where: { agent: { id: agent.id }, date: today, heureSortie: null },
+  });
+
+  if (!presence) throw new Error("Aucune entrée pointée aujourd'hui");
+
+  // ✅ METTRE À JOUR AVEC LA SIGNATURE
+  presence.heureSortie = heure;
+  presence.signatureSortie = signatureSortie; // IMPORTANT !
+  presence.heuresTravaillees = 8.0;
+
+  await this.presenceRepo.save(presence);
+  return { presence };
+}
+
+async getPresenceById(id: number): Promise<Presence | null> {
+  try {
+    return await this.presenceRepo.findOne({
+      where: { id },
+      relations: ['agent'],
     });
-
-    if (!presence) throw new Error("Aucune entrée pointée aujourd'hui");
-
-    presence.heureSortie = heure;
-    presence.heuresTravaillees = 8.0; // Toujours 8h dans votre cas
-
-    await this.presenceRepo.save(presence);
-    return { presence };
+  } catch (error) {
+    console.error('Erreur récupération présence par ID:', error);
+    return null;
   }
+}
+
+
+// OU version plus complète avec vérification
+async getPresenceWithSignature(id: number, signatureType?: 'entree' | 'sortie') {
+  const presence = await this.presenceRepo.findOne({
+    where: { id },
+    relations: ['agent'],
+    select: [
+      'id',
+      'date',
+      'heureEntree',
+      'heureSortie',
+      'signatureEntree',    // Inclure explicitement
+      'signatureSortie',    // Inclure explicitement
+      'shift',
+      'heuresTravaillees',
+      'createdAt',
+    ],
+  });
+
+  if (!presence) {
+    throw new Error('Présence non trouvée');
+  }
+
+  return {
+    presence,
+    hasSignatureEntree: !!presence.signatureEntree,
+    hasSignatureSortie: !!presence.signatureSortie,
+  };
+}
 
   // ──────────────────────────────────────────────────────────────
   // VÉRIFICATION ÉTAT PRÉSENCE (pour la badgeuse)

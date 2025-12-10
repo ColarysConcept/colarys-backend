@@ -11,70 +11,200 @@ export class PresenceController {
     this.presenceService = new PresenceService();
   }
 
-  // POINTAGE D'ENTRÉE
-  async pointageEntree(req: Request, res: Response) {
-    console.log('pointageEntree appelé avec body:', req.body);
-    try {
-      const { matricule, nom, prenom, campagne, shift, heureEntreeManuelle } = req.body;
+// backend/src/controllers/PresenceController.ts
+async pointageEntree(req: Request, res: Response) {
+  console.log('pointageEntree appelé avec body:', req.body);
+  try {
+    const { 
+      matricule, 
+      nom, 
+      prenom, 
+      campagne, 
+      shift, 
+      heureEntreeManuelle,
+      signatureEntree // ✅ NOUVEAU
+    } = req.body;
 
-      if (!nom || !prenom) {
-        return res.status(400).json({
-          success: false,
-          error: "Nom et prénom sont obligatoires",
-        });
-      }
-
-      const result = await this.presenceService.pointageEntree({
-        matricule: matricule?.trim() || undefined,
-        nom: nom.trim(),
-        prenom: prenom.trim(),
-        campagne: campagne || "Standard",
-        shift: shift || "JOUR",
-        heureEntreeManuelle,
-      });
-
-      res.status(201).json({
-        success: true,
-        message: "Entrée pointée avec succès",
-        presence: result.presence,
-      });
-    } catch (error: any) {
-      console.error('Erreur pointage entrée:', error);
-      res.status(400).json({
+    if (!nom || !prenom) {
+      return res.status(400).json({
         success: false,
-        error: error.message || "Erreur lors du pointage d'entrée",
+        error: "Nom et prénom sont obligatoires",
       });
     }
-  }
 
-  // POINTAGE DE SORTIE
-  async pointageSortie(req: Request, res: Response) {
-    console.log('pointageSortie appelé avec body:', req.body);
-    try {
-      const { matricule, heureSortieManuelle } = req.body;
-
-      if (!matricule) {
-        return res.status(400).json({
-          success: false,
-          error: "Matricule obligatoire pour la sortie",
-        });
-      }
-
-      const result = await this.presenceService.pointageSortie(matricule.trim(), heureSortieManuelle);
-
-      res.json({
-        success: true,
-        message: "Sortie pointée avec succès",
-        presence: result.presence,
-      });
-    } catch (error: any) {
-      console.error('Erreur pointage sortie:', error);
-      res.status(400).json({
+    // ✅ VALIDER LA SIGNATURE SI PRÉSENTE
+    if (signatureEntree && !this.isValidSignature(signatureEntree)) {
+      return res.status(400).json({
         success: false,
-        error: error.message || "Erreur lors du pointage de sortie",
+        error: "Format de signature invalide",
       });
     }
+
+    const result = await this.presenceService.pointageEntree({
+      matricule: matricule?.trim() || undefined,
+      nom: nom.trim(),
+      prenom: prenom.trim(),
+      campagne: campagne || "Standard",
+      shift: shift || "JOUR",
+      heureEntreeManuelle,
+      signatureEntree, // ✅ PASSER AU SERVICE
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Entrée pointée avec succès",
+      presence: result.presence,
+    });
+  } catch (error: any) {
+    console.error('Erreur pointage entrée:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message || "Erreur lors du pointage d'entrée",
+    });
   }
+}
+
+async pointageSortie(req: Request, res: Response) {
+  console.log('pointageSortie appelé avec body:', req.body);
+  try {
+    const { 
+      matricule, 
+      signatureSortie, // ✅ DEVENU OBLIGATOIRE
+      heureSortieManuelle 
+    } = req.body;
+
+    if (!matricule) {
+      return res.status(400).json({
+        success: false,
+        error: "Matricule obligatoire pour la sortie",
+      });
+    }
+
+    // ✅ VALIDATION RENFORCÉE
+    if (!signatureSortie) {
+      return res.status(400).json({
+        success: false,
+        error: "Signature de sortie obligatoire",
+      });
+    }
+
+    if (!this.isValidSignature(signatureSortie)) {
+      return res.status(400).json({
+        success: false,
+        error: "Format de signature invalide",
+      });
+    }
+
+    const result = await this.presenceService.pointageSortie(
+      matricule.trim(), 
+      signatureSortie, // ✅ PASSER LA SIGNATURE
+      heureSortieManuelle
+    );
+
+    res.json({
+      success: true,
+      message: "Sortie pointée avec succès",
+      presence: result.presence,
+    });
+  } catch (error: any) {
+    console.error('Erreur pointage sortie:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message || "Erreur lors du pointage de sortie",
+    });
+  }
+}
+
+// ✅ MÉTHODE DE VALIDATION DES SIGNATURES
+private isValidSignature(signature: string): boolean {
+  if (!signature || typeof signature !== 'string') return false;
+  
+  // Vérifier Base64
+  if (signature.startsWith('data:image/')) {
+    const base64Regex = /^data:image\/(png|jpg|jpeg|svg\+xml);base64,[A-Za-z0-9+/=]+$/;
+    return base64Regex.test(signature);
+  }
+  
+  // Vérifier SVG
+  if (signature.startsWith('<svg')) {
+    return signature.includes('</svg>');
+  }
+  
+  // Vérifier JSON (coordonnées vectorielles)
+  try {
+    const parsed = JSON.parse(signature);
+    return Array.isArray(parsed) || (parsed.points && Array.isArray(parsed.points));
+  } catch {
+    return false;
+  }
+}
+
+// backend/src/controllers/PresenceController.ts
+async getSignature(req: Request, res: Response) {
+  try {
+    const { id, type } = req.params; // id de la présence, type: 'entree' ou 'sortie'
+    
+    // Utiliser la nouvelle méthode
+    const presence = await this.presenceService.getPresenceById(Number(id));
+    
+    if (!presence) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Présence non trouvée' 
+      });
+    }
+    
+    // Vérifier si les propriétés existent (pour TypeScript)
+    const signatureEntree = (presence as any).signatureEntree;
+    const signatureSortie = (presence as any).signatureSortie;
+    
+    const signature = type === 'entree' 
+      ? signatureEntree 
+      : signatureSortie;
+    
+    if (!signature) {
+      return res.status(404).json({ 
+        success: false, 
+        error: `Signature ${type} non trouvée pour cette présence` 
+      });
+    }
+    
+    // Si c'est une image Base64
+    if (signature.startsWith('data:image/')) {
+      const base64Data = signature.replace(/^data:image\/\w+;base64,/, '');
+      const imgBuffer = Buffer.from(base64Data, 'base64');
+      
+      // Déterminer le type MIME
+      const mimeType = signature.match(/data:image\/(\w+);/)?.[1];
+      res.set('Content-Type', `image/${mimeType || 'png'}`);
+      
+      return res.send(imgBuffer);
+    }
+    
+    // Si c'est du SVG
+    if (signature.startsWith('<svg')) {
+      res.set('Content-Type', 'image/svg+xml');
+      return res.send(signature);
+    }
+    
+    // Sinon retourner le JSON
+    res.json({ 
+      success: true, 
+      signature,
+      presenceId: presence.id,
+      agent: presence.agent,
+      date: presence.date
+    });
+    
+  } catch (error: any) {
+    console.error('Erreur récupération signature:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Erreur serveur' 
+    });
+  }
+}
+
 
   // HISTORIQUE DES PRÉSENCES
   async getHistorique(req: Request, res: Response) {

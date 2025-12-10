@@ -11,9 +11,28 @@ router.get('/', (req, res) => {
   presenceController.getAllPresences(req, res);
 });
 
-// POINTAGE ENTRÉE – accepte matricule OU nom + prénom
+// src/routes/presenceRoutes.ts
 router.post('/entree', async (req, res) => {
   console.log('POST /presences/entree appelé avec body:', req.body);
+  
+  // ✅ VALIDATION RENFORCÉE
+  const { nom, prenom, signatureEntree } = req.body;
+  
+  if (!nom || !prenom) {
+    return res.status(400).json({
+      success: false,
+      error: 'Nom et prénom sont obligatoires'
+    });
+  }
+  
+  // Signature optionnelle pour l'entrée, mais si présente, doit être valide
+  if (signatureEntree && signatureEntree.trim().length < 10) {
+    return res.status(400).json({
+      success: false,
+      error: 'Signature invalide (trop courte)'
+    });
+  }
+
   try {
     await presenceController.pointageEntree(req, res);
   } catch (error) {
@@ -21,17 +40,24 @@ router.post('/entree', async (req, res) => {
   }
 });
 
-// POINTAGE SORTIE – CORRIGÉ POUR FONCTIONNER SANS MATRICULE
 router.post('/sortie', async (req, res) => {
   console.log('POST /presences/sortie appelé avec body:', req.body);
 
   const { matricule, nom, prenom, signatureSortie, heureSortieManuelle } = req.body;
 
-  // Validation de base
+  // ✅ VALIDATION OBLIGATOIRE POUR LA SORTIE
   if (!signatureSortie) {
     return res.status(400).json({
       success: false,
       error: 'La signature de sortie est obligatoire'
+    });
+  }
+
+  // Vérifier que la signature n'est pas vide
+  if (signatureSortie.trim().length < 50) { // Base64 minimal
+    return res.status(400).json({
+      success: false,
+      error: 'Signature trop courte ou invalide'
     });
   }
 
@@ -44,7 +70,6 @@ router.post('/sortie', async (req, res) => {
   }
 
   try {
-    // On passe tout le body au contrôleur – il gère les deux cas
     await presenceController.pointageSortie(req, res);
   } catch (error: any) {
     console.error('Erreur pointage sortie:', error);
@@ -52,6 +77,15 @@ router.post('/sortie', async (req, res) => {
       success: false,
       error: error.message || 'Erreur lors du pointage de sortie'
     });
+  }
+});
+
+// Dans presenceRoutes.ts
+router.get('/signature/:id/:type', async (req, res) => {
+  try {
+    await presenceController.getSignature(req, res);
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
 
