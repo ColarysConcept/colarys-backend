@@ -8,10 +8,12 @@ const express = require('express');
 const cors = require('cors');
 const { DataSource } = require('typeorm');
 const cloudinary = require('cloudinary').v2;
-const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
+
+const XLSX = require('xlsx');
+const multer = require('multer');
 
 // ========== INITIALISATION ==========
 const app = express();
@@ -25,8 +27,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Configuration Multer
-const upload = multer();
+
 
 // ========== CONFIGURATION BASE DE DONNÉES ==========
 let dbInitialized = false;
@@ -2618,203 +2619,116 @@ app.get('/api/plannings', async (req, res) => {
   try {
     const { searchQuery, selectedFilter, selectedYear, selectedMonth, selectedWeek } = req.query;
     
-    console.log('📅 Plannings filtrés demandés avec:', {
+    console.log('📅 Plannings demandés avec filtres:', {
       searchQuery, selectedFilter, selectedYear, selectedMonth, selectedWeek
     });
     
-    // Données au format attendu par le frontend
-    const plannings = [
-      {
-        id: 1,
-        agent_name: "Jean Dupont",
-        semaine: "2025-W50",
-        year: "2025",
-        month: ["12"],
-        days: [
-          { 
-            day: "LUNDI", 
-            name: "LUN",
-            date: "09/12",
-            fullDate: "2025-12-09",
-            shift: "JOUR", 
-            hours: 8 
-          },
-          { 
-            day: "MARDI", 
-            name: "MAR",
-            date: "10/12", 
-            fullDate: "2025-12-10",
-            shift: "JOUR", 
-            hours: 8 
-          },
-          { 
-            day: "MERCREDI", 
-            name: "MER",
-            date: "11/12",
-            fullDate: "2025-12-11",
-            shift: "OFF", 
-            hours: 0 
-          },
-          { 
-            day: "JEUDI", 
-            name: "JEU",
-            date: "12/12",
-            fullDate: "2025-12-12",
-            shift: "NUIT", 
-            hours: 10 
-          },
-          { 
-            day: "VENDREDI", 
-            name: "VEN",
-            date: "13/12",
-            fullDate: "2025-12-13",
-            shift: "JOUR", 
-            hours: 8 
-          },
-          { 
-            day: "SAMEDI", 
-            name: "SAM",
-            date: "14/12",
-            fullDate: "2025-12-14",
-            shift: "OFF", 
-            hours: 0 
-          },
-          { 
-            day: "DIMANCHE", 
-            name: "DIM",
-            date: "15/12",
-            fullDate: "2025-12-15",
-            shift: "OFF", 
-            hours: 0 
-          }
-        ],
-        total_heures: 34,
-        remarques: null,
-        lundi: "JOUR",
-        mardi: "JOUR",
-        mercredi: "OFF",
-        jeudi: "NUIT",
-        vendredi: "JOUR",
-        samedi: "OFF",
-        dimanche: "OFF"
-      },
-      {
-        id: 2,
-        agent_name: "Marie Martin",
-        semaine: "2025-W50",
-        year: "2025",
-        month: ["12"],
-        days: [
-          { 
-            day: "LUNDI", 
-            name: "LUN",
-            date: "09/12",
-            fullDate: "2025-12-09",
-            shift: "NUIT", 
-            hours: 10 
-          },
-          { 
-            day: "MARDI", 
-            name: "MAR",
-            date: "10/12",
-            fullDate: "2025-12-10",
-            shift: "OFF", 
-            hours: 0 
-          },
-          { 
-            day: "MERCREDI", 
-            name: "MER",
-            date: "11/12",
-            fullDate: "2025-12-11",
-            shift: "JOUR", 
-            hours: 8 
-          },
-          { 
-            day: "JEUDI", 
-            name: "JEU",
-            date: "12/12",
-            fullDate: "2025-12-12",
-            shift: "JOUR", 
-            hours: 8 
-          },
-          { 
-            day: "VENDREDI", 
-            name: "VEN",
-            date: "13/12",
-            fullDate: "2025-12-13",
-            shift: "JOUR", 
-            hours: 8 
-          },
-          { 
-            day: "SAMEDI", 
-            name: "SAM",
-            date: "14/12",
-            fullDate: "2025-12-14",
-            shift: "MATIN", 
-            hours: 5 
-          },
-          { 
-            day: "DIMANCHE", 
-            name: "DIM",
-            date: "15/12",
-            fullDate: "2025-12-15",
-            shift: "OFF", 
-            hours: 0 
-          }
-        ],
-        total_heures: 39,
-        remarques: "Formation mercredi",
-        lundi: "NUIT",
-        mardi: "OFF",
-        mercredi: "JOUR",
-        jeudi: "JOUR",
-        vendredi: "JOUR",
-        samedi: "MATIN",
-        dimanche: "OFF"
-      }
-    ];
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    let query = `
+      SELECT * FROM plannings 
+      WHERE agent_name NOT IN ('EMPLOI DU TEMPS', 'PRENOMS', 'Semaine du')
+      AND agent_name IS NOT NULL
+      AND agent_name != ''
+    `;
+    
+    const params = [];
+    let paramIndex = 1;
     
     // Appliquer les filtres
-    let filteredPlannings = [...plannings];
-    
-    if (searchQuery && searchQuery !== 'all') {
-      filteredPlannings = filteredPlannings.filter(p => 
-        p.agent_name.toLowerCase().includes(searchQuery.toLowerCase())
-      );
+    if (searchQuery && searchQuery !== 'all' && searchQuery.trim() !== '') {
+      query += ` AND agent_name ILIKE $${paramIndex}`;
+      params.push(`%${searchQuery}%`);
+      paramIndex++;
     }
     
     if (selectedYear && selectedYear !== 'all') {
-      filteredPlannings = filteredPlannings.filter(p => 
-        p.year === selectedYear
-      );
+      query += ` AND year = $${paramIndex}`;
+      params.push(selectedYear);
+      paramIndex++;
     }
     
     if (selectedMonth && selectedMonth !== 'all') {
-      filteredPlannings = filteredPlannings.filter(p => 
-        p.month.includes(selectedMonth)
-      );
+      query += ` AND (month::text LIKE $${paramIndex} OR $${paramIndex} = ANY(string_to_array(month::text, ',')))`;
+      params.push(`%${selectedMonth}%`);
+      paramIndex++;
     }
     
     if (selectedWeek && selectedWeek !== 'all') {
-      filteredPlannings = filteredPlannings.filter(p => 
-        p.semaine === selectedWeek
-      );
+      query += ` AND semaine = $${paramIndex}`;
+      params.push(selectedWeek);
+      paramIndex++;
     }
     
     if (selectedFilter && selectedFilter !== 'all') {
-      filteredPlannings = filteredPlannings.filter(p => 
-        p.lundi === selectedFilter ||
-        p.mardi === selectedFilter ||
-        p.mercredi === selectedFilter ||
-        p.jeudi === selectedFilter ||
-        p.vendredi === selectedFilter ||
-        p.samedi === selectedFilter ||
-        p.dimanche === selectedFilter
-      );
+      query += ` AND (
+        lundi = $${paramIndex} OR
+        mardi = $${paramIndex} OR
+        mercredi = $${paramIndex} OR
+        jeudi = $${paramIndex} OR
+        vendredi = $${paramIndex} OR
+        samedi = $${paramIndex} OR
+        dimanche = $${paramIndex}
+      )`;
+      params.push(selectedFilter);
+      paramIndex++;
     }
     
-    console.log(`✅ ${filteredPlannings.length} planning(s) retourné(s)`);
-    res.json(filteredPlannings);
+    query += ' ORDER BY semaine DESC, agent_name ASC';
+    
+    console.log('📋 Requête SQL filtrée:', query);
+    console.log('📋 Paramètres:', params);
+    
+    const plannings = await AppDataSource.query(query, params);
+    
+    // Parser les champs JSON et nettoyer les données
+    const parsedPlannings = plannings
+      .filter(p => {
+        // Filtrer les agents invalides
+        const agentName = p.agent_name || '';
+        return !agentName.includes('EMPLOI DU TEMPS') && 
+               !agentName.includes('PRENOMS') &&
+               !agentName.includes('Semaine du') &&
+               agentName.trim() !== '';
+      })
+      .map(p => {
+        try {
+          const days = p.days ? (typeof p.days === 'string' ? JSON.parse(p.days) : p.days) : [];
+          const month = p.month ? (typeof p.month === 'string' ? JSON.parse(p.month) : p.month) : [];
+          
+          return {
+            ...p,
+            id: parseInt(p.id) || p.id,
+            month: Array.isArray(month) ? month : [month],
+            days: Array.isArray(days) ? days.map(day => ({
+              ...day,
+              hours: parseFloat(day.hours) || 0
+            })) : [],
+            total_heures: parseFloat(p.total_heures) || 0
+          };
+        } catch (error) {
+          console.error('❌ Erreur parsing planning ID:', p.id, error);
+          return null;
+        }
+      })
+      .filter(p => p !== null); // Retirer les entrées null
+    
+    console.log(`✅ ${parsedPlannings.length} planning(s) valide(s) retourné(s)`);
+    
+    // Log du premier planning pour vérification
+    if (parsedPlannings.length > 0) {
+      console.log('📝 Premier planning:', {
+        id: parsedPlannings[0].id,
+        agent_name: parsedPlannings[0].agent_name,
+        semaine: parsedPlannings[0].semaine,
+        total_heures: parsedPlannings[0].total_heures,
+        days_count: parsedPlannings[0].days.length
+      });
+    }
+    
+    res.json(parsedPlannings);
     
   } catch (error) {
     console.error('❌ Erreur récupération plannings:', error);
@@ -2981,6 +2895,674 @@ app.post('/api/plannings/upload', upload.single('file'), async (req, res) => {
       success: false,
       error: "Erreur lors de l'upload du planning",
       message: error.message
+    });
+  }
+});
+
+// Route pour nettoyer les données invalides
+app.post('/api/plannings/cleanup', async (req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    console.log('🧹 Nettoyage des données invalides...');
+    
+    // Supprimer les entrées avec des noms d'agents invalides
+    const deleteResult = await AppDataSource.query(`
+      DELETE FROM plannings 
+      WHERE agent_name IN ('EMPLOI DU TEMPS', 'PRENOMS', 'Semaine du')
+         OR agent_name IS NULL
+         OR agent_name = ''
+         OR agent_name LIKE '%EMPLOI%'
+         OR agent_name LIKE '%TEMPS%'
+         OR agent_name LIKE '%PRENOMS%'
+         OR agent_name LIKE '%Semaine%'
+    `);
+    
+    console.log(`🗑️ ${deleteResult.rowCount} entrées invalides supprimées`);
+    
+    // Compter les données restantes
+    const countResult = await AppDataSource.query('SELECT COUNT(*) as count FROM plannings');
+    const remainingCount = parseInt(countResult[0].count);
+    
+    res.json({
+      success: true,
+      message: `Nettoyage terminé: ${deleteResult.rowCount} entrées supprimées, ${remainingCount} restantes`,
+      deleted: deleteResult.rowCount,
+      remaining: remainingCount
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur nettoyage:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Route pour les années disponibles
+app.get('/api/plannings/years', async (req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    const years = await AppDataSource.query(`
+      SELECT DISTINCT year 
+      FROM plannings 
+      WHERE agent_name NOT IN ('EMPLOI DU TEMPS', 'PRENOMS', 'Semaine du')
+        AND year IS NOT NULL
+        AND year != ''
+      ORDER BY year DESC
+    `);
+    
+    const yearList = years.map(y => y.year).filter(Boolean);
+    
+    // Si pas de données, retourner l'année actuelle
+    if (yearList.length === 0) {
+      yearList.push(new Date().getFullYear().toString());
+    }
+    
+    console.log('📅 Années disponibles:', yearList);
+    res.json(yearList);
+    
+  } catch (error) {
+    console.error('❌ Erreur récupération années:', error);
+    res.json([new Date().getFullYear().toString()]);
+  }
+});
+
+// Route pour les mois disponibles
+app.get('/api/plannings/months', async (req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // Récupérer tous les mois uniques depuis la colonne JSON
+    const monthsData = await AppDataSource.query(`
+      SELECT DISTINCT jsonb_array_elements_text(month) as month
+      FROM plannings 
+      WHERE agent_name NOT IN ('EMPLOI DU TEMPS', 'PRENOMS', 'Semaine du')
+        AND month IS NOT NULL
+      ORDER BY month
+    `);
+    
+    const monthList = monthsData.map(m => m.month).filter(Boolean);
+    
+    // Si pas de données, retourner tous les mois
+    if (monthList.length === 0) {
+      monthList.push(...Array.from({ length: 12 }, (_, i) => 
+        (i + 1).toString().padStart(2, '0')
+      ));
+    }
+    
+    console.log('📅 Mois disponibles:', monthList);
+    res.json(monthList);
+    
+  } catch (error) {
+    console.error('❌ Erreur récupération mois:', error);
+    res.json(Array.from({ length: 12 }, (_, i) => 
+      (i + 1).toString().padStart(2, '0')
+    ));
+  }
+});
+
+// Route pour les semaines disponibles
+app.get('/api/plannings/weeks', async (req, res) => {
+  try {
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    const weeks = await AppDataSource.query(`
+      SELECT DISTINCT semaine 
+      FROM plannings 
+      WHERE agent_name NOT IN ('EMPLOI DU TEMPS', 'PRENOMS', 'Semaine du')
+        AND semaine IS NOT NULL
+        AND semaine != ''
+      ORDER BY semaine DESC
+    `);
+    
+    const weekList = weeks.map(w => w.semaine).filter(Boolean);
+    
+    console.log('📅 Semaines disponibles:', weekList.length);
+    res.json(weekList);
+    
+  } catch (error) {
+    console.error('❌ Erreur récupération semaines:', error);
+    res.json([]);
+  }
+});
+
+
+
+// Configuration de multer pour l'upload de fichiers
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB max
+  },
+  fileFilter: (req, file, cb) => {
+    // Accepter seulement les fichiers Excel
+    if (
+      file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      file.mimetype === 'application/vnd.ms-excel' ||
+      file.originalname.match(/\.(xlsx|xls|csv)$/i)
+    ) {
+      cb(null, true);
+    } else {
+      cb(new Error('Seuls les fichiers Excel (.xlsx, .xls, .csv) sont autorisés'), false);
+    }
+  }
+});
+
+// Fonctions utilitaires pour le parsing Excel
+function extractWeekNumber(weekText) {
+  try {
+    console.log('📅 Extraction semaine depuis:', weekText);
+    
+    // Nettoyer le texte
+    const cleanText = weekText.replace(/["']/g, '').trim();
+    
+    // Chercher la première date (format: 30/06/25)
+    const dateMatch = cleanText.match(/(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{2,4})/);
+    if (dateMatch) {
+      const day = parseInt(dateMatch[1]);
+      const month = parseInt(dateMatch[2]);
+      let year = parseInt(dateMatch[3]);
+      
+      // Convertir l'année sur 2 chiffres en année complète
+      if (year < 100) {
+        year = 2000 + year;
+      }
+      
+      console.log(`📅 Date extraite: ${day}/${month}/${year}`);
+      
+      // Créer la date
+      const date = new Date(year, month - 1, day);
+      
+      if (isNaN(date.getTime())) {
+        throw new Error('Date invalide');
+      }
+      
+      // Calculer le numéro de semaine ISO
+      const firstDayOfYear = new Date(Date.UTC(year, 0, 1));
+      const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
+      const weekNumber = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+      
+      const result = `${year}-W${weekNumber.toString().padStart(2, '0')}`;
+      console.log(`📅 Semaine calculée: ${result}`);
+      return result;
+    }
+    
+    throw new Error('Format de date non reconnu');
+    
+  } catch (error) {
+    console.error('❌ Erreur extraction semaine:', error, 'Texte:', weekText);
+    const currentYear = new Date().getFullYear();
+    return `${currentYear}-W01`;
+  }
+}
+
+function extractYearFromWeek(weekText) {
+  try {
+    const cleanText = weekText.replace(/["']/g, '').trim();
+    const dateMatch = cleanText.match(/(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{2,4})/);
+    if (dateMatch) {
+      let year = parseInt(dateMatch[3]);
+      return year < 100 ? (2000 + year).toString() : year.toString();
+    }
+    return new Date().getFullYear().toString();
+  } catch (error) {
+    console.error('❌ Erreur extraction année:', error);
+    return new Date().getFullYear().toString();
+  }
+}
+
+function calculateHoursFromShift(shift) {
+  if (!shift || typeof shift !== 'string') return 0;
+  
+  const shiftHours = {
+    'JOUR': 8,
+    'NUIT': 10,
+    'MAT5': 5,
+    'MAT8': 8,
+    'MAT9': 9,
+    'MATIN': 5,
+    'OFF': 0,
+    'CONGE': 0,
+    'FORMATION': 8,
+    'MALADIE': 0,
+    'ABSENCE': 0,
+    'QUITER': 0,
+    'DEMISSION': 0,
+    'EN COURS': 0,
+    'FIN PE': 0,
+    '': 0,
+    ' ': 0
+  };
+  
+  const cleanShift = shift.toString().toUpperCase().trim();
+  return shiftHours[cleanShift] !== undefined ? shiftHours[cleanShift] : 8; // 8h par défaut
+}
+
+function calculateDateForDay(week, dayIndex, year) {
+  try {
+    const [, weekNum] = week.split('-W');
+    const weekNumber = parseInt(weekNum);
+    const yearNumber = parseInt(year);
+    
+    // Calcul ISO de la semaine
+    const simple = new Date(yearNumber, 0, 1 + (weekNumber - 1) * 7);
+    const dow = simple.getDay();
+    const ISOweekStart = new Date(simple);
+    
+    if (dow <= 4) {
+      ISOweekStart.setDate(simple.getDate() - simple.getDay() + 1);
+    } else {
+      ISOweekStart.setDate(simple.getDate() + 8 - simple.getDay());
+    }
+    
+    // Ajouter l'offset du jour (0 = lundi, 6 = dimanche)
+    const targetDate = new Date(ISOweekStart);
+    targetDate.setDate(ISOweekStart.getDate() + dayIndex);
+    
+    const month = (targetDate.getMonth() + 1).toString().padStart(2, '0');
+    const day = targetDate.getDate().toString().padStart(2, '0');
+    
+    return {
+      fullDate: targetDate.toISOString().split('T')[0],
+      formattedDate: `${day}/${month}`,
+      month: month
+    };
+    
+  } catch (error) {
+    console.error('❌ Erreur calcul date:', error);
+    const fallbackDate = new Date();
+    const month = (fallbackDate.getMonth() + 1).toString().padStart(2, '0');
+    const day = fallbackDate.getDate().toString().padStart(2, '0');
+    
+    return {
+      fullDate: fallbackDate.toISOString().split('T')[0],
+      formattedDate: `${day}/${month}`,
+      month: month
+    };
+  }
+}
+
+function isValidAgentName(name) {
+  if (!name || typeof name !== 'string') return false;
+  
+  const cleanName = name.trim().toUpperCase();
+  const invalidPatterns = [
+    'EMPLOI DU TEMPS',
+    'PRENOMS',
+    'SEMAINE DU',
+    'SEMAINE',
+    'EMPLOI',
+    'TEMPS'
+  ];
+  
+  // Vérifier si le nom contient un motif invalide
+  for (const pattern of invalidPatterns) {
+    if (cleanName.includes(pattern)) {
+      return false;
+    }
+  }
+  
+  // Vérifier si le nom n'est pas vide
+  return cleanName.length > 0;
+}
+
+// ROUTE PRINCIPALE D'UPLOAD
+app.post('/api/plannings/upload', upload.single('file'), async (req, res) => {
+  console.log('🚀 Début upload planning...');
+  
+  try {
+    // Vérifier si un fichier a été uploadé
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "Aucun fichier fourni. Veuillez sélectionner un fichier Excel."
+      });
+    }
+    
+    const file = req.file;
+    console.log('📄 Fichier reçu:', {
+      name: file.originalname,
+      size: file.size,
+      type: file.mimetype,
+      encoding: file.encoding
+    });
+    
+    // Vérifier le type de fichier
+    const validExtensions = ['.xlsx', '.xls', '.csv'];
+    const isValidExtension = validExtensions.some(ext => 
+      file.originalname.toLowerCase().endsWith(ext)
+    );
+    
+    if (!isValidExtension) {
+      return res.status(400).json({
+        success: false,
+        error: `Format de fichier non supporté. Utilisez ${validExtensions.join(', ')}`
+      });
+    }
+    
+    // Parser le fichier Excel
+    let workbook;
+    try {
+      workbook = XLSX.read(file.buffer, { 
+        type: 'buffer',
+        cellDates: true,
+        cellStyles: true,
+        raw: false
+      });
+    } catch (parseError) {
+      console.error('❌ Erreur parsing Excel:', parseError);
+      return res.status(400).json({
+        success: false,
+        error: "Impossible de lire le fichier Excel. Vérifiez le format.",
+        details: parseError.message
+      });
+    }
+    
+    console.log('📊 Feuilles Excel trouvées:', workbook.SheetNames);
+    
+    const allPlannings = [];
+    const allWeeks = new Set();
+    const allMonths = new Set();
+    const allAgents = new Set();
+    
+    // Parcourir toutes les feuilles du fichier
+    workbook.SheetNames.forEach((sheetName, sheetIndex) => {
+      console.log(`\n📋 Traitement feuille ${sheetIndex + 1}/${workbook.SheetNames.length}: "${sheetName}"`);
+      
+      try {
+        const worksheet = workbook.Sheets[sheetName];
+        const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        
+        console.log(`   📈 ${data.length} lignes trouvées`);
+        
+        let currentWeek = '';
+        let currentYear = '';
+        let isProcessingAgents = false;
+        let headerFound = false;
+        
+        for (let i = 0; i < data.length; i++) {
+          const row = data[i];
+          if (!row || row.length === 0) continue;
+          
+          const firstCell = row[0];
+          if (firstCell === undefined || firstCell === null) continue;
+          
+          const firstCellStr = firstCell.toString().trim();
+          
+          // Détecter "EMPLOI DU TEMPS" (ligne d'en-tête)
+          if (firstCellStr.includes('EMPLOI DU TEMPS')) {
+            console.log(`   📝 En-tête détecté ligne ${i}: ${firstCellStr}`);
+            headerFound = true;
+            continue;
+          }
+          
+          // Détecter "Semaine du" (ligne de semaine)
+          if (firstCellStr.includes('Semaine du')) {
+            currentWeek = extractWeekNumber(firstCellStr);
+            currentYear = extractYearFromWeek(firstCellStr);
+            
+            if (currentWeek && currentYear) {
+              allWeeks.add(currentWeek);
+              console.log(`   📅 Semaine détectée ligne ${i}: ${currentWeek} (${currentYear})`);
+            } else {
+              console.warn(`   ⚠️ Semaine non détectée ligne ${i}: ${firstCellStr}`);
+            }
+            
+            continue;
+          }
+          
+          // Détecter "PRENOMS" (ligne des colonnes)
+          if (firstCellStr === 'PRENOMS' || firstCellStr.includes('PRENOMS')) {
+            console.log(`   👥 En-tête colonnes détecté ligne ${i}`);
+            isProcessingAgents = true;
+            continue;
+          }
+          
+          // Traiter les lignes d'agents
+          if (isProcessingAgents && headerFound && currentWeek && currentYear && 
+              firstCellStr && firstCellStr.trim() !== '') {
+            
+            // Vérifier que ce n'est pas une ligne de séparation ou d'en-tête
+            if (firstCellStr.includes('Semaine') || 
+                firstCellStr.includes('EMPLOI') || 
+                firstCellStr.includes('TEMPS')) {
+              continue;
+            }
+            
+            const agentName = firstCellStr;
+            
+            // Vérifier si c'est un nom d'agent valide
+            if (!isValidAgentName(agentName)) {
+              console.log(`   ⚠️ Ignoré (nom invalide) ligne ${i}: "${agentName}"`);
+              continue;
+            }
+            
+            // Extraire les shifts pour chaque jour
+            const daysOfWeek = ['LUNDI', 'MARDI', 'MERCREDI', 'JEUDI', 'VENDREDI', 'SAMEDI', 'DIMANCHE'];
+            const days = [];
+            const monthlyMonths = new Set();
+            
+            for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+              const shiftRaw = row[dayIndex + 1];
+              const shift = shiftRaw ? shiftRaw.toString().trim().toUpperCase() : 'OFF';
+              const hours = calculateHoursFromShift(shift);
+              
+              // Calculer la date pour ce jour
+              const dateInfo = calculateDateForDay(currentWeek, dayIndex, currentYear);
+              monthlyMonths.add(dateInfo.month);
+              
+              days.push({
+                day: daysOfWeek[dayIndex],
+                name: daysOfWeek[dayIndex].substring(0, 3),
+                date: dateInfo.formattedDate,
+                fullDate: dateInfo.fullDate,
+                shift: shift,
+                hours: hours,
+                remarques: null
+              });
+            }
+            
+            // Extraire les remarques (colonne 8)
+            const remarques = row[8] ? row[8].toString().trim() : null;
+            const totalHours = days.reduce((sum, day) => sum + day.hours, 0);
+            
+            // Ajouter les mois couverts
+            monthlyMonths.forEach(month => allMonths.add(month));
+            
+            const planning = {
+              id: allPlannings.length + 1,
+              agent_name: agentName,
+              semaine: currentWeek,
+              year: currentYear,
+              month: Array.from(monthlyMonths),
+              days: days,
+              total_heures: totalHours,
+              remarques: remarques,
+              lundi: days[0]?.shift || 'OFF',
+              mardi: days[1]?.shift || 'OFF',
+              mercredi: days[2]?.shift || 'OFF',
+              jeudi: days[3]?.shift || 'OFF',
+              vendredi: days[4]?.shift || 'OFF',
+              samedi: days[5]?.shift || 'OFF',
+              dimanche: days[6]?.shift || 'OFF',
+              sheet_name: sheetName,
+              row_index: i + 1
+            };
+            
+            allPlannings.push(planning);
+            allAgents.add(agentName);
+            
+            console.log(`   👤 ${agentName}: ${totalHours}h (${remarques || 'sans remarque'})`);
+          }
+        }
+        
+      } catch (sheetError) {
+        console.error(`❌ Erreur traitement feuille "${sheetName}":`, sheetError);
+        // Continuer avec les feuilles suivantes
+      }
+    });
+    
+    console.log('\n📊 Récapitulatif parsing:');
+    console.log(`   • Feuilles traitées: ${workbook.SheetNames.length}`);
+    console.log(`   • Agents trouvés: ${allAgents.size}`);
+    console.log(`   • Semaines: ${allWeeks.size}`);
+    console.log(`   • Mois: ${allMonths.size}`);
+    console.log(`   • Plannings générés: ${allPlannings.length}`);
+    
+    // Sauvegarder dans la base de données
+    let savedCount = 0;
+    let errors = [];
+    
+    if (dbInitialized && AppDataSource && allPlannings.length > 0) {
+      console.log('\n💾 Sauvegarde dans la base de données...');
+      
+      try {
+        // Démarrer une transaction
+        await AppDataSource.query('BEGIN');
+        
+        for (const planning of allPlannings) {
+          try {
+            // Vérifier si l'agent existe déjà pour cette semaine
+            const existing = await AppDataSource.query(
+              `SELECT id FROM plannings 
+               WHERE agent_name = $1 AND semaine = $2 AND year = $3`,
+              [planning.agent_name, planning.semaine, planning.year]
+            );
+            
+            if (existing.length === 0) {
+              // Insérer le nouveau planning
+              const result = await AppDataSource.query(
+                `INSERT INTO plannings 
+                 (agent_name, semaine, year, month, days, total_heures, remarques,
+                  lundi, mardi, mercredi, jeudi, vendredi, samedi, dimanche, sheet_name, created_at, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())
+                 RETURNING id`,
+                [
+                  planning.agent_name,
+                  planning.semaine,
+                  planning.year,
+                  JSON.stringify(planning.month),
+                  JSON.stringify(planning.days),
+                  planning.total_heures,
+                  planning.remarques,
+                  planning.lundi,
+                  planning.mardi,
+                  planning.mercredi,
+                  planning.jeudi,
+                  planning.vendredi,
+                  planning.samedi,
+                  planning.dimanche,
+                  planning.sheet_name
+                ]
+              );
+              
+              savedCount++;
+              
+              if (savedCount % 10 === 0) {
+                console.log(`   💾 ${savedCount} plannings sauvegardés...`);
+              }
+              
+            } else {
+              // Mettre à jour le planning existant
+              await AppDataSource.query(
+                `UPDATE plannings 
+                 SET month = $1, days = $2, total_heures = $3, remarques = $4,
+                     lundi = $5, mardi = $6, mercredi = $7, jeudi = $8,
+                     vendredi = $9, samedi = $10, dimanche = $11,
+                     sheet_name = $12, updated_at = NOW()
+                 WHERE agent_name = $13 AND semaine = $14 AND year = $15`,
+                [
+                  JSON.stringify(planning.month),
+                  JSON.stringify(planning.days),
+                  planning.total_heures,
+                  planning.remarques,
+                  planning.lundi,
+                  planning.mardi,
+                  planning.mercredi,
+                  planning.jeudi,
+                  planning.vendredi,
+                  planning.samedi,
+                  planning.dimanche,
+                  planning.sheet_name,
+                  planning.agent_name,
+                  planning.semaine,
+                  planning.year
+                ]
+              );
+              
+              console.log(`   🔄 Mis à jour: ${planning.agent_name} (${planning.semaine})`);
+            }
+            
+          } catch (agentError) {
+            errors.push({
+              agent: planning.agent_name,
+              semaine: planning.semaine,
+              error: agentError.message
+            });
+            console.error(`   ❌ Erreur agent ${planning.agent_name}:`, agentError.message);
+          }
+        }
+        
+        // Commit de la transaction
+        await AppDataSource.query('COMMIT');
+        console.log(`\n✅ Transaction commitée avec succès`);
+        
+      } catch (transactionError) {
+        // Rollback en cas d'erreur
+        await AppDataSource.query('ROLLBACK');
+        console.error('❌ Erreur transaction, rollback:', transactionError);
+        throw transactionError;
+      }
+    }
+    
+    // Préparer la réponse
+    const response = {
+      success: true,
+      message: `Fichier "${file.originalname}" importé avec succès`,
+      summary: {
+        fichier: file.originalname,
+        taille: `${(file.size / 1024).toFixed(2)} KB`,
+        feuilles: workbook.SheetNames.length,
+        agents: allAgents.size,
+        semaines: Array.from(allWeeks).sort(),
+        mois: Array.from(allMonths).sort((a, b) => parseInt(a) - parseInt(b)),
+        plannings: allPlannings.length,
+        sauvegardes: savedCount,
+        erreurs: errors.length
+      },
+      details: {
+        agents: Array.from(allAgents).sort().slice(0, 20), // 20 premiers agents
+        semaines: Array.from(allWeeks).sort(),
+        plannings_sample: allPlannings.slice(0, 3) // 3 premiers plannings en exemple
+      },
+      errors: errors.length > 0 ? errors.slice(0, 5) : [] // 5 premières erreurs
+    };
+    
+    console.log('\n🎉 Import terminé avec succès!');
+    console.log(JSON.stringify(response.summary, null, 2));
+    
+    res.json(response);
+    
+  } catch (error) {
+    console.error('❌ Erreur critique upload planning:', error);
+    
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors de l'import du planning",
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+      timestamp: new Date().toISOString()
     });
   }
 });
