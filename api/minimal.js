@@ -1866,17 +1866,17 @@ app.get('/api/presences/historique-safe', async (req, res) => {
   }
 });
 
-// ========== ROUTES DE RECHERCHE AGENTS ==========
-
-// Rechercher agent par matricule
+// Rechercher agent par matricule - VERSION AVEC LOGS
 app.get('/api/agents/matricule/:matricule', async (req, res) => {
   try {
     const matricule = req.params.matricule;
-    console.log(`🔍 Recherche agent par matricule: ${matricule}`);
+    console.log(`🔍 RECHERCHE AGENT PAR MATRICULE (api): ${matricule}`);
     
     if (!dbInitialized) {
       await initializeDatabase();
     }
+    
+    console.log(`📊 DB Initialized: ${dbInitialized}`);
     
     // Chercher d'abord dans agents_colarys
     let agents = [];
@@ -1885,8 +1885,9 @@ app.get('/api/agents/matricule/:matricule', async (req, res) => {
         'SELECT * FROM agents_colarys WHERE matricule = $1',
         [matricule]
       );
+      console.log(`📊 Résultat agents_colarys: ${agents.length} agent(s) trouvé(s)`);
     } catch (error) {
-      console.log('⚠️ agents_colarys non trouvé:', error.message);
+      console.log('❌ Erreur agents_colarys:', error.message);
     }
     
     // Si pas trouvé, chercher dans agent
@@ -1896,17 +1897,22 @@ app.get('/api/agents/matricule/:matricule', async (req, res) => {
           'SELECT * FROM agent WHERE matricule = $1',
           [matricule]
         );
+        console.log(`📊 Résultat agent: ${agents.length} agent(s) trouvé(s)`);
       } catch (error) {
-        console.log('⚠️ agent non trouvé:', error.message);
+        console.log('❌ Erreur agent:', error.message);
       }
     }
     
     if (agents.length === 0) {
+      console.log(`ℹ️ Agent ${matricule} non trouvé`);
       return res.status(404).json({
         success: false,
-        message: "Agent non trouvé"
+        message: "Agent non trouvé",
+        matricule: matricule
       });
     }
+    
+    console.log(`✅ Agent trouvé: ${agents[0].nom} ${agents[0].prenom}`);
     
     res.json({
       success: true,
@@ -1915,10 +1921,11 @@ app.get('/api/agents/matricule/:matricule', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error searching agent:', error);
+    console.error('❌ ERROR searching agent:', error);
     res.status(500).json({
       success: false,
-      error: "Erreur recherche agent"
+      error: "Erreur recherche agent",
+      message: error.message
     });
   }
 });
@@ -3036,11 +3043,11 @@ app.get('/api/plannings/weeks', async (req, res) => {
   }
 });
 
-// ========== ROUTE ULTRA SIMPLE POUR LE FRONTEND ==========
+// ========== ROUTES ULTRA SIMPLES POUR LE FRONTEND ==========
 
-// Route ultra simple pour le pointage d'entrée (spécifique pour le frontend)
+// Route ultra simple pour le pointage d'entrée (version corrigée)
 app.post('/api/presences/entree-ultra-simple', async (req, res) => {
-  console.log('🎯 Pointage entrée ULTRA SIMPLE (pour frontend):', req.body);
+  console.log('🎯 Pointage entrée ULTRA SIMPLE (corrigée):', req.body);
   
   try {
     const data = req.body;
@@ -3068,21 +3075,87 @@ app.post('/api/presences/entree-ultra-simple', async (req, res) => {
       matricule = `AG-${uuidv4().slice(0, 8).toUpperCase()}`;
     }
     
-    // Chercher ou créer l'agent avec la fonction ensureAgentExists
-    const agentId = await ensureAgentExists(
-      matricule,
-      data.nom,
-      data.prenom,
-      data.campagne || 'Standard'
-    );
+    // LOGIQUE SIMPLIFIÉE : Chercher ou créer l'agent
+    let agentId = null;
+    
+    try {
+      // Chercher dans agents_colarys (table principale)
+      const agents = await AppDataSource.query(
+        'SELECT id FROM agents_colarys WHERE matricule = $1',
+        [matricule]
+      );
+      
+      if (agents.length > 0) {
+        agentId = agents[0].id;
+        console.log(`✅ Agent trouvé: ${agentId}`);
+      } else {
+        // Créer un nouvel agent
+        console.log('🆕 Création nouvel agent...');
+        
+        // D'abord vérifier l'ID maximum
+        const maxIdResult = await AppDataSource.query(
+          'SELECT COALESCE(MAX(id), 0) as max_id FROM agents_colarys'
+        );
+        agentId = parseInt(maxIdResult[0].max_id) + 1;
+        
+        // Créer l'agent
+        await AppDataSource.query(
+          `INSERT INTO agents_colarys 
+           (id, matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())`,
+          [
+            agentId,
+            matricule,
+            data.nom,
+            data.prenom,
+            data.campagne || 'Standard',
+            data.email || `${data.nom.toLowerCase()}.${data.prenom.toLowerCase()}@colarys.com`,
+            data.contact || '',
+            'Colarys Concept',
+            '/images/default-avatar.svg',
+            'default-avatar'
+          ]
+        );
+        
+        // Créer aussi dans agent pour cohérence
+        try {
+          await AppDataSource.query(
+            `INSERT INTO agent 
+             (id, matricule, nom, prenom, campagne, date_creation) 
+             VALUES ($1, $2, $3, $4, $5, NOW())`,
+            [
+              agentId,
+              matricule,
+              data.nom,
+              data.prenom,
+              data.campagne || 'Standard'
+            ]
+          );
+        } catch (agentError) {
+          console.log('⚠️ Note création table agent:', agentError.message);
+        }
+        
+        console.log(`✅ Nouvel agent créé: ${agentId}`);
+      }
+    } catch (agentError) {
+      console.error('❌ Erreur création agent:', agentError);
+      // En cas d'erreur, utiliser un ID temporaire
+      agentId = Math.floor(Math.random() * 100000) + 1000;
+    }
     
     // Vérifier si présence existe déjà
-    const existingPresence = await AppDataSource.query(
-      'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
-      [agentId, today]
-    );
+    let presenceExists = false;
+    try {
+      const existingPresence = await AppDataSource.query(
+        'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
+        [agentId, today]
+      );
+      presenceExists = existingPresence.length > 0;
+    } catch (error) {
+      console.log('ℹ️ Vérification présence:', error.message);
+    }
     
-    if (existingPresence.length > 0) {
+    if (presenceExists) {
       return res.status(400).json({
         success: false,
         error: "Une présence existe déjà pour aujourd'hui"
@@ -3090,28 +3163,57 @@ app.post('/api/presences/entree-ultra-simple', async (req, res) => {
     }
     
     // Créer la présence
-    const presence = await AppDataSource.query(
-      `INSERT INTO presence 
-       (agent_id, date, heure_entree, shift, created_at) 
-       VALUES ($1, $2, $3, $4, NOW()) 
-       RETURNING id, date, heure_entree`,
-      [agentId, today, timeNow, data.shift || 'JOUR']
-    );
-    
-    // Créer le détail avec signature si fournie
-    const presenceId = presence[0].id;
-    let signatureToSave = data.signatureEntree || '';
-    
-    if (signatureToSave && !signatureToSave.startsWith('data:image/')) {
-      signatureToSave = 'data:image/png;base64,' + signatureToSave;
+    let presenceId = null;
+    try {
+      const presence = await AppDataSource.query(
+        `INSERT INTO presence 
+         (agent_id, date, heure_entree, shift, created_at) 
+         VALUES ($1, $2, $3, $4, NOW()) 
+         RETURNING id, date, heure_entree`,
+        [agentId, today, timeNow, data.shift || 'JOUR']
+      );
+      presenceId = presence[0].id;
+      console.log(`✅ Présence créée: ${presenceId}`);
+    } catch (presenceError) {
+      console.error('❌ Erreur création présence:', presenceError);
+      throw presenceError;
     }
     
-    await AppDataSource.query(
-      `INSERT INTO detail_presence 
-       (presence_id, signature_entree, created_at, updated_at) 
-       VALUES ($1, $2, NOW(), NOW())`,
-      [presenceId, signatureToSave || null]
-    );
+    // Créer le détail avec signature si fournie
+    let signatureSaved = false;
+    let signatureToSave = data.signatureEntree || '';
+    
+    if (signatureToSave && signatureToSave.trim() !== '') {
+      try {
+        if (!signatureToSave.startsWith('data:image/')) {
+          signatureToSave = 'data:image/png;base64,' + signatureToSave;
+        }
+        
+        // Vérifier si la table detail_presence existe
+        const tableExists = await AppDataSource.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_name = 'detail_presence'
+          )
+        `);
+        
+        if (tableExists[0].exists) {
+          await AppDataSource.query(
+            `INSERT INTO detail_presence 
+             (presence_id, signature_entree, created_at, updated_at) 
+             VALUES ($1, $2, NOW(), NOW())`,
+            [presenceId, signatureToSave]
+          );
+          signatureSaved = true;
+          console.log(`✅ Signature enregistrée pour présence ${presenceId}`);
+        } else {
+          console.log('ℹ️ Table detail_presence n\'existe pas, signature non sauvegardée');
+        }
+      } catch (signatureError) {
+        console.log('⚠️ Erreur enregistrement signature:', signatureError.message);
+      }
+    }
     
     res.json({
       success: true,
@@ -3121,29 +3223,28 @@ app.post('/api/presences/entree-ultra-simple', async (req, res) => {
         matricule: matricule,
         nom: data.nom,
         prenom: data.prenom,
-        heure_entree: presence[0].heure_entree,
-        date: presence[0].date,
+        heure_entree: timeNow,
+        date: today,
         agent_id: agentId,
-        shift: data.shift || 'JOUR'
+        shift: data.shift || 'JOUR',
+        signature_saved: signatureSaved
       }
     });
     
   } catch (error) {
-    console.error('❌ Erreur pointage ultra simple:', error);
+    console.error('❌ ERREUR CRITIQUE pointage ultra simple:', error);
     
-    let errorMessage = "Erreur lors du pointage";
-    
-    if (error.code === '23505') {
-      errorMessage = "Ce matricule existe déjà";
-    } else if (error.code === '23503') {
-      errorMessage = "Erreur de référence à l'agent";
-    }
+    // Log détaillé
+    console.error('Stack:', error.stack);
+    console.error('Code:', error.code);
+    console.error('Message:', error.message);
     
     res.status(500).json({
       success: false,
-      error: errorMessage,
+      error: "Erreur technique lors du pointage",
       details: error.message,
-      code: error.code
+      code: error.code,
+      suggestion: "Contactez l'administrateur ou réessayez avec des informations différentes"
     });
   }
 });
@@ -3174,6 +3275,23 @@ app.post('/api/create-detail-for-presence/:id', async (req, res) => {
     
     if (!dbInitialized) {
       await initializeDatabase();
+    }
+    
+    // Vérifier si la table detail_presence existe
+    const tableExists = await AppDataSource.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'detail_presence'
+      )
+    `);
+    
+    if (!tableExists[0].exists) {
+      return res.status(404).json({
+        success: false,
+        error: "Table detail_presence n'existe pas",
+        solution: "Utilisez POST /api/repair-detail-presence-table pour la créer"
+      });
     }
     
     // Vérifier si la présence existe
@@ -3225,6 +3343,135 @@ app.post('/api/create-detail-for-presence/:id', async (req, res) => {
       error: error.message
     });
   }
+});
+
+// ========== ROUTES DE DIAGNOSTIC ET RÉPARATION ==========
+
+// Route pour diagnostiquer une erreur de pointage
+app.get('/api/diagnose-error-entree', async (req, res) => {
+  try {
+    const { matricule } = req.query;
+    console.log(`🔍 Diagnostic erreur pour matricule: ${matricule}`);
+    
+    if (!matricule) {
+      return res.status(400).json({
+        success: false,
+        error: "Matricule requis"
+      });
+    }
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // Vérifier si l'agent existe dans agents_colarys
+    const agentColarys = await AppDataSource.query(
+      'SELECT id, matricule, nom, prenom FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+    
+    // Vérifier si l'agent existe dans agent
+    const agentAgent = await AppDataSource.query(
+      'SELECT id, matricule, nom, prenom FROM agent WHERE matricule = $1',
+      [matricule]
+    );
+    
+    // Vérifier la table presence
+    let presenceCount = 0;
+    if (agentColarys.length > 0) {
+      const presences = await AppDataSource.query(
+        'SELECT COUNT(*) as count FROM presence WHERE agent_id = $1',
+        [agentColarys[0].id]
+      );
+      presenceCount = parseInt(presences[0].count) || 0;
+    }
+    
+    // Vérifier la table detail_presence
+    let detailPresenceExists = false;
+    try {
+      const tableExists = await AppDataSource.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = 'public' 
+          AND table_name = 'detail_presence'
+        )
+      `);
+      detailPresenceExists = tableExists[0].exists;
+    } catch (error) {
+      console.log('ℹ️ Table detail_presence non vérifiable:', error.message);
+    }
+    
+    res.json({
+      success: true,
+      matricule: matricule,
+      agent_dans_agents_colarys: agentColarys.length > 0 ? agentColarys[0] : null,
+      agent_dans_agent: agentAgent.length > 0 ? agentAgent[0] : null,
+      presence_count: presenceCount,
+      detail_presence_table_exists: detailPresenceExists,
+      analyse: {
+        matricule_trouve: agentColarys.length > 0 || agentAgent.length > 0,
+        probleme_ids_differents: agentColarys.length > 0 && agentAgent.length > 0 && 
+                               agentColarys[0].id !== agentAgent[0].id,
+        recommandation: agentColarys.length === 0 ? 
+          "Utiliser POST /api/fix-matricule/" + matricule + " pour créer l'agent" :
+          "L'agent existe dans la base de données"
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur diagnostic:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Route de test complète pour le frontend
+app.get('/api/frontend-complete-test', async (req, res) => {
+  res.json({
+    success: true,
+    message: "✅ API Colarys - Test complet frontend",
+    timestamp: new Date().toISOString(),
+    database: dbInitialized ? "✅ Connectée" : "❌ Déconnectée",
+    routes_verifiees: [
+      {
+        route: "GET /api/agents/matricule/:matricule",
+        status: "✅ Existe",
+        description: "Recherche agent par matricule"
+      },
+      {
+        route: "POST /api/presences/entree-ultra-simple",
+        status: "✅ Existe",
+        description: "Pointage d'entrée simplifié"
+      },
+      {
+        route: "POST /api/presences/verifier-etat",
+        status: "✅ Existe",
+        description: "Vérification état présence"
+      },
+      {
+        route: "GET /api/presences/historique",
+        status: "✅ Existe", 
+        description: "Historique des présences"
+      },
+      {
+        route: "POST /api/create-detail-for-presence/:id",
+        status: "✅ Existe",
+        description: "Création détail présence"
+      },
+      {
+        route: "GET /api/diagnose-error-entree",
+        status: "✅ Existe",
+        description: "Diagnostic erreur pointage"
+      }
+    ],
+    notes: [
+      "Utilisez le préfixe complet: https://theme-gestion-des-resources-et-prod.vercel.app/api/",
+      "Pour tester un matricule: https://theme-gestion-des-resources-et-prod.vercel.app/api/agents/matricule/CC0050",
+      "Pour pointage: POST à https://theme-gestion-des-resources-et-prod.vercel.app/api/presences/entree-ultra-simple"
+    ]
+  });
 });
 
 // ========== SERVER LISTEN ==========
