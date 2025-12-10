@@ -3036,6 +3036,197 @@ app.get('/api/plannings/weeks', async (req, res) => {
   }
 });
 
+// ========== ROUTE ULTRA SIMPLE POUR LE FRONTEND ==========
+
+// Route ultra simple pour le pointage d'entrée (spécifique pour le frontend)
+app.post('/api/presences/entree-ultra-simple', async (req, res) => {
+  console.log('🎯 Pointage entrée ULTRA SIMPLE (pour frontend):', req.body);
+  
+  try {
+    const data = req.body;
+    
+    // Validation minimale
+    if (!data.nom || !data.prenom) {
+      return res.status(400).json({
+        success: false,
+        error: "Nom et prénom sont requis"
+      });
+    }
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const timeNow = data.heureEntreeManuelle || 
+                    now.toTimeString().split(' ')[0].substring(0, 8);
+    
+    // Gestion du matricule
+    let matricule = data.matricule?.trim() || '';
+    if (!matricule) {
+      matricule = `AG-${uuidv4().slice(0, 8).toUpperCase()}`;
+    }
+    
+    // Chercher ou créer l'agent avec la fonction ensureAgentExists
+    const agentId = await ensureAgentExists(
+      matricule,
+      data.nom,
+      data.prenom,
+      data.campagne || 'Standard'
+    );
+    
+    // Vérifier si présence existe déjà
+    const existingPresence = await AppDataSource.query(
+      'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
+      [agentId, today]
+    );
+    
+    if (existingPresence.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Une présence existe déjà pour aujourd'hui"
+      });
+    }
+    
+    // Créer la présence
+    const presence = await AppDataSource.query(
+      `INSERT INTO presence 
+       (agent_id, date, heure_entree, shift, created_at) 
+       VALUES ($1, $2, $3, $4, NOW()) 
+       RETURNING id, date, heure_entree`,
+      [agentId, today, timeNow, data.shift || 'JOUR']
+    );
+    
+    // Créer le détail avec signature si fournie
+    const presenceId = presence[0].id;
+    let signatureToSave = data.signatureEntree || '';
+    
+    if (signatureToSave && !signatureToSave.startsWith('data:image/')) {
+      signatureToSave = 'data:image/png;base64,' + signatureToSave;
+    }
+    
+    await AppDataSource.query(
+      `INSERT INTO detail_presence 
+       (presence_id, signature_entree, created_at, updated_at) 
+       VALUES ($1, $2, NOW(), NOW())`,
+      [presenceId, signatureToSave || null]
+    );
+    
+    res.json({
+      success: true,
+      message: "Pointage d'entrée enregistré avec succès",
+      data: {
+        presence_id: presenceId,
+        matricule: matricule,
+        nom: data.nom,
+        prenom: data.prenom,
+        heure_entree: presence[0].heure_entree,
+        date: presence[0].date,
+        agent_id: agentId,
+        shift: data.shift || 'JOUR'
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur pointage ultra simple:', error);
+    
+    let errorMessage = "Erreur lors du pointage";
+    
+    if (error.code === '23505') {
+      errorMessage = "Ce matricule existe déjà";
+    } else if (error.code === '23503') {
+      errorMessage = "Erreur de référence à l'agent";
+    }
+    
+    res.status(500).json({
+      success: false,
+      error: errorMessage,
+      details: error.message,
+      code: error.code
+    });
+  }
+});
+
+// Route pour tester spécifiquement la connexion frontend
+app.get('/api/frontend-test', async (req, res) => {
+  res.json({
+    success: true,
+    message: "✅ API connectée au frontend",
+    timestamp: new Date().toISOString(),
+    routes: {
+      pointage_entree: "POST /api/presences/entree-ultra-simple",
+      pointage_sortie: "POST /api/presences/sortie-simple", 
+      verification: "POST /api/presences/verifier-etat",
+      historique: "GET /api/presences/historique",
+      recherche_agent: "GET /api/agents/matricule/:matricule"
+    },
+    database: dbInitialized ? "connected" : "disconnected",
+    note: "Utilisez ces routes avec le préfixe complet de l'API"
+  });
+});
+
+// Route pour créer un détail pour une présence existante
+app.post('/api/create-detail-for-presence/:id', async (req, res) => {
+  try {
+    const presenceId = parseInt(req.params.id);
+    console.log(`➕ Création détail pour présence: ${presenceId}`);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // Vérifier si la présence existe
+    const presence = await AppDataSource.query(
+      'SELECT id FROM presence WHERE id = $1',
+      [presenceId]
+    );
+    
+    if (presence.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Présence non trouvée"
+      });
+    }
+    
+    // Vérifier si le détail existe déjà
+    const existingDetail = await AppDataSource.query(
+      'SELECT id FROM detail_presence WHERE presence_id = $1',
+      [presenceId]
+    );
+    
+    if (existingDetail.length > 0) {
+      return res.json({
+        success: true,
+        message: "Le détail existe déjà",
+        detail_id: existingDetail[0].id
+      });
+    }
+    
+    // Créer le détail
+    const detail = await AppDataSource.query(
+      `INSERT INTO detail_presence 
+       (presence_id, created_at, updated_at) 
+       VALUES ($1, NOW(), NOW()) 
+       RETURNING id`,
+      [presenceId]
+    );
+    
+    res.json({
+      success: true,
+      message: "Détail créé avec succès",
+      detail_id: detail[0].id
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur création détail:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // ========== SERVER LISTEN ==========
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
