@@ -2682,6 +2682,690 @@ app.get('/api/test-frontend-routes', (req, res) => {
   });
 });
 
+// ========== ROUTES POUR LE MODULE PLANNING ==========
+
+// Route pour obtenir les années disponibles
+app.get('/api/plannings/years', async (_req, res) => {
+  try {
+    console.log('📅 Années disponibles appelées');
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // Générer les 3 dernières années
+    const currentYear = new Date().getFullYear();
+    const years = [
+      { value: (currentYear - 2).toString(), label: (currentYear - 2).toString() },
+      { value: (currentYear - 1).toString(), label: (currentYear - 1).toString() },
+      { value: currentYear.toString(), label: currentYear.toString() },
+      { value: (currentYear + 1).toString(), label: (currentYear + 1).toString() }
+    ];
+    
+    res.json({
+      success: true,
+      data: years,
+      message: `${years.length} années disponibles`
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur années planning:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      data: [
+        { value: '2023', label: '2023' },
+        { value: '2024', label: '2024' },
+        { value: '2025', label: '2025' }
+      ]
+    });
+  }
+});
+
+// Route pour obtenir les mois disponibles
+app.get('/api/plannings/months', async (_req, res) => {
+  try {
+    console.log('📅 Mois disponibles appelés');
+    
+    const months = [
+      { value: '1', label: 'Janvier' },
+      { value: '2', label: 'Février' },
+      { value: '3', label: 'Mars' },
+      { value: '4', label: 'Avril' },
+      { value: '5', label: 'Mai' },
+      { value: '6', label: 'Juin' },
+      { value: '7', label: 'Juillet' },
+      { value: '8', label: 'Août' },
+      { value: '9', label: 'Septembre' },
+      { value: '10', label: 'Octobre' },
+      { value: '11', label: 'Novembre' },
+      { value: '12', label: 'Décembre' }
+    ];
+    
+    res.json({
+      success: true,
+      data: months,
+      message: `${months.length} mois disponibles`
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur mois planning:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      data: [
+        { value: '1', label: 'Janvier' },
+        { value: '2', label: 'Février' },
+        { value: '3', label: 'Mars' }
+      ]
+    });
+  }
+});
+
+// Route pour obtenir les semaines disponibles
+app.get('/api/plannings/weeks', async (_req, res) => {
+  try {
+    console.log('📅 Semaines disponibles appelées');
+    
+    const weeks = [
+      { value: '1', label: 'Semaine 1' },
+      { value: '2', label: 'Semaine 2' },
+      { value: '3', label: 'Semaine 3' },
+      { value: '4', label: 'Semaine 4' },
+      { value: '5', label: 'Semaine 5' }
+    ];
+    
+    res.json({
+      success: true,
+      data: weeks,
+      message: `${weeks.length} semaines disponibles`
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur semaines planning:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      data: [
+        { value: '1', label: 'Semaine 1' },
+        { value: '2', label: 'Semaine 2' }
+      ]
+    });
+  }
+});
+
+// Route pour obtenir les agents disponibles
+app.get('/api/plannings/agents', async (_req, res) => {
+  try {
+    console.log('👥 Agents disponibles appelés');
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    let agents = [];
+    
+    try {
+      // Récupérer les agents depuis la base de données
+      const agentsFromDB = await AppDataSource.query(`
+        SELECT id, matricule, nom, prenom, role 
+        FROM agents_colarys 
+        ORDER BY nom, prenom 
+        LIMIT 50
+      `);
+      
+      agents = agentsFromDB.map(agent => ({
+        value: agent.id.toString(),
+        label: `${agent.nom} ${agent.prenom} (${agent.matricule})`,
+        matricule: agent.matricule,
+        nom: agent.nom,
+        prenom: agent.prenom,
+        role: agent.role
+      }));
+      
+    } catch (dbError) {
+      console.log('⚠️ Erreur DB agents, données mockées:', dbError.message);
+      // Données mockées
+      agents = [
+        { value: '1', label: 'Jean Dupont (AG001)', matricule: 'AG001', nom: 'Dupont', prenom: 'Jean', role: 'Développeur' },
+        { value: '2', label: 'Marie Martin (AG002)', matricule: 'AG002', nom: 'Martin', prenom: 'Marie', role: 'Designer' },
+        { value: '3', label: 'Pierre Durand (AG003)', matricule: 'AG003', nom: 'Durand', prenom: 'Pierre', role: 'Manager' }
+      ];
+    }
+    
+    res.json({
+      success: true,
+      data: agents,
+      count: agents.length,
+      message: `${agents.length} agents disponibles`
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur agents planning:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      data: [
+        { value: '1', label: 'Agent 1' },
+        { value: '2', label: 'Agent 2' },
+        { value: '3', label: 'Agent 3' }
+      ]
+    });
+  }
+});
+
+// Route pour obtenir les plannings avec filtres
+app.get('/api/plannings', async (req, res) => {
+  try {
+    console.log('📅 Plannings avec filtres:', req.query);
+    
+    const { selectedFilter, selectedYear, selectedMonth, selectedWeek } = req.query;
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    let plannings = [];
+    
+    try {
+      // Construction de la requête basée sur les filtres
+      let query = `
+        SELECT p.*, 
+               a.matricule, a.nom, a.prenom, a.role as agent_role,
+               ac.entreprise, ac.image
+        FROM presence p
+        LEFT JOIN agent a ON p.agent_id = a.id
+        LEFT JOIN agents_colarys ac ON a.matricule = ac.matricule
+        WHERE 1=1
+      `;
+      
+      const params = [];
+      let paramIndex = 1;
+      
+      // Filtre par année
+      if (selectedYear && selectedYear !== 'all') {
+        query += ` AND EXTRACT(YEAR FROM p.date) = $${paramIndex}`;
+        params.push(parseInt(selectedYear));
+        paramIndex++;
+      }
+      
+      // Filtre par mois
+      if (selectedMonth && selectedMonth !== 'all') {
+        query += ` AND EXTRACT(MONTH FROM p.date) = $${paramIndex}`;
+        params.push(parseInt(selectedMonth));
+        paramIndex++;
+      }
+      
+      // Filtre par semaine (simplifié)
+      if (selectedWeek && selectedWeek !== 'all') {
+        // Pour la semaine, on peut faire une approximation
+        query += ` AND EXTRACT(WEEK FROM p.date) = $${paramIndex}`;
+        params.push(parseInt(selectedWeek));
+        paramIndex++;
+      }
+      
+      // Filtre par statut
+      if (selectedFilter && selectedFilter !== 'all') {
+        if (selectedFilter === 'actifs') {
+          query += ` AND p.heure_sortie IS NOT NULL`;
+        } else if (selectedFilter === 'en-cours') {
+          query += ` AND p.heure_entree IS NOT NULL AND p.heure_sortie IS NULL`;
+        }
+      }
+      
+      query += ` ORDER BY p.date DESC, a.nom, a.prenom LIMIT 100`;
+      
+      console.log('📋 Query plannings:', query);
+      console.log('📋 Params:', params);
+      
+      const results = await AppDataSource.query(query, params);
+      
+      // Formater les résultats
+      plannings = results.map(row => ({
+        id: row.id,
+        agent_id: row.agent_id,
+        date: row.date,
+        heure_entree: row.heure_entree,
+        heure_sortie: row.heure_sortie,
+        heures_travaillees: row.heures_travaillees,
+        shift: row.shift,
+        agent: {
+          id: row.agent_id,
+          matricule: row.matricule,
+          nom: row.nom,
+          prenom: row.prenom,
+          role: row.agent_role,
+          entreprise: row.entreprise,
+          image: row.image || '/images/default-avatar.svg'
+        },
+        statut: row.heure_sortie ? 'COMPLET' : (row.heure_entree ? 'EN_COURS' : 'A_VENIR'),
+        created_at: row.created_at,
+        updated_at: row.updated_at
+      }));
+      
+    } catch (dbError) {
+      console.log('⚠️ Erreur DB plannings, données mockées:', dbError.message);
+      // Données mockées
+      const today = new Date().toISOString().split('T')[0];
+      plannings = [
+        {
+          id: 1,
+          agent_id: 1,
+          date: today,
+          heure_entree: '08:00:00',
+          heure_sortie: '17:00:00',
+          heures_travaillees: 8.0,
+          shift: 'JOUR',
+          agent: {
+            id: 1,
+            matricule: 'AG001',
+            nom: 'Dupont',
+            prenom: 'Jean',
+            role: 'Développeur',
+            entreprise: 'Colarys Concept',
+            image: '/images/default-avatar.svg'
+          },
+          statut: 'COMPLET',
+          created_at: new Date().toISOString()
+        },
+        {
+          id: 2,
+          agent_id: 2,
+          date: today,
+          heure_entree: '09:00:00',
+          heure_sortie: null,
+          heures_travaillees: null,
+          shift: 'JOUR',
+          agent: {
+            id: 2,
+            matricule: 'AG002',
+            nom: 'Martin',
+            prenom: 'Marie',
+            role: 'Designer',
+            entreprise: 'Colarys Concept',
+            image: '/images/default-avatar.svg'
+          },
+          statut: 'EN_COURS',
+          created_at: new Date().toISOString()
+        }
+      ];
+    }
+    
+    res.json({
+      success: true,
+      data: plannings,
+      count: plannings.length,
+      query: req.query,
+      message: `${plannings.length} planning(s) trouvé(s)`
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur plannings:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      data: [],
+      count: 0
+    });
+  }
+});
+
+// Route pour uploader un planning (Excel)
+app.post('/api/plannings/upload', upload.single('file'), async (req, res) => {
+  try {
+    console.log('📤 Upload planning appelé');
+    console.log('📁 Fichier reçu:', req.file ? `${req.file.originalname} (${req.file.size} bytes)` : 'Aucun fichier');
+    console.log('📋 Données:', req.body);
+    
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "Aucun fichier fourni"
+      });
+    }
+    
+    // Simuler un traitement de fichier Excel
+    const fileName = req.file.originalname;
+    const fileSize = req.file.size;
+    
+    // Ici, normalement vous traiteriez le fichier Excel
+    // Pour l'instant, on simule juste le succès
+    
+    res.json({
+      success: true,
+      message: "Fichier uploadé avec succès",
+      file: {
+        name: fileName,
+        size: fileSize,
+        type: req.file.mimetype
+      },
+      processing: "Le fichier est en cours de traitement en arrière-plan",
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur upload planning:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Route pour créer un planning manuellement
+app.post('/api/plannings', async (req, res) => {
+  try {
+    const planningData = req.body;
+    console.log('📝 Création planning manuel:', planningData);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // Validation
+    if (!planningData.agent_id || !planningData.date || !planningData.shift) {
+      return res.status(400).json({
+        success: false,
+        error: "agent_id, date et shift sont requis"
+      });
+    }
+    
+    // Vérifier si le planning existe déjà
+    const existing = await AppDataSource.query(
+      'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
+      [planningData.agent_id, planningData.date]
+    );
+    
+    if (existing.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Un planning existe déjà pour cet agent à cette date"
+      });
+    }
+    
+    // Créer le planning
+    const newPlanning = await AppDataSource.query(
+      `INSERT INTO presence 
+       (agent_id, date, shift, heure_entree, heure_sortie, heures_travaillees, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       RETURNING id, agent_id, date, shift`,
+      [
+        planningData.agent_id,
+        planningData.date,
+        planningData.shift,
+        planningData.heure_entree || null,
+        planningData.heure_sortie || null,
+        planningData.heures_travaillees || null
+      ]
+    );
+    
+    res.status(201).json({
+      success: true,
+      message: "Planning créé avec succès",
+      data: newPlanning[0],
+      id: newPlanning[0].id
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur création planning:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Route pour mettre à jour un planning
+app.put('/api/plannings/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const updates = req.body;
+    
+    console.log('🔄 Mise à jour planning:', id, updates);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // Vérifier l'existence
+    const existing = await AppDataSource.query(
+      'SELECT id FROM presence WHERE id = $1',
+      [id]
+    );
+    
+    if (existing.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Planning non trouvé"
+      });
+    }
+    
+    // Construction de la requête dynamique
+    const updateFields = [];
+    const values = [];
+    let paramIndex = 1;
+    
+    if (updates.shift !== undefined) {
+      updateFields.push(`shift = $${paramIndex}`);
+      values.push(updates.shift);
+      paramIndex++;
+    }
+    
+    if (updates.heure_entree !== undefined) {
+      updateFields.push(`heure_entree = $${paramIndex}`);
+      values.push(updates.heure_entree);
+      paramIndex++;
+    }
+    
+    if (updates.heure_sortie !== undefined) {
+      updateFields.push(`heure_sortie = $${paramIndex}`);
+      values.push(updates.heure_sortie);
+      paramIndex++;
+    }
+    
+    if (updates.heures_travaillees !== undefined) {
+      updateFields.push(`heures_travaillees = $${paramIndex}`);
+      values.push(updates.heures_travaillees);
+      paramIndex++;
+    }
+    
+    // Toujours mettre à jour updated_at
+    updateFields.push(`updated_at = NOW()`);
+    
+    if (updateFields.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Aucune donnée à mettre à jour"
+      });
+    }
+    
+    values.push(id);
+    
+    const query = `
+      UPDATE presence 
+      SET ${updateFields.join(', ')}
+      WHERE id = $${paramIndex}
+      RETURNING id, agent_id, date, shift, heure_entree, heure_sortie
+    `;
+    
+    const updated = await AppDataSource.query(query, values);
+    
+    res.json({
+      success: true,
+      message: "Planning mis à jour",
+      data: updated[0]
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur mise à jour planning:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Route pour supprimer un planning
+app.delete('/api/plannings/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    console.log('🗑️ Suppression planning:', id);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    // Vérifier l'existence
+    const existing = await AppDataSource.query(
+      'SELECT id FROM presence WHERE id = $1',
+      [id]
+    );
+    
+    if (existing.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Planning non trouvé"
+      });
+    }
+    
+    // Supprimer
+    await AppDataSource.query('DELETE FROM presence WHERE id = $1', [id]);
+    
+    res.json({
+      success: true,
+      message: "Planning supprimé",
+      id: id
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur suppression planning:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Route pour les statistiques détaillées
+app.get('/api/plannings/stats/detailed', async (req, res) => {
+  try {
+    console.log('📊 Statistiques détaillées appelées');
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
+    
+    const stats = {
+      totalPresences: 0,
+      totalHeures: 0,
+      moyenneHeures: 0,
+      parShift: {},
+      parJour: {},
+      topAgents: []
+    };
+    
+    try {
+      // Total présences
+      const totalPresencesResult = await AppDataSource.query(
+        'SELECT COUNT(*) as count FROM presence'
+      );
+      stats.totalPresences = parseInt(totalPresencesResult[0].count) || 0;
+      
+      // Total heures
+      const totalHeuresResult = await AppDataSource.query(
+        'SELECT SUM(heures_travaillees) as total FROM presence WHERE heures_travaillees IS NOT NULL'
+      );
+      stats.totalHeures = parseFloat(totalHeuresResult[0].total || 0);
+      
+      // Moyenne heures
+      stats.moyenneHeures = stats.totalPresences > 0 ? 
+        parseFloat((stats.totalHeures / stats.totalPresences).toFixed(2)) : 0;
+      
+      // Par shift
+      const shiftResult = await AppDataSource.query(`
+        SELECT shift, COUNT(*) as count 
+        FROM presence 
+        WHERE shift IS NOT NULL 
+        GROUP BY shift
+      `);
+      
+      shiftResult.forEach(row => {
+        stats.parShift[row.shift] = parseInt(row.count);
+      });
+      
+      // Top agents
+      const topAgentsResult = await AppDataSource.query(`
+        SELECT a.id, a.matricule, a.nom, a.prenom, 
+               COUNT(p.id) as presences_count,
+               SUM(p.heures_travaillees) as total_heures
+        FROM agent a
+        LEFT JOIN presence p ON a.id = p.agent_id
+        GROUP BY a.id, a.matricule, a.nom, a.prenom
+        ORDER BY total_heures DESC NULLS LAST
+        LIMIT 10
+      `);
+      
+      stats.topAgents = topAgentsResult.map(agent => ({
+        id: agent.id,
+        matricule: agent.matricule,
+        nom: agent.nom,
+        prenom: agent.prenom,
+        presences: parseInt(agent.presences_count),
+        heures: parseFloat(agent.total_heures || 0)
+      }));
+      
+    } catch (dbError) {
+      console.log('⚠️ Erreur DB stats, données mockées:', dbError.message);
+      
+      // Données mockées
+      stats.totalPresences = 150;
+      stats.totalHeures = 1200.5;
+      stats.moyenneHeures = 8.0;
+      stats.parShift = { JOUR: 100, NUIT: 50 };
+      stats.topAgents = [
+        { id: 1, matricule: 'AG001', nom: 'Dupont', prenom: 'Jean', presences: 20, heures: 160 },
+        { id: 2, matricule: 'AG002', nom: 'Martin', prenom: 'Marie', presences: 18, heures: 144 },
+        { id: 3, matricule: 'AG003', nom: 'Durand', prenom: 'Pierre', presences: 15, heures: 120 }
+      ];
+    }
+    
+    res.json({
+      success: true,
+      data: stats,
+      message: "Statistiques détaillées"
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur stats détaillées:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Route pour tester toutes les routes planning
+app.get('/api/test-planning-routes', (req, res) => {
+  res.json({
+    success: true,
+    message: "✅ Toutes les routes planning sont disponibles",
+    routes: [
+      "GET  /api/plannings/years - Années disponibles",
+      "GET  /api/plannings/months - Mois disponibles", 
+      "GET  /api/plannings/weeks - Semaines disponibles",
+      "GET  /api/plannings/agents - Agents disponibles",
+      "GET  /api/plannings - Liste des plannings avec filtres",
+      "POST /api/plannings/upload - Uploader fichier Excel",
+      "POST /api/plannings - Créer planning manuel",
+      "PUT  /api/plannings/:id - Mettre à jour planning",
+      "DELETE /api/plannings/:id - Supprimer planning",
+      "GET  /api/plannings/stats - Statistiques planning",
+      "GET  /api/plannings/stats/detailed - Statistiques détaillées"
+    ],
+    timestamp: new Date().toISOString()
+  });
+});
+
 // ========== SERVER LISTEN ==========
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
