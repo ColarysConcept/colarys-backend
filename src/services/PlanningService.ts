@@ -1,4 +1,6 @@
-// PlanningService.ts - Interface améliorée
+// PlanningService.ts - Version corrigée avec typage
+
+// Définir les interfaces
 interface Planning {
   id: number;
   agent_name: string;
@@ -64,108 +66,189 @@ interface DeleteResponse {
   count: number;
 }
 
-export class PlanningService {
-  private static baseUrl: string = 'http://localhost:3000/api/plannings';
-// PlanningService.ts - Méthode getPlannings mise à jour avec typage
-// PlanningService.ts - Méthode getPlannings robuste
-static async getPlannings(filters: Partial<UnifiedPlanningFilters> = {}): Promise<Planning[]> {
-  try {
-    const completeFilters: UnifiedPlanningFilters = {
-      searchQuery: '',
-      selectedFilter: 'all',
-      selectedYear: 'all',
-      selectedMonth: 'all',
-      selectedWeek: 'all',
-      ...filters,
-    };
-
-    const query = new URLSearchParams();
-    if (completeFilters.searchQuery) query.append('searchQuery', completeFilters.searchQuery);
-    if (completeFilters.selectedFilter && completeFilters.selectedFilter !== 'all') 
-      query.append('selectedFilter', completeFilters.selectedFilter);
-    if (completeFilters.selectedYear && completeFilters.selectedYear !== 'all') 
-      query.append('selectedYear', completeFilters.selectedYear);
-    if (completeFilters.selectedMonth && completeFilters.selectedMonth !== 'all') 
-      query.append('selectedMonth', completeFilters.selectedMonth);
-    if (completeFilters.selectedWeek && completeFilters.selectedWeek !== 'all') 
-      query.append('selectedWeek', completeFilters.selectedWeek);
-
-    console.log('Envoi requête getPlannings avec params:', query.toString());
-
-    const response = await fetch(`${this.baseUrl}?${query.toString()}`, {
-      method: 'GET',
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
-
-    const responseData = await response.json();
-    
-    // Gérer les deux formats de réponse
-    let dataArray = [];
-    
-    if (Array.isArray(responseData)) {
-      dataArray = responseData;
-    } else if (responseData && Array.isArray(responseData.data)) {
-      dataArray = responseData.data;
-    }
-    
-    // Convertir le format simple au format attendu
-    return dataArray.map((item: any) => {
-      // Si c'est déjà au bon format, retourner tel quel
-      if (item.semaine && item.agent_name) {
-        return {
-          ...item,
-          days: item.days || [],
-        };
-      }
-      
-      // Sinon, convertir du format simple au format planning
-      const currentDate = new Date();
-      const year = currentDate.getFullYear().toString();
-      const month = (currentDate.getMonth() + 1).toString().padStart(2, '0');
-      const weekNumber = Math.ceil(
-        (currentDate.getDate() + 
-         new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getDay()) / 7
-      );
-      
-      return {
-        id: item.id || 0,
-        agent_name: item.agent?.nom && item.agent?.prenom 
-          ? `${item.agent.nom} ${item.agent.prenom}`
-          : `Agent ${item.agent_id}`,
-        semaine: `${year}-W${weekNumber.toString().padStart(2, '0')}`,
-        year: year,
-        month: [month],
-        days: [
-          { day: "LUNDI", name: "LUN", date: "09/12", fullDate: "2025-12-09", shift: item.shift || "JOUR", hours: 8 },
-          { day: "MARDI", name: "MAR", date: "10/12", fullDate: "2025-12-10", shift: item.shift || "JOUR", hours: 8 },
-          { day: "MERCREDI", name: "MER", date: "11/12", fullDate: "2025-12-11", shift: "OFF", hours: 0 },
-          { day: "JEUDI", name: "JEU", date: "12/12", fullDate: "2025-12-12", shift: "OFF", hours: 0 },
-          { day: "VENDREDI", name: "VEN", date: "13/12", fullDate: "2025-12-13", shift: "OFF", hours: 0 },
-          { day: "SAMEDI", name: "SAM", date: "14/12", fullDate: "2025-12-14", shift: "OFF", hours: 0 },
-          { day: "DIMANCHE", name: "DIM", date: "15/12", fullDate: "2025-12-15", shift: "OFF", hours: 0 }
-        ],
-        total_heures: 16,
-        remarques: null,
-        lundi: item.shift || "JOUR",
-        mardi: item.shift || "JOUR",
-        mercredi: "OFF",
-        jeudi: "OFF",
-        vendredi: "OFF",
-        samedi: "OFF",
-        dimanche: "OFF",
-        originalData: item // Garder les données originales
-      };
-    });
-  } catch (error: any) {
-    console.error('Erreur getPlannings:', error);
-    throw new Error(error.message || 'Erreur lors de la récupération des plannings');
-  }
+// Interface pour la réponse API
+interface ApiResponse<T = any> {
+  success?: boolean;
+  data?: T;
+  message?: string;
+  [key: string]: any;
 }
 
+export class PlanningService {
+  private static baseUrl: string = 'https://theme-gestion-des-resources-et-prod.vercel.app/api/plannings';
+
+  static async getPlannings(filters: Partial<UnifiedPlanningFilters> = {}): Promise<Planning[]> {
+    try {
+      const completeFilters: UnifiedPlanningFilters = {
+        searchQuery: '',
+        selectedFilter: 'all',
+        selectedYear: 'all',
+        selectedMonth: 'all',
+        selectedWeek: 'all',
+        ...filters,
+      };
+
+      const query = new URLSearchParams();
+      if (completeFilters.searchQuery) query.append('searchQuery', completeFilters.searchQuery);
+      if (completeFilters.selectedFilter && completeFilters.selectedFilter !== 'all') 
+        query.append('selectedFilter', completeFilters.selectedFilter);
+      if (completeFilters.selectedYear && completeFilters.selectedYear !== 'all') 
+        query.append('selectedYear', completeFilters.selectedYear);
+      if (completeFilters.selectedMonth && completeFilters.selectedMonth !== 'all') 
+        query.append('selectedMonth', completeFilters.selectedMonth);
+      if (completeFilters.selectedWeek && completeFilters.selectedWeek !== 'all') 
+        query.append('selectedWeek', completeFilters.selectedWeek);
+
+      console.log('Envoi requête getPlannings avec params:', query.toString());
+
+      const response = await fetch(`${this.baseUrl}?${query.toString()}`, {
+        method: 'GET',
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      // Typer la réponse avec notre interface ApiResponse
+      const responseData = await response.json() as ApiResponse<Planning[]> | Planning[];
+      
+      // Extraire le tableau de données
+      let dataArray: Planning[] = [];
+      
+      if (Array.isArray(responseData)) {
+        // Si la réponse est directement un tableau
+        dataArray = responseData;
+      } else if (responseData && 'data' in responseData && Array.isArray(responseData.data)) {
+        // Si la réponse a une propriété 'data' qui est un tableau
+        dataArray = responseData.data;
+      } else if (responseData && Array.isArray((responseData as any).data)) {
+        // Fallback pour TypeScript strict
+        dataArray = (responseData as any).data;
+      }
+      
+      // S'assurer que nous travaillons avec un tableau
+      if (!Array.isArray(dataArray)) {
+        console.warn('Les données de réponse ne sont pas un tableau:', dataArray);
+        return [];
+      }
+      
+      // Transformer les données si nécessaire
+      return dataArray.map((item: any) => {
+        // Si l'élément a déjà le bon format Planning
+        if (item.semaine && item.agent_name) {
+          return {
+            ...item,
+            days: Array.isArray(item.days) ? item.days : [],
+          } as Planning;
+        }
+        
+        // Sinon, créer un planning par défaut
+        const currentDate = new Date();
+        const year = currentDate.getFullYear().toString();
+        const month = (currentDate.getMonth() + 1).toString().padStart(2, '0');
+        const weekNumber = Math.ceil(
+          (currentDate.getDate() + 
+           new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getDay()) / 7
+        );
+        
+        return {
+          id: item.id || 0,
+          agent_name: item.agent?.nom && item.agent?.prenom 
+            ? `${item.agent.nom} ${item.agent.prenom}`
+            : item.agent_name || `Agent ${item.agent_id || item.id}`,
+          semaine: `${year}-W${weekNumber.toString().padStart(2, '0')}`,
+          year: year,
+          month: [month],
+          days: [
+            { day: "LUNDI", name: "LUN", date: "09/12", fullDate: "2025-12-09", shift: "JOUR", hours: 8 },
+            { day: "MARDI", name: "MAR", date: "10/12", fullDate: "2025-12-10", shift: "JOUR", hours: 8 },
+            { day: "MERCREDI", name: "MER", date: "11/12", fullDate: "2025-12-11", shift: "OFF", hours: 0 },
+            { day: "JEUDI", name: "JEU", date: "12/12", fullDate: "2025-12-12", shift: "OFF", hours: 0 },
+            { day: "VENDREDI", name: "VEN", date: "13/12", fullDate: "2025-12-13", shift: "OFF", hours: 0 },
+            { day: "SAMEDI", name: "SAM", date: "14/12", fullDate: "2025-12-14", shift: "OFF", hours: 0 },
+            { day: "DIMANCHE", name: "DIM", date: "15/12", fullDate: "2025-12-15", shift: "OFF", hours: 0 }
+          ],
+          total_heures: 16,
+          remarques: null,
+          lundi: "JOUR",
+          mardi: "JOUR",
+          mercredi: "OFF",
+          jeudi: "OFF",
+          vendredi: "OFF",
+          samedi: "OFF",
+          dimanche: "OFF",
+        } as Planning;
+      });
+    } catch (error: any) {
+      console.error('Erreur getPlannings:', error);
+      throw new Error(error.message || 'Erreur lors de la récupération des plannings');
+    }
+  }
+
+  // Méthode getStats corrigée
+  static async getStats(filters: Partial<UnifiedPlanningFilters> = {}): Promise<PlanningStats> {
+    try {
+      const completeFilters: UnifiedPlanningFilters = {
+        searchQuery: '',
+        selectedFilter: 'all',
+        selectedYear: 'all',
+        selectedMonth: 'all',
+        selectedWeek: 'all',
+        ...filters,
+      };
+
+      const query = new URLSearchParams();
+      if (completeFilters.searchQuery) query.append('searchQuery', completeFilters.searchQuery);
+      if (completeFilters.selectedFilter && completeFilters.selectedFilter !== 'all') 
+        query.append('selectedFilter', completeFilters.selectedFilter);
+      if (completeFilters.selectedYear && completeFilters.selectedYear !== 'all') 
+        query.append('selectedYear', completeFilters.selectedYear);
+      if (completeFilters.selectedMonth && completeFilters.selectedMonth !== 'all') 
+        query.append('selectedMonth', completeFilters.selectedMonth);
+      if (completeFilters.selectedWeek && completeFilters.selectedWeek !== 'all') 
+        query.append('selectedWeek', completeFilters.selectedWeek);
+
+      const response = await fetch(`${this.baseUrl}/stats?${query.toString()}`, {
+        method: 'GET',
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      // Typer la réponse
+      const responseData = await response.json() as ApiResponse<PlanningStats> | PlanningStats;
+      
+      // Extraire les statistiques
+      let stats: PlanningStats;
+      
+      if ('data' in responseData && responseData.data) {
+        // Si la réponse a une propriété 'data'
+        stats = responseData.data as PlanningStats;
+      } else {
+        // Sinon, utiliser directement la réponse
+        stats = responseData as PlanningStats;
+      }
+      
+      return stats;
+    } catch (error: any) {
+      console.error('Erreur getStats:', error);
+      return {
+        totalAgents: 0,
+        totalHours: 0,
+        avgHours: 0,
+        present: 0,
+        absent: 0,
+        dayShift: 0,
+        nightShift: 0,
+        shiftCounts: {},
+      };
+    }
+  }
+
+  // Méthode uploadPlanning corrigée
   static async uploadPlanning(file: File): Promise<UploadResponse> {
     try {
       const formData = new FormData();
@@ -182,14 +265,26 @@ static async getPlannings(filters: Partial<UnifiedPlanningFilters> = {}): Promis
         throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
-      const result = await response.json() as UploadResponse;
+      // Typer la réponse
+      const result = await response.json() as ApiResponse<UploadResponse> | UploadResponse;
+      
+      // Extraire les données
+      let uploadResult: UploadResponse;
+      
+      if ('data' in result && result.data) {
+        // Si la réponse a une propriété 'data'
+        uploadResult = result.data as UploadResponse;
+      } else {
+        // Sinon, utiliser directement la réponse
+        uploadResult = result as UploadResponse;
+      }
       
       return {
         file,
-        count: result.count,
-        weeks: result.weeks,
-        message: result.message,
-        data: result.data
+        count: uploadResult.count,
+        weeks: uploadResult.weeks,
+        message: uploadResult.message,
+        data: uploadResult.data
       };
     } catch (error: any) {
       console.error('Erreur uploadPlanning:', error);
@@ -197,106 +292,7 @@ static async getPlannings(filters: Partial<UnifiedPlanningFilters> = {}): Promis
     }
   }
 
-  static async uploadSheetPlanning(file: File, semaine?: string): Promise<UploadResponse> {
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      if (semaine) formData.append('semaine', semaine);
-
-      const response = await fetch(`${this.baseUrl}/upload-sheet`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-
-      return await response.json() as UploadResponse;
-    } catch (error: unknown) {
-      console.error('Erreur uploadSheetPlanning:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new Error(errorMessage);
-    }
-  }
-
-  static async uploadPlanningWithSpecificFormat(file: File): Promise<UploadResponse> {
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await fetch(`${this.baseUrl}/upload-specific-format`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-
-      return await response.json() as UploadResponse;
-    } catch (error: unknown) {
-      console.error('Erreur uploadPlanningWithSpecificFormat:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new Error(errorMessage);
-    }
-  }
-
-  static async uploadMultiWeekPlanning(file: File): Promise<UploadResponse> {
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await fetch(`${this.baseUrl}/upload-multi-week`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-
-      return await response.json() as UploadResponse;
-    } catch (error: unknown) {
-      console.error('Erreur uploadMultiWeekPlanning:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new Error(errorMessage);
-    }
-  }
-
-  static async deletePlanning(semaine?: string): Promise<DeleteResponse> {
-    try {
-      const params = new URLSearchParams();
-      if (semaine && semaine !== 'all') {
-        params.append('semaine', semaine);
-      }
-
-      const url = `${this.baseUrl}?${params.toString()}`;
-      console.log('Requête DELETE:', url);
-
-      const response = await fetch(url, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-
-      return await response.json() as DeleteResponse;
-    } catch (error: unknown) {
-      console.error('Erreur deletePlanning:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new Error(errorMessage);
-    }
-  }
-
+  // Méthodes auxiliaires avec typage
   static async getAvailableYears(): Promise<string[]> {
     try {
       const response = await fetch(`${this.baseUrl}/years`);
@@ -306,7 +302,20 @@ static async getPlannings(filters: Partial<UnifiedPlanningFilters> = {}): Promis
         return [new Date().getFullYear().toString()];
       }
       
-      return await response.json() as string[];
+      // Typer la réponse
+      const responseData = await response.json() as ApiResponse<string[]> | string[];
+      
+      let years: string[];
+      
+      if (Array.isArray(responseData)) {
+        years = responseData;
+      } else if (responseData && 'data' in responseData && Array.isArray(responseData.data)) {
+        years = responseData.data;
+      } else {
+        years = [new Date().getFullYear().toString()];
+      }
+      
+      return years;
     } catch (error: any) {
       console.warn('Erreur getAvailableYears, données par défaut:', error);
       return [new Date().getFullYear().toString()];
@@ -320,7 +329,21 @@ static async getPlannings(filters: Partial<UnifiedPlanningFilters> = {}): Promis
         console.warn('Endpoint /months non disponible, retour données par défaut');
         return Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0'));
       }
-      return await response.json() as string[];
+      
+      // Typer la réponse
+      const responseData = await response.json() as ApiResponse<string[]> | string[];
+      
+      let months: string[];
+      
+      if (Array.isArray(responseData)) {
+        months = responseData;
+      } else if (responseData && 'data' in responseData && Array.isArray(responseData.data)) {
+        months = responseData.data;
+      } else {
+        months = Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0'));
+      }
+      
+      return months;
     } catch (error: unknown) {
       console.warn('Erreur getAvailableMonths, données par défaut:', error);
       return Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0'));
@@ -344,11 +367,33 @@ static async getPlannings(filters: Partial<UnifiedPlanningFilters> = {}): Promis
         const weeks = [...new Set(plannings.map(p => p.semaine))].sort();
         return weeks;
       }
-      return await response.json() as string[];
+      
+      // Typer la réponse
+      const responseData = await response.json() as ApiResponse<string[]> | string[];
+      
+      let weeks: string[];
+      
+      if (Array.isArray(responseData)) {
+        weeks = responseData;
+      } else if (responseData && 'data' in responseData && Array.isArray(responseData.data)) {
+        weeks = responseData.data;
+      } else {
+        // Fallback
+        const plannings = await this.getPlannings({
+          searchQuery: '',
+          selectedFilter: 'all',
+          selectedYear: 'all',
+          selectedMonth: 'all',
+          selectedWeek: 'all',
+        });
+        weeks = [...new Set(plannings.map(p => p.semaine))].sort();
+      }
+      
+      return weeks;
     } catch (error: unknown) {
       console.warn('Erreur getAvailableWeeks, tentative de fallback:', error);
       
-      // Fallback: récupérer les semaines à partir des plannings
+      // Fallback
       try {
         const plannings = await this.getPlannings({
           searchQuery: '',
@@ -382,65 +427,6 @@ static async getPlannings(filters: Partial<UnifiedPlanningFilters> = {}): Promis
       return [];
     }
   }
-
-// PlanningService.ts - Méthode getStats mise à jour
-// PlanningService.ts - Méthode getStats mise à jour avec typage
-static async getStats(filters: Partial<UnifiedPlanningFilters> = {}): Promise<PlanningStats> {
-  try {
-    const completeFilters: UnifiedPlanningFilters = {
-      searchQuery: '',
-      selectedFilter: 'all',
-      selectedYear: 'all',
-      selectedMonth: 'all',
-      selectedWeek: 'all',
-      ...filters,
-    };
-
-    const query = new URLSearchParams();
-    if (completeFilters.searchQuery) query.append('searchQuery', completeFilters.searchQuery);
-    if (completeFilters.selectedFilter && completeFilters.selectedFilter !== 'all') 
-      query.append('selectedFilter', completeFilters.selectedFilter);
-    if (completeFilters.selectedYear && completeFilters.selectedYear !== 'all') 
-      query.append('selectedYear', completeFilters.selectedYear);
-    if (completeFilters.selectedMonth && completeFilters.selectedMonth !== 'all') 
-      query.append('selectedMonth', completeFilters.selectedMonth);
-    if (completeFilters.selectedWeek && completeFilters.selectedWeek !== 'all') 
-      query.append('selectedWeek', completeFilters.selectedWeek);
-
-    const response = await fetch(`${this.baseUrl}/stats?${query.toString()}`, {
-      method: 'GET',
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
-
-    // Définir un type pour la réponse des stats
-    interface StatsApiResponse {
-      success?: boolean;
-      data?: PlanningStats;
-      [key: string]: any;
-    }
-
-    const responseData = await response.json() as StatsApiResponse;
-    const stats = responseData.data || responseData;
-    
-    return stats as PlanningStats;
-  } catch (error: any) {
-    console.error('Erreur getStats:', error);
-    return {
-      totalAgents: 0,
-      totalHours: 0,
-      avgHours: 0,
-      present: 0,
-      absent: 0,
-      dayShift: 0,
-      nightShift: 0,
-      shiftCounts: {},
-    };
-  }
-}
 
   static async searchWeeks(criteria: { year?: string; month?: string; partialWeek?: string }): Promise<string[]> {
     try {
