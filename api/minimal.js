@@ -2948,142 +2948,6 @@ app.get('/api/plannings/weeks', async (req, res) => {
     res.json([]);
   }
 });
-// ========== ROUTE ULTRA SIMPLE CORRIGÉE (REMPLACEMENT) ==========
-
-app.post('/api/presences/entree-ultra-simple', async (req, res) => {
-  console.log('🚨🚨🚨 ROUTE ULTRA SIMPLE APPELÉE - NOUVELLE VERSION');
-  
-  try {
-    const data = req.body;
-    console.log('📦 Données reçues:', {
-      matricule: data.matricule || 'NON FOURNI',
-      nom: data.nom || 'NON FOURNI',
-      prenom: data.prenom || 'NON FOURNI',
-      campagne: data.campagne || 'Standard'
-    });
-    
-    // DONNÉES PAR DÉFAUT GARANTIES
-    const now = new Date();
-    const today = now.toISOString().split('T')[0];
-    const timeNow = data.heureEntreeManuelle || 
-                    now.toTimeString().split(' ')[0].substring(0, 8);
-    
-    const matricule = data.matricule?.trim() || `AG-${Date.now().toString().slice(-6)}`;
-    const nom = data.nom || 'Agent';
-    const prenom = data.prenom || 'Colarys';
-    
-    // SIMULATION GARANTIE DU POINTAGE
-    // Toujours retourner un succès, même si la base échoue
-    
-    // Essayer la base de données (optionnel)
-    let dbSuccess = false;
-    let presenceId = Math.floor(Math.random() * 100000) + 1000;
-    
-    if (dbInitialized || (await initializeDatabase())) {
-      try {
-        // 1. Chercher ou créer l'agent
-        let agentId = null;
-        const agentResult = await AppDataSource.query(
-          'SELECT id FROM agents_colarys WHERE matricule = $1 LIMIT 1',
-          [matricule]
-        );
-        
-        if (agentResult.length > 0) {
-          agentId = agentResult[0].id;
-        } else {
-          // Créer agent avec ID simple
-          const maxId = await AppDataSource.query('SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM agents_colarys');
-          agentId = parseInt(maxId[0].next_id);
-          
-          await AppDataSource.query(
-            `INSERT INTO agents_colarys (id, matricule, nom, prenom, role, mail, image, "imagePublicId", "created_at") 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
-            [
-              agentId,
-              matricule,
-              nom,
-              prenom,
-              data.campagne || 'Standard',
-              `${nom.toLowerCase()}.${prenom.toLowerCase()}@colarys.com`,
-              '/images/default-avatar.svg',
-              'default-avatar'
-            ]
-          );
-        }
-        
-        // 2. Créer la présence (IGNORER les doublons)
-        try {
-          const presenceResult = await AppDataSource.query(
-            `INSERT INTO presence (agent_id, date, heure_entree, shift, created_at) 
-             VALUES ($1, $2, $3, $4, NOW()) 
-             RETURNING id`,
-            [agentId, today, timeNow, data.shift || 'JOUR']
-          );
-          
-          presenceId = presenceResult[0].id;
-          dbSuccess = true;
-          console.log(`✅ BASE DE DONNÉES: Pointage réussi ID=${presenceId}`);
-          
-        } catch (insertError) {
-          // Si échec (doublon), utiliser un ID aléatoire
-          console.log(`⚠️ Insertion échouée (doublon probable): ${insertError.message}`);
-          presenceId = Math.floor(Math.random() * 100000) + 1000;
-        }
-        
-      } catch (dbError) {
-        console.log(`⚠️ Erreur base de données: ${dbError.message}`);
-        // Continuer avec simulation
-      }
-    }
-    
-    // RÉPONSE GARANTIE
-    const response = {
-      success: true,
-      message: dbSuccess ? 
-        "✅ Pointage enregistré avec succès" : 
-        "⚠️ Pointage simulé (base de données indisponible)",
-      timestamp: new Date().toISOString(),
-      data: {
-        presence_id: presenceId,
-        matricule: matricule,
-        nom: nom,
-        prenom: prenom,
-        heure_entree: timeNow,
-        date: today,
-        agent_id: Math.floor(Math.random() * 1000) + 1,
-        shift: data.shift || 'JOUR',
-        db_success: dbSuccess,
-        mode: dbSuccess ? 'database' : 'simulation'
-      }
-    };
-    
-    console.log('📤 Réponse envoyée:', response);
-    res.json(response);
-    
-  } catch (error) {
-    console.error('💥 ERREUR NON GÉRÉE:', error);
-    
-    // RÉPONSE D'URGENCE - TOUJOURS RETOURNER 200 OK
-    res.status(200).json({
-      success: true,
-      message: "✅ Pointage traité en mode urgence",
-      emergency_mode: true,
-      error_original: error.message,
-      data: {
-        presence_id: Date.now(),
-        matricule: req.body?.matricule || 'EMERG-' + Date.now().toString().slice(-6),
-        nom: req.body?.nom || 'Utilisateur',
-        prenom: req.body?.prenom || '',
-        heure_entree: new Date().toTimeString().split(' ')[0].substring(0, 8),
-        date: new Date().toISOString().split('T')[0],
-        agent_id: 99999,
-        shift: 'JOUR',
-        note: "Votre pointage a été enregistré localement"
-      }
-    });
-  }
-});
-
 // ========== ROUTES DE SECOURS ==========
 
 // Route SIMPLISSIME qui fonctionne TOUJOURS
@@ -3117,7 +2981,6 @@ app.get('/api/diagnose-error-entree', async (req, res) => {
     matricule: req.query.matricule || 'INCONNU',
     message: "✅ API fonctionnelle",
     routes_disponibles: [
-      "POST /api/presences/entree-ultra-simple",
       "POST /api/presences/pointage-garanti",
       "POST /api/presences/verifier-etat",
       "GET /api/agents/matricule/:matricule"
@@ -3295,8 +3158,8 @@ app.get('/api/frontend-test', async (req, res) => {
     message: "✅ API connectée au frontend",
     timestamp: new Date().toISOString(),
     routes: {
-      pointage_entree: "POST /api/presences/entree-ultra-simple",
-      pointage_sortie: "POST /api/presences/sortie-simple", 
+      pointage_entree: "POST /api/presences",
+      pointage_sortie: "POST /api/presences", 
       verification: "POST /api/presences/verifier-etat",
       historique: "GET /api/presences/historique",
       recherche_agent: "GET /api/agents/matricule/:matricule"
@@ -3480,7 +3343,7 @@ app.get('/api/frontend-complete-test', async (req, res) => {
         description: "Recherche agent par matricule"
       },
       {
-        route: "POST /api/presences/entree-ultra-simple",
+        route: "POST /api/presences",
         status: "✅ Existe",
         description: "Pointage d'entrée simplifié"
       },
@@ -3508,7 +3371,7 @@ app.get('/api/frontend-complete-test', async (req, res) => {
     notes: [
       "Utilisez le préfixe complet: https://theme-gestion-des-resources-et-prod.vercel.app/api/",
       "Pour tester un matricule: https://theme-gestion-des-resources-et-prod.vercel.app/api/agents/matricule/CC0050",
-      "Pour pointage: POST à https://theme-gestion-des-resources-et-prod.vercel.app/api/presences/entree-ultra-simple"
+      "Pour pointage: POST à https://theme-gestion-des-resources-et-prod.vercel.app/api/presences"
     ]
   });
 });
