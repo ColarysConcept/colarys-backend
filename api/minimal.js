@@ -1,4 +1,4 @@
-// api/minimal.js - Version corrigée et complète
+// api/minimal.js - Version SANS signatures
 console.log('🚀 Colarys API Minimal - Starting...');
 
 // ========== IMPORTS ==========
@@ -19,9 +19,9 @@ app.use(express.json());
 
 // Configuration Cloudinary
 cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'dummy',
-  api_key: process.env.CLOUDINARY_API_KEY || 'dummy',
-  api_secret: process.env.CLOUDINARY_API_SECRET || 'dummy'
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
 // Configuration Multer
@@ -1298,409 +1298,6 @@ app.post('/api/presences/entree', async (req, res) => {
   }
 });
 
-// NOUVELLE ROUTE: Pointage entrée avec signature
-app.post('/api/presences/entree-with-signature', async (req, res) => {
-  try {
-    const data = req.body;
-    console.log('📥 Pointage entrée AVEC SIGNATURE:', {
-      matricule: data.matricule,
-      nom: data.nom,
-      prenom: data.prenom,
-      signatureLength: data.signatureEntree?.length || 0
-    });
-    
-    // Validation
-    if (!data.nom || !data.prenom) {
-      return res.status(400).json({
-        success: false,
-        error: "Nom et prénom sont requis"
-      });
-    }
-    
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    const now = new Date();
-    const today = now.toISOString().split('T')[0];
-    const timeNow = data.heureEntreeManuelle || 
-                    now.toTimeString().split(' ')[0].substring(0, 8);
-    
-    // Gestion du matricule
-    let matricule = data.matricule?.trim();
-    if (!matricule || matricule === '') {
-      matricule = `AG-${uuidv4().slice(0, 8).toUpperCase()}`;
-      console.log('🎫 Matricule généré:', matricule);
-    }
-    
-    // Chercher ou créer l'agent
-    let agentId = null;
-    const existingColarys = await AppDataSource.query(
-      'SELECT id FROM agents_colarys WHERE matricule = $1',
-      [matricule]
-    );
-    
-    if (existingColarys.length > 0) {
-      agentId = existingColarys[0].id;
-    } else {
-      const newColarys = await AppDataSource.query(
-        `INSERT INTO agents_colarys 
-         (matricule, nom, prenom, role, mail, contact, entreprise, image, "imagePublicId", "created_at", "updated_at") 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW()) 
-         RETURNING id`,
-        [
-          matricule,
-          data.nom,
-          data.prenom,
-          data.campagne || 'Standard',
-          data.email || `${data.nom.toLowerCase()}.${data.prenom.toLowerCase()}@colarys.com`,
-          data.contact || '',
-          data.entreprise || 'Colarys Concept',
-          '/images/default-avatar.svg',
-          'default-avatar'
-        ]
-      );
-      agentId = newColarys[0].id;
-    }
-    
-    // Vérifier si présence existe déjà
-    const existingPresence = await AppDataSource.query(
-      'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
-      [agentId, today]
-    );
-    
-    if (existingPresence.length > 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Une présence existe déjà pour aujourd'hui"
-      });
-    }
-    
-    // Créer la présence
-    const presence = await AppDataSource.query(
-      `INSERT INTO presence 
-       (agent_id, date, heure_entree, shift, created_at) 
-       VALUES ($1, $2, $3, $4, NOW()) 
-       RETURNING id`,
-      [agentId, today, timeNow, data.shift || 'JOUR']
-    );
-    
-    const presenceId = presence[0].id;
-    console.log('✅ Pointage entrée réussi! ID:', presenceId);
-    
-    // Enregistrer la signature si elle existe
-    let signatureSaved = false;
-    if (data.signatureEntree && data.signatureEntree.trim() !== '') {
-      try {
-        // Vérifier si la table detail_presence existe
-        const tableExists = await AppDataSource.query(`
-          SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            AND table_name = 'detail_presence'
-          )
-        `);
-        
-        if (tableExists[0].exists) {
-          await AppDataSource.query(
-            `INSERT INTO detail_presence (presence_id, signature_entree, created_at) 
-             VALUES ($1, $2, NOW())`,
-            [presenceId, data.signatureEntree]
-          );
-          signatureSaved = true;
-          console.log(`✅ Signature enregistrée pour présence ${presenceId}`);
-        } else {
-          // Créer la table si elle n'existe pas
-          await AppDataSource.query(`
-            CREATE TABLE detail_presence (
-              id SERIAL PRIMARY KEY,
-              presence_id INTEGER REFERENCES presence(id),
-              signature_entree TEXT,
-              signature_sortie TEXT,
-              created_at TIMESTAMP DEFAULT NOW()
-            )
-          `);
-          await AppDataSource.query(
-            `INSERT INTO detail_presence (presence_id, signature_entree) 
-             VALUES ($1, $2)`,
-            [presenceId, data.signatureEntree]
-          );
-          signatureSaved = true;
-          console.log(`✅ Table créée et signature enregistrée`);
-        }
-      } catch (sigError) {
-        console.log('⚠️ Erreur enregistrement signature:', sigError.message);
-      }
-    }
-    
-    res.json({
-      success: true,
-      message: "Pointage d'entrée enregistré" + (signatureSaved ? " avec signature" : ""),
-      data: {
-        presence_id: presenceId,
-        matricule: matricule,
-        nom: data.nom,
-        prenom: data.prenom,
-        heure_entree: timeNow,
-        date: today,
-        agent_id: agentId,
-        signature_enregistree: signatureSaved
-      }
-    });
-    
-  } catch (error) {
-    console.error('❌ Erreur pointage entrée avec signature:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      code: error.code
-    });
-  }
-});
-
-// NOUVELLE ROUTE: Pointage sortie avec signature
-app.post('/api/presences/sortie-with-signature', async (req, res) => {
-  try {
-    const data = req.body;
-    console.log('📥 Pointage sortie AVEC SIGNATURE:', {
-      matricule: data.matricule,
-      signatureLength: data.signatureSortie?.length || 0
-    });
-    
-    // Validation
-    if (!data.matricule) {
-      return res.status(400).json({
-        success: false,
-        error: "Matricule requis"
-      });
-    }
-    
-    if (!data.signatureSortie) {
-      return res.status(400).json({
-        success: false,
-        error: "Signature de sortie obligatoire"
-      });
-    }
-    
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    const now = new Date();
-    const today = now.toISOString().split('T')[0];
-    const timeNow = data.heureSortieManuelle || 
-                    now.toTimeString().split(' ')[0].substring(0, 8);
-    
-    // Trouver l'agent
-    const agents = await AppDataSource.query(
-      'SELECT id FROM agents_colarys WHERE matricule = $1',
-      [data.matricule]
-    );
-    
-    if (agents.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: `Agent ${data.matricule} non trouvé`
-      });
-    }
-    
-    const agentId = agents[0].id;
-    
-    // Trouver la présence d'aujourd'hui
-    const presences = await AppDataSource.query(
-      'SELECT id, heure_entree FROM presence WHERE agent_id = $1 AND date = $2 AND heure_sortie IS NULL',
-      [agentId, today]
-    );
-    
-    if (presences.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Aucune entrée pointée aujourd'hui ou sortie déjà pointée"
-      });
-    }
-    
-    const presenceId = presences[0].id;
-    
-    // Calculer les heures travaillées
-    let heuresTravaillees = 8.0;
-    if (presences[0].heure_entree) {
-      const entree = new Date(`${today}T${presences[0].heure_entree}`);
-      const sortie = new Date(`${today}T${timeNow}`);
-      const diffMs = sortie - entree;
-      const diffHours = diffMs / (1000 * 60 * 60);
-      heuresTravaillees = parseFloat(diffHours.toFixed(2));
-    }
-    
-    // Mettre à jour la présence
-    await AppDataSource.query(
-      `UPDATE presence 
-       SET heure_sortie = $1, heures_travaillees = $2 
-       WHERE id = $3`,
-      [timeNow, heuresTravaillees, presenceId]
-    );
-    
-    // Enregistrer la signature
-    let signatureSaved = false;
-    try {
-      // Vérifier si la table detail_presence existe
-      const tableExists = await AppDataSource.query(`
-        SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_schema = 'public' 
-          AND table_name = 'detail_presence'
-        )
-      `);
-      
-      if (tableExists[0].exists) {
-        // Vérifier si un détail existe déjà
-        const detailExists = await AppDataSource.query(
-          'SELECT id FROM detail_presence WHERE presence_id = $1',
-          [presenceId]
-        );
-        
-        if (detailExists.length > 0) {
-          await AppDataSource.query(
-            `UPDATE detail_presence 
-             SET signature_sortie = $1 
-             WHERE presence_id = $2`,
-            [data.signatureSortie, presenceId]
-          );
-        } else {
-          await AppDataSource.query(
-            `INSERT INTO detail_presence (presence_id, signature_sortie, created_at) 
-             VALUES ($1, $2, NOW())`,
-            [presenceId, data.signatureSortie]
-          );
-        }
-        signatureSaved = true;
-      } else {
-        // Créer la table si elle n'existe pas
-        await AppDataSource.query(`
-          CREATE TABLE detail_presence (
-            id SERIAL PRIMARY KEY,
-            presence_id INTEGER REFERENCES presence(id),
-            signature_entree TEXT,
-            signature_sortie TEXT,
-            created_at TIMESTAMP DEFAULT NOW()
-          )
-        `);
-        await AppDataSource.query(
-          `INSERT INTO detail_presence (presence_id, signature_sortie) 
-           VALUES ($1, $2)`,
-          [presenceId, data.signatureSortie]
-        );
-        signatureSaved = true;
-      }
-    } catch (sigError) {
-      console.log('⚠️ Erreur enregistrement signature sortie:', sigError.message);
-    }
-    
-    res.json({
-      success: true,
-      message: "Pointage de sortie enregistré" + (signatureSaved ? " avec signature" : ""),
-      data: {
-        presence_id: presenceId,
-        matricule: data.matricule,
-        heure_sortie: timeNow,
-        heures_travaillees: heuresTravaillees,
-        date: today,
-        agent_id: agentId,
-        signature_enregistree: signatureSaved
-      }
-    });
-    
-  } catch (error) {
-    console.error('❌ Erreur pointage sortie avec signature:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Route pour récupérer les signatures d'une présence
-app.get('/api/presences/:id/signatures', async (req, res) => {
-  try {
-    const presenceId = parseInt(req.params.id);
-    
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    let signatures = null;
-    
-    try {
-      const result = await AppDataSource.query(
-        'SELECT signature_entree, signature_sortie FROM detail_presence WHERE presence_id = $1',
-        [presenceId]
-      );
-      
-      if (result.length > 0) {
-        signatures = {
-          signatureEntree: result[0].signature_entree,
-          signatureSortie: result[0].signature_sortie,
-          hasEntree: !!result[0].signature_entree,
-          hasSortie: !!result[0].signature_sortie
-        };
-      }
-    } catch (error) {
-      console.log('ℹ️ Aucune signature trouvée pour cette présence');
-    }
-    
-    res.json({
-      success: true,
-      presenceId: presenceId,
-      signatures: signatures
-    });
-    
-  } catch (error) {
-    console.error('❌ Erreur récupération signatures:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Route pour créer/s'assurer que la table signatures existe
-app.post('/api/setup-signatures-table', async (_req, res) => {
-  try {
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    await AppDataSource.query(`
-      CREATE TABLE IF NOT EXISTS detail_presence (
-        id SERIAL PRIMARY KEY,
-        presence_id INTEGER REFERENCES presence(id) ON DELETE CASCADE,
-        signature_entree TEXT,
-        signature_sortie TEXT,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
-    
-    await AppDataSource.query(`
-      CREATE INDEX IF NOT EXISTS idx_detail_presence_presence_id 
-      ON detail_presence(presence_id)
-    `);
-    
-    res.json({
-      success: true,
-      message: "Table detail_presence créée/verifiée",
-      table: "detail_presence",
-      columns: ["id", "presence_id", "signature_entree", "signature_sortie", "created_at", "updated_at"]
-    });
-    
-  } catch (error) {
-    console.error('❌ Erreur création table signatures:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
 // CORRECTION ULTIME pour gérer les conflits de matricule
 app.post('/api/presences/entree-fixed-columns', async (req, res) => {
   console.log('🎯 Pointage entrée FIXED-COLUMNS - Gestion de conflits:', req.body);
@@ -1912,56 +1509,7 @@ app.post('/api/presences/entree-fixed-columns', async (req, res) => {
 
     const presenceId = presence[0].id;
     
-    // ENREGISTRER LA SIGNATURE
-    let signatureToSave = data.signatureEntree || '';
-    if (signatureToSave) {
-      if (!signatureToSave.startsWith('data:image/')) {
-        signatureToSave = 'data:image/png;base64,' + signatureToSave;
-      }
-      
-      // Vérifier si la table detail_presence existe
-      const tableExists = await AppDataSource.query(`
-        SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_schema = 'public' 
-          AND table_name = 'detail_presence'
-        )
-      `);
-      
-      if (tableExists[0].exists) {
-        // CRÉER LE DÉTAIL AVEC LA SIGNATURE
-        await AppDataSource.query(
-          `INSERT INTO detail_presence 
-           (presence_id, signature_entree, created_at, updated_at) 
-           VALUES ($1, $2, NOW(), NOW())`,
-          [presenceId, signatureToSave]
-        );
-        
-        console.log(`✅ Signature enregistrée pour présence ${presenceId}`);
-      } else {
-        // Créer la table d'abord
-        await AppDataSource.query(`
-          CREATE TABLE detail_presence (
-            id SERIAL PRIMARY KEY,
-            presence_id INTEGER REFERENCES presence(id),
-            signature_entree TEXT,
-            signature_sortie TEXT,
-            created_at TIMESTAMP DEFAULT NOW(),
-            updated_at TIMESTAMP DEFAULT NOW()
-          )
-        `);
-        
-        await AppDataSource.query(
-          `INSERT INTO detail_presence 
-           (presence_id, signature_entree) 
-           VALUES ($1, $2)`,
-          [presenceId, signatureToSave]
-        );
-        console.log(`✅ Table créée et signature enregistrée pour présence ${presenceId}`);
-      }
-    } else {
-      console.log('⚠️ Aucune signature fournie');
-    }
+    console.log(`✅ Pointage entrée réussi! ID: ${presenceId}`);
     
     res.json({
       success: true,
@@ -1975,7 +1523,6 @@ app.post('/api/presences/entree-fixed-columns', async (req, res) => {
         date: presence[0].date,
         agent_id: agentId,
         shift: data.shift || 'JOUR',
-        signature_entree: signatureToSave || null,
         agent_source: agentTrouveDans || 'nouveau'
       }
     });
@@ -2189,48 +1736,21 @@ app.get('/api/presences/historique', async (req, res) => {
     const presences = await AppDataSource.query(query, params);
     console.log(`✅ ${presences.length} présence(s) trouvée(s)`);
     
-    // Récupérer les signatures séparément (pour éviter les erreurs de jointure)
-    const presencesAvecDetails = [];
-    
-    for (const presence of presences) {
-      try {
-        const details = await AppDataSource.query(`
-          SELECT signature_entree, signature_sortie
-          FROM detail_presence 
-          WHERE presence_id = $1
-        `, [presence.id]);
-        
-        presencesAvecDetails.push({
-          ...presence,
-          details: details.length > 0 ? {
-            signatureEntree: details[0].signature_entree,
-            signatureSortie: details[0].signature_sortie
-          } : null
-        });
-      } catch (detailError) {
-        console.log(`⚠️ Erreur détails pour ${presence.id}:`, detailError.message);
-        presencesAvecDetails.push({
-          ...presence,
-          details: null
-        });
-      }
-    }
-    
     // Calcul du total des heures
-    const totalHeures = presencesAvecDetails.reduce((sum, p) => {
+    const totalHeures = presences.reduce((sum, p) => {
       return sum + (p.heures_travaillees || 0);
     }, 0);
     
     res.json({
       success: true,
-      data: presencesAvecDetails,
+      data: presences,
       totalHeures: parseFloat(totalHeures.toFixed(2)),
-      totalPresences: presencesAvecDetails.length,
+      totalPresences: presences.length,
       dates_utilisees: {
         dateDebut: startDate,
         dateFin: endDate
       },
-      message: `${presencesAvecDetails.length} présence(s) récupérée(s)`
+      message: `${presences.length} présence(s) récupérée(s)`
     });
     
   } catch (error) {
@@ -2599,106 +2119,6 @@ app.post('/api/fix-matricule/:matricule', async (req, res) => {
   }
 });
 
-// Route pour réparer la table detail_presence
-app.post('/api/repair-detail-presence-table', async (_req, res) => {
-  try {
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    console.log('🔧 Réparation de la table detail_presence...');
-    
-    // 1. Vérifier la structure actuelle
-    const columns = await AppDataSource.query(`
-      SELECT column_name, data_type, is_nullable
-      FROM information_schema.columns
-      WHERE table_name = 'detail_presence'
-      ORDER BY ordinal_position
-    `);
-    
-    console.log('📊 Colonnes actuelles:', columns);
-    
-    // 2. Ajouter les colonnes manquantes
-    const neededColumns = [
-      { name: 'created_at', type: 'TIMESTAMP DEFAULT NOW()' },
-      { name: 'updated_at', type: 'TIMESTAMP DEFAULT NOW()' },
-      { name: 'signature_entree', type: 'TEXT' },
-      { name: 'signature_sortie', type: 'TEXT' },
-      { name: 'presence_id', type: 'INTEGER REFERENCES presence(id)' }
-    ];
-    
-    const actions = [];
-    
-    for (const needed of neededColumns) {
-      const exists = columns.some(col => col.column_name === needed.name);
-      
-      if (!exists) {
-        try {
-          await AppDataSource.query(`
-            ALTER TABLE detail_presence 
-            ADD COLUMN ${needed.name} ${needed.type}
-          `);
-          actions.push(`✅ Ajouté colonne ${needed.name}`);
-        } catch (alterError) {
-          actions.push(`❌ Erreur ajout ${needed.name}: ${alterError.message}`);
-        }
-      } else {
-        actions.push(`ℹ️ Colonne ${needed.name} existe déjà`);
-      }
-    }
-    
-    // 3. Créer la table si elle n'existe pas
-    const tableExists = await AppDataSource.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-        AND table_name = 'detail_presence'
-      )
-    `);
-    
-    if (!tableExists[0].exists) {
-      await AppDataSource.query(`
-        CREATE TABLE detail_presence (
-          id SERIAL PRIMARY KEY,
-          presence_id INTEGER REFERENCES presence(id) ON DELETE CASCADE,
-          signature_entree TEXT,
-          signature_sortie TEXT,
-          observations TEXT,
-          created_at TIMESTAMP DEFAULT NOW(),
-          updated_at TIMESTAMP DEFAULT NOW()
-        )
-      `);
-      actions.push('✅ Table detail_presence créée');
-    }
-    
-    // 4. Créer un index pour les performances
-    await AppDataSource.query(`
-      CREATE INDEX IF NOT EXISTS idx_detail_presence_presence_id 
-      ON detail_presence(presence_id)
-    `);
-    actions.push('✅ Index créé');
-    
-    res.json({
-      success: true,
-      message: "Table detail_presence réparée",
-      actions: actions,
-      current_columns: columns,
-      next_steps: [
-        "Redémarrez l'application",
-        "Testez à nouveau le pointage de sortie"
-      ]
-    });
-    
-  } catch (error) {
-    console.error('❌ Erreur réparation:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      code: error.code
-    });
-  }
-});
-
 // ========== ROUTES DE TEST ET DEBUG ==========
 
 // Route de test pour vérifier TOUTES les routes
@@ -2902,58 +2322,6 @@ app.get('/api/plannings/stats', async (req, res) => {
   }
 });
 
-// Route pour vérifier les signatures
-app.get('/api/check-signatures/:id', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    console.log(`🔍 Vérification signatures pour présence ID: ${id}`);
-    
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    let signatures = {
-      hasEntree: false,
-      hasSortie: false,
-      signatureEntree: null,
-      signatureSortie: null
-    };
-    
-    try {
-      // Chercher dans detail_presence
-      const details = await AppDataSource.query(
-        'SELECT signature_entree, signature_sortie FROM detail_presence WHERE presence_id = $1',
-        [id]
-      );
-      
-      if (details.length > 0) {
-        signatures.hasEntree = !!details[0].signature_entree;
-        signatures.hasSortie = !!details[0].signature_sortie;
-        signatures.signatureEntree = details[0].signature_entree;
-        signatures.signatureSortie = details[0].signature_sortie;
-      }
-    } catch (error) {
-      console.log('⚠️ Table detail_presence non disponible:', error.message);
-    }
-    
-    res.json({
-      success: true,
-      presenceId: id,
-      signatures: signatures,
-      message: signatures.hasEntree ? 
-        (signatures.hasSortie ? 'Signatures entrée et sortie présentes' : 'Signature entrée seulement') :
-        'Aucune signature'
-    });
-    
-  } catch (error) {
-    console.error('❌ Erreur vérification signatures:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
 // Dans minimal.js - route /api/plannings mise à jour
 app.get('/api/plannings', async (req, res) => {
   try {
@@ -3083,7 +2451,6 @@ app.get('/api/test-frontend-routes', (req, res) => {
     message: "✅ Routes frontend disponibles",
     routes: [
       "GET /api/plannings/stats - Statistiques planning",
-      "GET /api/check-signatures/:id - Vérifier signatures",
       "GET /api/plannings - Liste des plannings",
       "POST /api/presences/entree-fixed-columns - Pointage entrée corrigé",
       "POST /api/presences/sortie - Pointage sortie",
@@ -3638,44 +3005,6 @@ app.post('/api/presences/sortie-ultra-simple', async (req, res) => {
       [timeNow, heuresTravaillees, presenceId]
     );
     
-    // Gérer la signature de sortie
-    let signatureSaved = false;
-    let signatureToSave = data.signatureSortie || '';
-    
-    if (signatureToSave && signatureToSave.trim() !== '') {
-      try {
-        if (!signatureToSave.startsWith('data:image/')) {
-          signatureToSave = 'data:image/png;base64,' + signatureToSave;
-        }
-        
-        // Vérifier le détail
-        const detailExists = await AppDataSource.query(
-          'SELECT id FROM detail_presence WHERE presence_id = $1',
-          [presenceId]
-        );
-        
-        if (detailExists.length === 0) {
-          await AppDataSource.query(
-            `INSERT INTO detail_presence 
-             (presence_id, signature_sortie, created_at, updated_at) 
-             VALUES ($1, $2, NOW(), NOW())`,
-            [presenceId, signatureToSave]
-          );
-        } else {
-          await AppDataSource.query(
-            `UPDATE detail_presence 
-             SET signature_sortie = $1, updated_at = NOW()
-             WHERE presence_id = $2`,
-            [signatureToSave, presenceId]
-          );
-        }
-        
-        signatureSaved = true;
-      } catch (signatureError) {
-        console.log('⚠️ Erreur signature sortie:', signatureError.message);
-      }
-    }
-    
     res.json({
       success: true,
       message: "Pointage de sortie enregistré",
@@ -3686,8 +3015,7 @@ app.post('/api/presences/sortie-ultra-simple', async (req, res) => {
         heure_sortie: timeNow,
         heures_travaillees: heuresTravaillees,
         date: today,
-        agent_id: agentId,
-        signature_sortie_saved: signatureSaved
+        agent_id: agentId
       }
     });
     
@@ -3717,84 +3045,6 @@ app.get('/api/frontend-test', async (req, res) => {
     database: dbInitialized ? "connected" : "disconnected",
     note: "Utilisez ces routes avec le préfixe complet de l'API"
   });
-});
-
-// Route pour créer un détail pour une présence existante
-app.post('/api/create-detail-for-presence/:id', async (req, res) => {
-  try {
-    const presenceId = parseInt(req.params.id);
-    console.log(`➕ Création détail pour présence: ${presenceId}`);
-    
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    // Vérifier si la table detail_presence existe
-    const tableExists = await AppDataSource.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-        AND table_name = 'detail_presence'
-      )
-    `);
-    
-    if (!tableExists[0].exists) {
-      return res.status(404).json({
-        success: false,
-        error: "Table detail_presence n'existe pas",
-        solution: "Utilisez POST /api/repair-detail-presence-table pour la créer"
-      });
-    }
-    
-    // Vérifier si la présence existe
-    const presence = await AppDataSource.query(
-      'SELECT id FROM presence WHERE id = $1',
-      [presenceId]
-    );
-    
-    if (presence.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Présence non trouvée"
-      });
-    }
-    
-    // Vérifier si le détail existe déjà
-    const existingDetail = await AppDataSource.query(
-      'SELECT id FROM detail_presence WHERE presence_id = $1',
-      [presenceId]
-    );
-    
-    if (existingDetail.length > 0) {
-      return res.json({
-        success: true,
-        message: "Le détail existe déjà",
-        detail_id: existingDetail[0].id
-      });
-    }
-    
-    // Créer le détail
-    const detail = await AppDataSource.query(
-      `INSERT INTO detail_presence 
-       (presence_id, created_at, updated_at) 
-       VALUES ($1, NOW(), NOW()) 
-       RETURNING id`,
-      [presenceId]
-    );
-    
-    res.json({
-      success: true,
-      message: "Détail créé avec succès",
-      detail_id: detail[0].id
-    });
-    
-  } catch (error) {
-    console.error('❌ Erreur création détail:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
 });
 
 // ========== ROUTES DE DIAGNOSTIC ET RÉPARATION ==========
@@ -3838,28 +3088,12 @@ app.get('/api/diagnose-error-entree', async (req, res) => {
       presenceCount = parseInt(presences[0].count) || 0;
     }
     
-    // Vérifier la table detail_presence
-    let detailPresenceExists = false;
-    try {
-      const tableExists = await AppDataSource.query(`
-        SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_schema = 'public' 
-          AND table_name = 'detail_presence'
-        )
-      `);
-      detailPresenceExists = tableExists[0].exists;
-    } catch (error) {
-      console.log('ℹ️ Table detail_presence non vérifiable:', error.message);
-    }
-    
     res.json({
       success: true,
       matricule: matricule,
       agent_dans_agents_colarys: agentColarys.length > 0 ? agentColarys[0] : null,
       agent_dans_agent: agentAgent.length > 0 ? agentAgent[0] : null,
       presence_count: presenceCount,
-      detail_presence_table_exists: detailPresenceExists,
       analyse: {
         matricule_trouve: agentColarys.length > 0 || agentAgent.length > 0,
         probleme_ids_differents: agentColarys.length > 0 && agentAgent.length > 0 && 
@@ -3906,11 +3140,6 @@ app.get('/api/frontend-complete-test', async (req, res) => {
         route: "GET /api/presences/historique",
         status: "✅ Existe", 
         description: "Historique des présences"
-      },
-      {
-        route: "POST /api/create-detail-for-presence/:id",
-        status: "✅ Existe",
-        description: "Création détail présence"
       },
       {
         route: "GET /api/diagnose-error-entree",
@@ -4190,30 +3419,6 @@ app.post('/api/presences/entree-simple-fallback', async (req, res) => {
       });
     }
     
-    // Étape 5: Signature (optionnel, ne bloque pas)
-    if (data.signatureEntree && data.signatureEntree.trim() !== '') {
-      try {
-        const sigExists = await AppDataSource.query(`
-          SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            AND table_name = 'detail_presence'
-          )
-        `);
-        
-        if (sigExists[0].exists) {
-          await AppDataSource.query(`
-            INSERT INTO detail_presence (presence_id, signature_entree, created_at)
-            VALUES ($1, $2, NOW())
-            ON CONFLICT (presence_id) DO UPDATE 
-            SET signature_entree = EXCLUDED.signature_entree, updated_at = NOW()
-          `, [presenceId, data.signatureEntree]);
-        }
-      } catch (sigError) {
-        console.log('⚠️ Signature ignorée:', sigError.message);
-      }
-    }
-    
     // Réponse finale
     res.json({
       success: true,
@@ -4374,163 +3579,6 @@ app.get('/api/debug-database-error', async (req, res) => {
   }
 });
 
-// ========== ROUTES NOUVELLES POUR SIGNATURES ==========
-
-// Route pour récupérer une signature spécifique
-app.get('/api/signatures/:presenceId/:type', async (req, res) => {
-  try {
-    const presenceId = parseInt(req.params.presenceId);
-    const type = req.params.type; // 'entree' ou 'sortie'
-    
-    if (!['entree', 'sortie'].includes(type)) {
-      return res.status(400).json({
-        success: false,
-        error: "Type doit être 'entree' ou 'sortie'"
-      });
-    }
-    
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    const column = type === 'entree' ? 'signature_entree' : 'signature_sortie';
-    
-    const result = await AppDataSource.query(
-      `SELECT ${column} FROM detail_presence WHERE presence_id = $1`,
-      [presenceId]
-    );
-    
-    if (result.length === 0 || !result[0][column]) {
-      return res.status(404).json({
-        success: false,
-        error: `Signature ${type} non trouvée`
-      });
-    }
-    
-    const signature = result[0][column];
-    
-    // Si c'est une image Base64, la retourner comme image
-    if (signature.startsWith('data:image/')) {
-      const base64Data = signature.replace(/^data:image\/\w+;base64,/, '');
-      const imgBuffer = Buffer.from(base64Data, 'base64');
-      
-      const mimeType = signature.match(/data:image\/(\w+);/)?.[1];
-      res.set('Content-Type', `image/${mimeType || 'png'}`);
-      return res.send(imgBuffer);
-    }
-    
-    // Sinon retourner le JSON
-    res.json({
-      success: true,
-      signature: signature,
-      type: type,
-      presenceId: presenceId
-    });
-    
-  } catch (error) {
-    console.error('❌ Erreur récupération signature:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Route pour mettre à jour une signature
-app.put('/api/signatures/:presenceId/:type', async (req, res) => {
-  try {
-    const presenceId = parseInt(req.params.presenceId);
-    const type = req.params.type;
-    const { signature } = req.body;
-    
-    if (!['entree', 'sortie'].includes(type)) {
-      return res.status(400).json({
-        success: false,
-        error: "Type doit être 'entree' ou 'sortie'"
-      });
-    }
-    
-    if (!signature) {
-      return res.status(400).json({
-        success: false,
-        error: "Signature requise"
-      });
-    }
-    
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    const column = type === 'entree' ? 'signature_entree' : 'signature_sortie';
-    
-    // Vérifier si la table existe
-    const tableExists = await AppDataSource.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-        AND table_name = 'detail_presence'
-      )
-    `);
-    
-    if (!tableExists[0].exists) {
-      return res.status(404).json({
-        success: false,
-        error: "Table detail_presence n'existe pas"
-      });
-    }
-    
-    // Vérifier si la présence existe
-    const presenceExists = await AppDataSource.query(
-      'SELECT id FROM presence WHERE id = $1',
-      [presenceId]
-    );
-    
-    if (presenceExists.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Présence non trouvée"
-      });
-    }
-    
-    // Vérifier si le détail existe déjà
-    const detailExists = await AppDataSource.query(
-      'SELECT id FROM detail_presence WHERE presence_id = $1',
-      [presenceId]
-    );
-    
-    if (detailExists.length > 0) {
-      // Mettre à jour
-      await AppDataSource.query(
-        `UPDATE detail_presence 
-         SET ${column} = $1, updated_at = NOW()
-         WHERE presence_id = $2`,
-        [signature, presenceId]
-      );
-    } else {
-      // Créer
-      await AppDataSource.query(
-        `INSERT INTO detail_presence (presence_id, ${column}, created_at, updated_at) 
-         VALUES ($1, $2, NOW(), NOW())`,
-        [presenceId, signature]
-      );
-    }
-    
-    res.json({
-      success: true,
-      message: `Signature ${type} mise à jour`,
-      presenceId: presenceId,
-      type: type
-    });
-    
-  } catch (error) {
-    console.error('❌ Erreur mise à jour signature:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
 // ========== SERVER LISTEN ==========
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
@@ -4542,9 +3590,9 @@ app.listen(PORT, () => {
   console.log(`   http://localhost:${PORT}/api/presences/historique`);
   console.log(`   http://localhost:${PORT}/api/plannings/stats`);
   console.log(`   http://localhost:${PORT}/api/test-frontend-routes`);
-  console.log(`📋 Routes SIGNATURES:`);
-  console.log(`   POST /api/presences/entree-with-signature`);
-  console.log(`   POST /api/presences/sortie-with-signature`);
-  console.log(`   GET  /api/presences/:id/signatures`);
-  console.log(`   POST /api/setup-signatures-table`);
+  console.log(`📋 Routes principales:`);
+  console.log(`   POST /api/presences/entree`);
+  console.log(`   POST /api/presences/sortie-simple`);
+  console.log(`   POST /api/presences/entree-ultra-simple`);
+  console.log(`   GET  /api/presences/verifier-etat`);
 });
