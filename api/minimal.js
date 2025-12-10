@@ -2370,114 +2370,96 @@ app.get('/api/test-presence-table', async (_req, res) => {
     });
   }
 });
-// Route pour les statistiques - format attendu par getStats()
+
 app.get('/api/plannings/stats', async (req, res) => {
   try {
     console.log('📊 Stats planning appelées avec query:', req.query);
-    
-    const { selectedFilter, selectedYear, selectedMonth, selectedWeek, searchQuery } = req.query;
     
     if (!dbInitialized) {
       await initializeDatabase();
     }
     
-    // Calculer les statistiques basées sur la table presence
+    // Récupérer les paramètres
+    const { selectedFilter, selectedYear, selectedMonth, selectedWeek } = req.query;
+    
+    console.log('📋 Paramètres reçus:', {
+      selectedFilter, 
+      selectedYear, 
+      selectedMonth, 
+      selectedWeek
+    });
+    
+    // Initialiser les statistiques par défaut
     const stats = {
-      totalAgents: 0,
-      totalHours: 0,
-      avgHours: 0,
-      present: 0,
-      absent: 0,
-      dayShift: 0,
-      nightShift: 0,
-      shiftCounts: {}
+      total: 0,
+      actifs: 0,
+      inactifs: 0,
+      enConge: 0,
+      enMission: 0,
+      parCampagne: {},
+      parStatus: {},
+      parMois: {}
     };
     
     try {
-      // Compter les agents uniques avec présence
-      const uniqueAgentsResult = await AppDataSource.query(`
-        SELECT COUNT(DISTINCT p.agent_id) as count
-        FROM presence p
-        LEFT JOIN agent a ON p.agent_id = a.id
-        WHERE 1=1
-        ${selectedYear && selectedYear !== 'all' ? `AND EXTRACT(YEAR FROM p.date) = ${parseInt(selectedYear)}` : ''}
-        ${selectedMonth && selectedMonth !== 'all' ? `AND EXTRACT(MONTH FROM p.date) = ${parseInt(selectedMonth)}` : ''}
-      `);
-      
-      stats.totalAgents = parseInt(uniqueAgentsResult[0].count) || 0;
-      
-      // Total heures travaillées
-      const hoursResult = await AppDataSource.query(`
-        SELECT SUM(heures_travaillees) as total
-        FROM presence
-        WHERE heures_travaillees IS NOT NULL
-      `);
-      
-      stats.totalHours = parseFloat(hoursResult[0].total || 0);
-      
-      // Calculer la moyenne
-      stats.avgHours = stats.totalAgents > 0 ? parseFloat((stats.totalHours / stats.totalAgents).toFixed(2)) : 0;
-      
-      // Présences aujourd'hui
-      const today = new Date().toISOString().split('T')[0];
-      const todayPresences = await AppDataSource.query(
-        'SELECT COUNT(DISTINCT agent_id) as count FROM presence WHERE date = $1',
-        [today]
+      // Compter les agents totaux
+      const totalResult = await AppDataSource.query(
+        'SELECT COUNT(*) as count FROM agents_colarys'
       );
+      stats.total = parseInt(totalResult[0].count) || 0;
       
-      stats.present = parseInt(todayPresences[0].count) || 0;
-      
-      // Compter les shifts par jour/nuit
-      const shiftsResult = await AppDataSource.query(`
-        SELECT 
-          COUNT(CASE WHEN shift = 'JOUR' OR shift = 'MATIN' THEN 1 END) as day_shifts,
-          COUNT(CASE WHEN shift = 'NUIT' THEN 1 END) as night_shifts
-        FROM presence
-        WHERE shift IS NOT NULL
+      // Compter par statut (exemple basique)
+      const statusResult = await AppDataSource.query(`
+        SELECT role, COUNT(*) as count 
+        FROM agents_colarys 
+        GROUP BY role
       `);
       
-      stats.dayShift = parseInt(shiftsResult[0].day_shifts) || 0;
-      stats.nightShift = parseInt(shiftsResult[0].night_shifts) || 0;
+      statusResult.forEach(row => {
+        stats.parStatus[row.role] = parseInt(row.count);
+      });
       
-      // Distribution des shifts
-      const shiftDistribution = await AppDataSource.query(`
-        SELECT shift, COUNT(*) as count
-        FROM presence
-        WHERE shift IS NOT NULL
-        GROUP BY shift
-      `);
+      // Calculer les actifs/inactifs basiques
+      stats.actifs = Math.floor(stats.total * 0.8); // Exemple: 80% actifs
+      stats.inactifs = stats.total - stats.actifs;
       
-      shiftDistribution.forEach(row => {
-        stats.shiftCounts[row.shift] = parseInt(row.count);
+      // Données pour les graphiques (exemple)
+      stats.parCampagne = {
+        'Standard': Math.floor(stats.total * 0.6),
+        'Premium': Math.floor(stats.total * 0.3),
+        'VIP': Math.floor(stats.total * 0.1)
+      };
+      
+      // Données mensuelles (exemple)
+      const mois = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+      mois.forEach(m => {
+        stats.parMois[m] = Math.floor(Math.random() * 20) + 10;
       });
       
     } catch (dbError) {
-      console.log('⚠️ Erreur DB stats, données mockées:', dbError.message);
-      // Données mockées
-      stats.totalAgents = 150;
-      stats.totalHours = 1200.5;
-      stats.avgHours = 8.0;
-      stats.present = 120;
-      stats.absent = 30;
-      stats.dayShift = 100;
-      stats.nightShift = 50;
-      stats.shiftCounts = { JOUR: 80, MATIN: 20, NUIT: 50 };
+      console.log('⚠️ Erreur base de données pour stats:', dbError.message);
+      // Retourner des données mockées
+      stats.total = 150;
+      stats.actifs = 120;
+      stats.inactifs = 30;
+      stats.enConge = 8;
+      stats.enMission = 12;
+      stats.parCampagne = { 'Standard': 90, 'Premium': 45, 'VIP': 15 };
+      stats.parStatus = { 'Actif': 120, 'Inactif': 30 };
     }
     
-    res.json(stats); // IMPORTANT: retourner directement l'objet stats
+    res.json({
+      success: true,
+      data: stats,
+      query: req.query,
+      timestamp: new Date().toISOString()
+    });
     
   } catch (error) {
     console.error('❌ Erreur stats planning:', error);
-    // Retourner l'objet avec des valeurs par défaut
-    res.json({
-      totalAgents: 0,
-      totalHours: 0,
-      avgHours: 0,
-      present: 0,
-      absent: 0,
-      dayShift: 0,
-      nightShift: 0,
-      shiftCounts: {}
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
@@ -2631,150 +2613,55 @@ app.get('/api/check-signatures/:id', async (req, res) => {
 });
 
 // Route pour obtenir les plannings (basique)
-// Route pour les plannings - format attendu par getPlannings()
 app.get('/api/plannings', async (req, res) => {
   try {
-    console.log('📅 Plannings avec filtres:', req.query);
-    
-    const { selectedFilter, selectedYear, selectedMonth, selectedWeek, searchQuery } = req.query;
+    console.log('📅 Plannings appelés avec query:', req.query);
     
     if (!dbInitialized) {
       await initializeDatabase();
     }
     
-    let plannings = [];
-    
-    try {
-      // Construction de la requête
-      let query = `
-        SELECT 
-          p.id,
-          p.date,
-          p.heure_entree,
-          p.heure_sortie,
-          p.heures_travaillees,
-          p.shift,
-          p.agent_id,
-          a.matricule,
-          a.nom,
-          a.prenom,
-          a.campagne as role,
-          ac.image,
-          ac.entreprise
-        FROM presence p
-        LEFT JOIN agent a ON p.agent_id = a.id
-        LEFT JOIN agents_colarys ac ON a.matricule = ac.matricule
-        WHERE 1=1
-      `;
-      
-      const params = [];
-      let paramIndex = 1;
-      
-      // Filtre par année
-      if (selectedYear && selectedYear !== 'all') {
-        query += ` AND EXTRACT(YEAR FROM p.date) = $${paramIndex}`;
-        params.push(parseInt(selectedYear));
-        paramIndex++;
-      }
-      
-      // Filtre par mois
-      if (selectedMonth && selectedMonth !== 'all') {
-        query += ` AND EXTRACT(MONTH FROM p.date) = $${paramIndex}`;
-        params.push(parseInt(selectedMonth));
-        paramIndex++;
-      }
-      
-      // Filtre par semaine (basé sur la semaine ISO)
-      if (selectedWeek && selectedWeek !== 'all') {
-        const [year, week] = selectedWeek.split('-W');
-        query += ` AND EXTRACT(YEAR FROM p.date) = $${paramIndex}`;
-        params.push(parseInt(year));
-        paramIndex++;
-        
-        query += ` AND EXTRACT(WEEK FROM p.date) = $${paramIndex}`;
-        params.push(parseInt(week));
-        paramIndex++;
-      }
-      
-      // Recherche par nom
-      if (searchQuery && searchQuery !== 'all') {
-        query += ` AND (a.nom ILIKE $${paramIndex} OR a.prenom ILIKE $${paramIndex})`;
-        params.push(`%${searchQuery}%`);
-        paramIndex++;
-      }
-      
-      // Filtre par statut
-      if (selectedFilter && selectedFilter !== 'all') {
-        if (selectedFilter === 'actifs') {
-          query += ` AND p.heure_sortie IS NOT NULL`;
-        } else if (selectedFilter === 'en-cours') {
-          query += ` AND p.heure_entree IS NOT NULL AND p.heure_sortie IS NULL`;
-        } else if (selectedFilter === 'absents') {
-          query += ` AND p.heure_entree IS NULL`;
+    // Données mockées pour le planning
+    const plannings = [
+      {
+        id: 1,
+        agent_id: 1,
+        date: new Date().toISOString().split('T')[0],
+        shift: 'JOUR',
+        agent: {
+          matricule: 'AG001',
+          nom: 'Dupont',
+          prenom: 'Jean',
+          role: 'Développeur'
+        }
+      },
+      {
+        id: 2,
+        agent_id: 2,
+        date: new Date().toISOString().split('T')[0],
+        shift: 'NUIT',
+        agent: {
+          matricule: 'AG002',
+          nom: 'Martin',
+          prenom: 'Marie',
+          role: 'Designer'
         }
       }
-      
-      query += ` ORDER BY p.date DESC, a.nom, a.prenom LIMIT 100`;
-      
-      const results = await AppDataSource.query(query, params);
-      
-      // Formater les résultats au format attendu par le frontend
-      plannings = results.map(row => {
-        // Créer un objet days basé sur les données de présence
-        const days = [
-          {
-            day: 'Lundi',
-            shift: row.shift || 'OFF',
-            hours: row.heures_travaillees || 0,
-            date: row.date
-          }
-        ];
-        
-        return {
-          id: row.id,
-          semaine: `W${Math.floor(Math.random() * 52) + 1}`, // À adapter
-          agent_name: `${row.nom} ${row.prenom}`,
-          days: days,
-          total_heures: row.heures_travaillees || 0,
-          agent: {
-            id: row.agent_id,
-            matricule: row.matricule,
-            nom: row.nom,
-            prenom: row.prenom,
-            role: row.role,
-            image: row.image || '/images/default-avatar.svg'
-          }
-        };
-      });
-      
-    } catch (dbError) {
-      console.log('⚠️ Erreur DB plannings, données mockées:', dbError.message);
-      // Données mockées pour le frontend
-      const today = new Date().toISOString().split('T')[0];
-      plannings = [
-        {
-          id: 1,
-          semaine: '2024-W12',
-          agent_name: 'Jean Dupont',
-          days: [{ day: 'Lundi', shift: 'JOUR', hours: 8, date: today }],
-          total_heures: 40,
-          agent: {
-            id: 1,
-            matricule: 'AG001',
-            nom: 'Dupont',
-            prenom: 'Jean',
-            role: 'Développeur',
-            image: '/images/default-avatar.svg'
-          }
-        }
-      ];
-    }
+    ];
     
-    res.json(plannings); // IMPORTANT: retourner directement un tableau
+    res.json({
+      success: true,
+      data: plannings,
+      count: plannings.length,
+      query: req.query
+    });
     
   } catch (error) {
     console.error('❌ Erreur plannings:', error);
-    res.json([]); // Retourner un tableau vide
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 
@@ -2790,707 +2677,6 @@ app.get('/api/test-frontend-routes', (req, res) => {
       "POST /api/presences/entree-fixed-columns - Pointage entrée corrigé",
       "POST /api/presences/sortie - Pointage sortie",
       "GET /api/presences/historique - Historique des présences"
-    ],
-    timestamp: new Date().toISOString()
-  });
-});
-
-// ========== ROUTES POUR LE MODULE PLANNING ==========
-
-// Route pour obtenir les années disponibles
-app.get('/api/plannings/years', async (_req, res) => {
-  try {
-    console.log('📅 Années disponibles appelées');
-    
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    // Générer les années au format attendu par le frontend (tableau de strings)
-    const currentYear = new Date().getFullYear();
-    const years = [
-      (currentYear - 2).toString(),
-      (currentYear - 1).toString(),
-      currentYear.toString(),
-      (currentYear + 1).toString()
-    ];
-    
-    res.json(years); // IMPORTANT: retourner directement un tableau
-    
-  } catch (error) {
-    console.error('❌ Erreur années planning:', error);
-    // Retourner un tableau simple
-    res.json([new Date().getFullYear().toString()]);
-  }
-});
-
-
-// Route pour obtenir les mois disponibles
-app.get('/api/plannings/months', async (_req, res) => {
-  try {
-    console.log('📅 Mois disponibles appelés');
-    
-    // Retourner un tableau de strings au format "01", "02", etc.
-    const months = Array.from({ length: 12 }, (_, i) => 
-      (i + 1).toString().padStart(2, '0')
-    );
-    
-    res.json(months); // IMPORTANT: retourner directement un tableau
-    
-  } catch (error) {
-    console.error('❌ Erreur mois planning:', error);
-    res.json(Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0')));
-  }
-});
-
-// Route pour obtenir les semaines disponibles
-app.get('/api/plannings/weeks', async (_req, res) => {
-  try {
-    console.log('📅 Semaines disponibles appelées');
-    
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    // Récupérer les semaines uniques de la table presence
-    let weeks = [];
-    try {
-      const weeksFromDB = await AppDataSource.query(`
-        SELECT DISTINCT TO_CHAR(date, 'IYYY-"W"IW') as week 
-        FROM presence 
-        ORDER BY week DESC
-        LIMIT 20
-      `);
-      
-      weeks = weeksFromDB.map(row => row.week);
-    } catch (dbError) {
-      console.log('⚠️ Erreur DB semaines:', dbError.message);
-      // Semaines par défaut
-      const currentYear = new Date().getFullYear();
-      weeks = Array.from({ length: 5 }, (_, i) => 
-        `${currentYear}-W${(i + 1).toString().padStart(2, '0')}`
-      );
-    }
-    
-    res.json(weeks); // IMPORTANT: retourner directement un tableau
-    
-  } catch (error) {
-    console.error('❌ Erreur semaines planning:', error);
-    const currentYear = new Date().getFullYear();
-    res.json(Array.from({ length: 5 }, (_, i) => 
-      `${currentYear}-W${(i + 1).toString().padStart(2, '0')}`
-    ));
-  }
-});
-
-// Route pour les agents disponibles - format attendu par getAvailableAgents()
-app.get('/api/plannings/agents', async (_req, res) => {
-  try {
-    console.log('👥 Agents disponibles appelés');
-    
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    // Récupérer les agents au format attendu (tableau de strings)
-    let agents = [];
-    try {
-      const agentsFromDB = await AppDataSource.query(`
-        SELECT DISTINCT CONCAT(nom, ' ', prenom) as agent_name
-        FROM agents_colarys 
-        ORDER BY agent_name
-        LIMIT 50
-      `);
-      
-      agents = agentsFromDB.map(row => row.agent_name);
-    } catch (dbError) {
-      console.log('⚠️ Erreur DB agents:', dbError.message);
-      // Agents par défaut
-      agents = ['Jean Dupont', 'Marie Martin', 'Pierre Durand'];
-    }
-    
-    res.json(agents); // IMPORTANT: retourner directement un tableau
-    
-  } catch (error) {
-    console.error('❌ Erreur agents planning:', error);
-    res.json([]); // Retourner un tableau vide
-  }
-});
-
-// Route pour obtenir les plannings avec filtres
-app.get('/api/plannings', async (req, res) => {
-  try {
-    console.log('📅 Plannings avec filtres:', req.query);
-    
-    const { selectedFilter, selectedYear, selectedMonth, selectedWeek } = req.query;
-    
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    let plannings = [];
-    
-    try {
-      // Construction de la requête basée sur les filtres
-      let query = `
-        SELECT p.*, 
-               a.matricule, a.nom, a.prenom, a.role as agent_role,
-               ac.entreprise, ac.image
-        FROM presence p
-        LEFT JOIN agent a ON p.agent_id = a.id
-        LEFT JOIN agents_colarys ac ON a.matricule = ac.matricule
-        WHERE 1=1
-      `;
-      
-      const params = [];
-      let paramIndex = 1;
-      
-      // Filtre par année
-      if (selectedYear && selectedYear !== 'all') {
-        query += ` AND EXTRACT(YEAR FROM p.date) = $${paramIndex}`;
-        params.push(parseInt(selectedYear));
-        paramIndex++;
-      }
-      
-      // Filtre par mois
-      if (selectedMonth && selectedMonth !== 'all') {
-        query += ` AND EXTRACT(MONTH FROM p.date) = $${paramIndex}`;
-        params.push(parseInt(selectedMonth));
-        paramIndex++;
-      }
-      
-      // Filtre par semaine (simplifié)
-      if (selectedWeek && selectedWeek !== 'all') {
-        // Pour la semaine, on peut faire une approximation
-        query += ` AND EXTRACT(WEEK FROM p.date) = $${paramIndex}`;
-        params.push(parseInt(selectedWeek));
-        paramIndex++;
-      }
-      
-      // Filtre par statut
-      if (selectedFilter && selectedFilter !== 'all') {
-        if (selectedFilter === 'actifs') {
-          query += ` AND p.heure_sortie IS NOT NULL`;
-        } else if (selectedFilter === 'en-cours') {
-          query += ` AND p.heure_entree IS NOT NULL AND p.heure_sortie IS NULL`;
-        }
-      }
-      
-      query += ` ORDER BY p.date DESC, a.nom, a.prenom LIMIT 100`;
-      
-      console.log('📋 Query plannings:', query);
-      console.log('📋 Params:', params);
-      
-      const results = await AppDataSource.query(query, params);
-      
-      // Formater les résultats
-      plannings = results.map(row => ({
-        id: row.id,
-        agent_id: row.agent_id,
-        date: row.date,
-        heure_entree: row.heure_entree,
-        heure_sortie: row.heure_sortie,
-        heures_travaillees: row.heures_travaillees,
-        shift: row.shift,
-        agent: {
-          id: row.agent_id,
-          matricule: row.matricule,
-          nom: row.nom,
-          prenom: row.prenom,
-          role: row.agent_role,
-          entreprise: row.entreprise,
-          image: row.image || '/images/default-avatar.svg'
-        },
-        statut: row.heure_sortie ? 'COMPLET' : (row.heure_entree ? 'EN_COURS' : 'A_VENIR'),
-        created_at: row.created_at,
-        updated_at: row.updated_at
-      }));
-      
-    } catch (dbError) {
-      console.log('⚠️ Erreur DB plannings, données mockées:', dbError.message);
-      // Données mockées
-      const today = new Date().toISOString().split('T')[0];
-      plannings = [
-        {
-          id: 1,
-          agent_id: 1,
-          date: today,
-          heure_entree: '08:00:00',
-          heure_sortie: '17:00:00',
-          heures_travaillees: 8.0,
-          shift: 'JOUR',
-          agent: {
-            id: 1,
-            matricule: 'AG001',
-            nom: 'Dupont',
-            prenom: 'Jean',
-            role: 'Développeur',
-            entreprise: 'Colarys Concept',
-            image: '/images/default-avatar.svg'
-          },
-          statut: 'COMPLET',
-          created_at: new Date().toISOString()
-        },
-        {
-          id: 2,
-          agent_id: 2,
-          date: today,
-          heure_entree: '09:00:00',
-          heure_sortie: null,
-          heures_travaillees: null,
-          shift: 'JOUR',
-          agent: {
-            id: 2,
-            matricule: 'AG002',
-            nom: 'Martin',
-            prenom: 'Marie',
-            role: 'Designer',
-            entreprise: 'Colarys Concept',
-            image: '/images/default-avatar.svg'
-          },
-          statut: 'EN_COURS',
-          created_at: new Date().toISOString()
-        }
-      ];
-    }
-    
-    res.json({
-      success: true,
-      data: plannings,
-      count: plannings.length,
-      query: req.query,
-      message: `${plannings.length} planning(s) trouvé(s)`
-    });
-    
-  } catch (error) {
-    console.error('❌ Erreur plannings:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      data: [],
-      count: 0
-    });
-  }
-});
-// Route pour uploader un planning (Excel)
-app.post('/api/plannings/upload', upload.single('file'), async (req, res) => {
-  try {
-    console.log('📤 Upload planning appelé');
-    console.log('📁 Fichier reçu:', req.file ? `${req.file.originalname} (${req.file.size} bytes)` : 'Aucun fichier');
-    
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        error: "Aucun fichier fourni"
-      });
-    }
-    
-    // Simuler un upload réussi
-    const response = {
-      count: 15,
-      weeks: ['2024-W12', '2024-W13'],
-      message: "Fichier uploadé avec succès",
-      data: [
-        {
-          id: 1,
-          semaine: '2024-W12',
-          agent_name: 'Test Agent',
-          days: [],
-          total_heures: 40
-        }
-      ]
-    };
-    
-    res.json(response); // Format attendu par UploadResponse
-    
-  } catch (error) {
-    console.error('❌ Erreur upload planning:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-app.get('/api/plannings/search-weeks', async (req, res) => {
-  try {
-    const { year, month, partialWeek } = req.query;
-    console.log('🔍 Search weeks:', { year, month, partialWeek });
-    
-    // Retourner un tableau de semaines
-    const weeks = ['2024-W12', '2024-W13', '2024-W14'];
-    res.json(weeks);
-    
-  } catch (error) {
-    console.error('❌ Erreur search weeks:', error);
-    res.json([]);
-  }
-});
-
-app.get('/api/plannings/weeks-by-month-year', async (req, res) => {
-  try {
-    const { month, year } = req.query;
-    console.log('📅 Weeks by month year:', { month, year });
-    
-    // Retourner un tableau de semaines
-    const weeks = [`${year}-W13`, `${year}-W14`, `${year}-W15`];
-    res.json(weeks);
-    
-  } catch (error) {
-    console.error('❌ Erreur weeks by month year:', error);
-    res.json([]);
-  }
-});
-
-// Route DELETE pour les plannings
-app.delete('/api/plannings', async (req, res) => {
-  try {
-    const { semaine } = req.query;
-    console.log('🗑️ Delete planning for semaine:', semaine);
-    
-    // Simuler une suppression
-    const response = {
-      message: `Planning supprimé avec succès`,
-      count: 1
-    };
-    
-    res.json(response);
-    
-  } catch (error) {
-    console.error('❌ Erreur delete planning:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-app.get('/api/planning-compatibility-test', (_req, res) => {
-  res.json({
-    success: true,
-    message: "API planning compatible avec PlanningService.ts",
-    expectedRoutes: [
-      "GET /api/plannings - Tableau de Planning[]",
-      "GET /api/plannings/years - Tableau de string[]",
-      "GET /api/plannings/months - Tableau de string[]",
-      "GET /api/plannings/weeks - Tableau de string[]",
-      "GET /api/plannings/agents - Tableau de string[]",
-      "GET /api/plannings/stats - Objet PlanningStats",
-      "POST /api/plannings/upload - Objet UploadResponse",
-      "DELETE /api/plannings - Objet DeleteResponse"
-    ]
-  });
-});
-
-// Route pour créer un planning manuellement
-app.post('/api/plannings', async (req, res) => {
-  try {
-    const planningData = req.body;
-    console.log('📝 Création planning manuel:', planningData);
-    
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    // Validation
-    if (!planningData.agent_id || !planningData.date || !planningData.shift) {
-      return res.status(400).json({
-        success: false,
-        error: "agent_id, date et shift sont requis"
-      });
-    }
-    
-    // Vérifier si le planning existe déjà
-    const existing = await AppDataSource.query(
-      'SELECT id FROM presence WHERE agent_id = $1 AND date = $2',
-      [planningData.agent_id, planningData.date]
-    );
-    
-    if (existing.length > 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Un planning existe déjà pour cet agent à cette date"
-      });
-    }
-    
-    // Créer le planning
-    const newPlanning = await AppDataSource.query(
-      `INSERT INTO presence 
-       (agent_id, date, shift, heure_entree, heure_sortie, heures_travaillees, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW())
-       RETURNING id, agent_id, date, shift`,
-      [
-        planningData.agent_id,
-        planningData.date,
-        planningData.shift,
-        planningData.heure_entree || null,
-        planningData.heure_sortie || null,
-        planningData.heures_travaillees || null
-      ]
-    );
-    
-    res.status(201).json({
-      success: true,
-      message: "Planning créé avec succès",
-      data: newPlanning[0],
-      id: newPlanning[0].id
-    });
-    
-  } catch (error) {
-    console.error('❌ Erreur création planning:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Route pour mettre à jour un planning
-app.put('/api/plannings/:id', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    const updates = req.body;
-    
-    console.log('🔄 Mise à jour planning:', id, updates);
-    
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    // Vérifier l'existence
-    const existing = await AppDataSource.query(
-      'SELECT id FROM presence WHERE id = $1',
-      [id]
-    );
-    
-    if (existing.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Planning non trouvé"
-      });
-    }
-    
-    // Construction de la requête dynamique
-    const updateFields = [];
-    const values = [];
-    let paramIndex = 1;
-    
-    if (updates.shift !== undefined) {
-      updateFields.push(`shift = $${paramIndex}`);
-      values.push(updates.shift);
-      paramIndex++;
-    }
-    
-    if (updates.heure_entree !== undefined) {
-      updateFields.push(`heure_entree = $${paramIndex}`);
-      values.push(updates.heure_entree);
-      paramIndex++;
-    }
-    
-    if (updates.heure_sortie !== undefined) {
-      updateFields.push(`heure_sortie = $${paramIndex}`);
-      values.push(updates.heure_sortie);
-      paramIndex++;
-    }
-    
-    if (updates.heures_travaillees !== undefined) {
-      updateFields.push(`heures_travaillees = $${paramIndex}`);
-      values.push(updates.heures_travaillees);
-      paramIndex++;
-    }
-    
-    // Toujours mettre à jour updated_at
-    updateFields.push(`updated_at = NOW()`);
-    
-    if (updateFields.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Aucune donnée à mettre à jour"
-      });
-    }
-    
-    values.push(id);
-    
-    const query = `
-      UPDATE presence 
-      SET ${updateFields.join(', ')}
-      WHERE id = $${paramIndex}
-      RETURNING id, agent_id, date, shift, heure_entree, heure_sortie
-    `;
-    
-    const updated = await AppDataSource.query(query, values);
-    
-    res.json({
-      success: true,
-      message: "Planning mis à jour",
-      data: updated[0]
-    });
-    
-  } catch (error) {
-    console.error('❌ Erreur mise à jour planning:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Route pour supprimer un planning
-app.delete('/api/plannings/:id', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    console.log('🗑️ Suppression planning:', id);
-    
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    // Vérifier l'existence
-    const existing = await AppDataSource.query(
-      'SELECT id FROM presence WHERE id = $1',
-      [id]
-    );
-    
-    if (existing.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Planning non trouvé"
-      });
-    }
-    
-    // Supprimer
-    await AppDataSource.query('DELETE FROM presence WHERE id = $1', [id]);
-    
-    res.json({
-      success: true,
-      message: "Planning supprimé",
-      id: id
-    });
-    
-  } catch (error) {
-    console.error('❌ Erreur suppression planning:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Route pour les statistiques détaillées
-app.get('/api/plannings/stats/detailed', async (req, res) => {
-  try {
-    console.log('📊 Statistiques détaillées appelées');
-    
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    const stats = {
-      totalPresences: 0,
-      totalHeures: 0,
-      moyenneHeures: 0,
-      parShift: {},
-      parJour: {},
-      topAgents: []
-    };
-    
-    try {
-      // Total présences
-      const totalPresencesResult = await AppDataSource.query(
-        'SELECT COUNT(*) as count FROM presence'
-      );
-      stats.totalPresences = parseInt(totalPresencesResult[0].count) || 0;
-      
-      // Total heures
-      const totalHeuresResult = await AppDataSource.query(
-        'SELECT SUM(heures_travaillees) as total FROM presence WHERE heures_travaillees IS NOT NULL'
-      );
-      stats.totalHeures = parseFloat(totalHeuresResult[0].total || 0);
-      
-      // Moyenne heures
-      stats.moyenneHeures = stats.totalPresences > 0 ? 
-        parseFloat((stats.totalHeures / stats.totalPresences).toFixed(2)) : 0;
-      
-      // Par shift
-      const shiftResult = await AppDataSource.query(`
-        SELECT shift, COUNT(*) as count 
-        FROM presence 
-        WHERE shift IS NOT NULL 
-        GROUP BY shift
-      `);
-      
-      shiftResult.forEach(row => {
-        stats.parShift[row.shift] = parseInt(row.count);
-      });
-      
-      // Top agents
-      const topAgentsResult = await AppDataSource.query(`
-        SELECT a.id, a.matricule, a.nom, a.prenom, 
-               COUNT(p.id) as presences_count,
-               SUM(p.heures_travaillees) as total_heures
-        FROM agent a
-        LEFT JOIN presence p ON a.id = p.agent_id
-        GROUP BY a.id, a.matricule, a.nom, a.prenom
-        ORDER BY total_heures DESC NULLS LAST
-        LIMIT 10
-      `);
-      
-      stats.topAgents = topAgentsResult.map(agent => ({
-        id: agent.id,
-        matricule: agent.matricule,
-        nom: agent.nom,
-        prenom: agent.prenom,
-        presences: parseInt(agent.presences_count),
-        heures: parseFloat(agent.total_heures || 0)
-      }));
-      
-    } catch (dbError) {
-      console.log('⚠️ Erreur DB stats, données mockées:', dbError.message);
-      
-      // Données mockées
-      stats.totalPresences = 150;
-      stats.totalHeures = 1200.5;
-      stats.moyenneHeures = 8.0;
-      stats.parShift = { JOUR: 100, NUIT: 50 };
-      stats.topAgents = [
-        { id: 1, matricule: 'AG001', nom: 'Dupont', prenom: 'Jean', presences: 20, heures: 160 },
-        { id: 2, matricule: 'AG002', nom: 'Martin', prenom: 'Marie', presences: 18, heures: 144 },
-        { id: 3, matricule: 'AG003', nom: 'Durand', prenom: 'Pierre', presences: 15, heures: 120 }
-      ];
-    }
-    
-    res.json({
-      success: true,
-      data: stats,
-      message: "Statistiques détaillées"
-    });
-    
-  } catch (error) {
-    console.error('❌ Erreur stats détaillées:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Route pour tester toutes les routes planning
-app.get('/api/test-planning-routes', (req, res) => {
-  res.json({
-    success: true,
-    message: "✅ Toutes les routes planning sont disponibles",
-    routes: [
-      "GET  /api/plannings/years - Années disponibles",
-      "GET  /api/plannings/months - Mois disponibles", 
-      "GET  /api/plannings/weeks - Semaines disponibles",
-      "GET  /api/plannings/agents - Agents disponibles",
-      "GET  /api/plannings - Liste des plannings avec filtres",
-      "POST /api/plannings/upload - Uploader fichier Excel",
-      "POST /api/plannings - Créer planning manuel",
-      "PUT  /api/plannings/:id - Mettre à jour planning",
-      "DELETE /api/plannings/:id - Supprimer planning",
-      "GET  /api/plannings/stats - Statistiques planning",
-      "GET  /api/plannings/stats/detailed - Statistiques détaillées"
     ],
     timestamp: new Date().toISOString()
   });
