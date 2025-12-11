@@ -1577,7 +1577,11 @@ app.post('/api/presences/sortie-simple', async (req, res) => {
     
     const now = new Date();
     const today = now.toISOString().split('T')[0];
-    const timeNow = data.heureSortieManuelle || now.toTimeString().split(' ')[0].substring(0, 8);
+    const timeNow = data.heureSortieManuelle || 
+                    now.toTimeString().split(' ')[0].substring(0, 8);
+    
+    // Toujours 8h de travail
+    const heuresTravaillees = data.heuresTravaillees || 8.0; // ← AJOUTÉ
     
     // Trouver l'agent
     let agentId = null;
@@ -1608,10 +1612,7 @@ app.post('/api/presences/sortie-simple', async (req, res) => {
       agentId = agentInAgent[0].id;
     }
     
-    console.log(`📅 Mise à jour sortie: agent_id=${agentId}, date=${today}, heure=${timeNow}`);
-    
-    // Heures travaillées fixes
-    const heuresTravaillees = 8.00;
+    console.log(`📅 Mise à jour sortie: agent_id=${agentId}, date=${today}, heure=${timeNow}, heures=${heuresTravaillees}`);
     
     let presenceId = null;
     
@@ -1629,9 +1630,9 @@ app.post('/api/presences/sortie-simple', async (req, res) => {
           `UPDATE presence 
            SET heure_sortie = $1, heures_travaillees = $2, updated_at = NOW()
            WHERE id = $3`,
-          [timeNow, heuresTravaillees, presenceId]
+          [timeNow, heuresTravaillees, presenceId] // ← heuresTravaillees utilisé ici
         );
-        console.log(`✅ Présence existante mise à jour: ${presenceId}`);
+        console.log(`✅ Présence existante mise à jour: ${presenceId}, Heures: ${heuresTravaillees}h`);
       } else {
         // Créer une nouvelle présence
         const newPresence = await AppDataSource.query(
@@ -1639,10 +1640,10 @@ app.post('/api/presences/sortie-simple', async (req, res) => {
            (agent_id, date, heure_sortie, heures_travaillees, shift, created_at)
            VALUES ($1, $2, $3, $4, $5, NOW())
            RETURNING id`,
-          [agentId, today, timeNow, heuresTravaillees, 'JOUR']
+          [agentId, today, timeNow, heuresTravaillees, 'JOUR'] // ← heuresTravaillees utilisé ici
         );
         presenceId = newPresence[0].id;
-        console.log(`✅ Nouvelle présence créée pour sortie: ${presenceId}`);
+        console.log(`✅ Nouvelle présence créée pour sortie: ${presenceId}, Heures: ${heuresTravaillees}h`);
       }
       
     } catch (error) {
@@ -1650,7 +1651,7 @@ app.post('/api/presences/sortie-simple', async (req, res) => {
       throw error;
     }
     
-    console.log(`🎉 Sortie enregistrée! Presence ID: ${presenceId}`);
+    console.log(`🎉 Sortie enregistrée! Presence ID: ${presenceId}, Heures: ${heuresTravaillees}h`);
     
     res.json({
       success: true,
@@ -1661,7 +1662,7 @@ app.post('/api/presences/sortie-simple', async (req, res) => {
         presence_id: presenceId,
         date: today,
         heure_sortie: timeNow,
-        heures_travaillees: heuresTravaillees
+        heures_travaillees: heuresTravaillees // ← AJOUTÉ DANS LA RÉPONSE
       }
     });
     
@@ -1672,7 +1673,10 @@ app.post('/api/presences/sortie-simple', async (req, res) => {
       success: false,
       error: "Erreur pointage sortie",
       details: error.message,
-      code: error.code
+      code: error.code,
+      data: {
+        heures_travaillees: 8.0 // ← Valeur par défaut en cas d'erreur
+      }
     });
   }
 });
@@ -2745,7 +2749,6 @@ app.get('/api/plannings/weeks', async (req, res) => {
 });
 
 // ========== ROUTE ULTRA SIMPLE CORRIGÉE ==========
-
 app.post('/api/presences/entree-ultra-simple', async (req, res) => {
   console.log('🚨🚨🚨 ROUTE ULTRA SIMPLE APPELÉE - NOUVELLE VERSION');
   
@@ -2755,10 +2758,13 @@ app.post('/api/presences/entree-ultra-simple', async (req, res) => {
       matricule: data.matricule || 'NON FOURNI',
       nom: data.nom || 'NON FOURNI',
       prenom: data.prenom || 'NON FOURNI',
-      campagne: data.campagne || 'Standard'
+      campagne: data.campagne || 'Standard',
+      heuresTravaillees: data.heuresTravaillees || '8h par défaut'
     });
     
     // DONNÉES PAR DÉFAUT GARANTIES
+    const heuresTravaillees = data.heuresTravaillees || 8.0; // 8h par défaut
+    
     const now = new Date();
     const today = now.toISOString().split('T')[0];
     const timeNow = data.heureEntreeManuelle || 
@@ -2809,16 +2815,24 @@ app.post('/api/presences/entree-ultra-simple', async (req, res) => {
         
         // 2. Créer la présence (IGNORER les doublons)
         try {
+          // Inclure heures_travaillees dans l'insertion
           const presenceResult = await AppDataSource.query(
-            `INSERT INTO presence (agent_id, date, heure_entree, shift, created_at) 
-             VALUES ($1, $2, $3, $4, NOW()) 
-             RETURNING id`,
-            [agentId, today, timeNow, data.shift || 'JOUR']
+            `INSERT INTO presence (agent_id, date, heure_entree, shift, heures_travaillees, created_at) 
+             VALUES ($1, $2, $3, $4, $5, NOW()) 
+             RETURNING id, heures_travaillees`,
+            [
+              agentId, 
+              today, 
+              timeNow, 
+              data.shift || 'JOUR',
+              heuresTravaillees // ← AJOUTÉ ICI
+            ]
           );
           
           presenceId = presenceResult[0].id;
+          const heuresEnregistrees = presenceResult[0].heures_travaillees;
           dbSuccess = true;
-          console.log(`✅ BASE DE DONNÉES: Pointage réussi ID=${presenceId}`);
+          console.log(`✅ BASE DE DONNÉES: Pointage réussi ID=${presenceId}, Heures: ${heuresEnregistrees}h`);
           
         } catch (insertError) {
           // Si échec (doublon), utiliser un ID aléatoire
@@ -2848,6 +2862,7 @@ app.post('/api/presences/entree-ultra-simple', async (req, res) => {
         date: today,
         agent_id: Math.floor(Math.random() * 1000) + 1,
         shift: data.shift || 'JOUR',
+        heures_travaillees: heuresTravaillees, // ← AJOUTÉ ICI DANS LA RÉPONSE
         db_success: dbSuccess,
         mode: dbSuccess ? 'database' : 'simulation'
       }
@@ -2874,6 +2889,7 @@ app.post('/api/presences/entree-ultra-simple', async (req, res) => {
         date: new Date().toISOString().split('T')[0],
         agent_id: 99999,
         shift: 'JOUR',
+        heures_travaillees: 8.0, // ← AJOUTÉ ICI
         note: "Votre pointage a été enregistré localement"
       }
     });
