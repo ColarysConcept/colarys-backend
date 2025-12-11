@@ -1,273 +1,100 @@
-// backend/src/controllers/PresenceController.ts
-// VERSION FINALE SANS SIGNATURE — 2025
-
+// PresenceController.ts - VERSION SIMPLIFIÉE (Proxy vers l'API minimal.js)
 import { Request, Response } from "express";
-import { PresenceService } from "../services/PresenceService";
+import axios from "axios";
+
+const API_BASE_URL = 'https://theme-gestion-des-resources-et-prod.vercel.app/api';
 
 export class PresenceController {
-  private presenceService: PresenceService = new PresenceService();
+  constructor() {}
 
-  constructor() {
-    this.presenceService = new PresenceService();
-  }
-
-// backend/src/controllers/PresenceController.ts
-async pointageEntree(req: Request, res: Response) {
-  console.log('pointageEntree appelé avec body:', req.body);
-  try {
-    const { 
-      matricule, 
-      nom, 
-      prenom, 
-      campagne, 
-      shift, 
-      heureEntreeManuelle,
-      signatureEntree // ✅ NOUVEAU
-    } = req.body;
-
-    if (!nom || !prenom) {
-      return res.status(400).json({
-        success: false,
-        error: "Nom et prénom sont obligatoires",
-      });
-    }
-
-    // ✅ VALIDER LA SIGNATURE SI PRÉSENTE
-    if (signatureEntree && !this.isValidSignature(signatureEntree)) {
-      return res.status(400).json({
-        success: false,
-        error: "Format de signature invalide",
-      });
-    }
-
-    const result = await this.presenceService.pointageEntree({
-      matricule: matricule?.trim() || undefined,
-      nom: nom.trim(),
-      prenom: prenom.trim(),
-      campagne: campagne || "Standard",
-      shift: shift || "JOUR",
-      heureEntreeManuelle,
-      signatureEntree, // ✅ PASSER AU SERVICE
-    });
-
-    res.status(201).json({
-      success: true,
-      message: "Entrée pointée avec succès",
-      presence: result.presence,
-    });
-  } catch (error: any) {
-    console.error('Erreur pointage entrée:', error);
-    res.status(400).json({
-      success: false,
-      error: error.message || "Erreur lors du pointage d'entrée",
-    });
-  }
-}
-
-async pointageSortie(req: Request, res: Response) {
-  console.log('pointageSortie appelé avec body:', req.body);
-  try {
-    const { 
-      matricule, 
-      signatureSortie, // ✅ DEVENU OBLIGATOIRE
-      heureSortieManuelle 
-    } = req.body;
-
-    if (!matricule) {
-      return res.status(400).json({
-        success: false,
-        error: "Matricule obligatoire pour la sortie",
-      });
-    }
-
-    // ✅ VALIDATION RENFORCÉE
-    if (!signatureSortie) {
-      return res.status(400).json({
-        success: false,
-        error: "Signature de sortie obligatoire",
-      });
-    }
-
-    if (!this.isValidSignature(signatureSortie)) {
-      return res.status(400).json({
-        success: false,
-        error: "Format de signature invalide",
-      });
-    }
-
-    const result = await this.presenceService.pointageSortie(
-      matricule.trim(), 
-      signatureSortie, // ✅ PASSER LA SIGNATURE
-      heureSortieManuelle
-    );
-
-    res.json({
-      success: true,
-      message: "Sortie pointée avec succès",
-      presence: result.presence,
-    });
-  } catch (error: any) {
-    console.error('Erreur pointage sortie:', error);
-    res.status(400).json({
-      success: false,
-      error: error.message || "Erreur lors du pointage de sortie",
-    });
-  }
-}
-
-// ✅ MÉTHODE DE VALIDATION DES SIGNATURES
-private isValidSignature(signature: string): boolean {
-  if (!signature || typeof signature !== 'string') return false;
-  
-  // Vérifier Base64
-  if (signature.startsWith('data:image/')) {
-    const base64Regex = /^data:image\/(png|jpg|jpeg|svg\+xml);base64,[A-Za-z0-9+/=]+$/;
-    return base64Regex.test(signature);
-  }
-  
-  // Vérifier SVG
-  if (signature.startsWith('<svg')) {
-    return signature.includes('</svg>');
-  }
-  
-  // Vérifier JSON (coordonnées vectorielles)
-  try {
-    const parsed = JSON.parse(signature);
-    return Array.isArray(parsed) || (parsed.points && Array.isArray(parsed.points));
-  } catch {
-    return false;
-  }
-}
-
-// backend/src/controllers/PresenceController.ts
-async getSignature(req: Request, res: Response) {
-  try {
-    const { id, type } = req.params; // id de la présence, type: 'entree' ou 'sortie'
-    
-    // Utiliser la nouvelle méthode
-    const presence = await this.presenceService.getPresenceById(Number(id));
-    
-    if (!presence) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Présence non trouvée' 
-      });
-    }
-    
-    // Vérifier si les propriétés existent (pour TypeScript)
-    const signatureEntree = (presence as any).signatureEntree;
-    const signatureSortie = (presence as any).signatureSortie;
-    
-    const signature = type === 'entree' 
-      ? signatureEntree 
-      : signatureSortie;
-    
-    if (!signature) {
-      return res.status(404).json({ 
-        success: false, 
-        error: `Signature ${type} non trouvée pour cette présence` 
-      });
-    }
-    
-    // Si c'est une image Base64
-    if (signature.startsWith('data:image/')) {
-      const base64Data = signature.replace(/^data:image\/\w+;base64,/, '');
-      const imgBuffer = Buffer.from(base64Data, 'base64');
-      
-      // Déterminer le type MIME
-      const mimeType = signature.match(/data:image\/(\w+);/)?.[1];
-      res.set('Content-Type', `image/${mimeType || 'png'}`);
-      
-      return res.send(imgBuffer);
-    }
-    
-    // Si c'est du SVG
-    if (signature.startsWith('<svg')) {
-      res.set('Content-Type', 'image/svg+xml');
-      return res.send(signature);
-    }
-    
-    // Sinon retourner le JSON
-    res.json({ 
-      success: true, 
-      signature,
-      presenceId: presence.id,
-      agent: presence.agent,
-      date: presence.date
-    });
-    
-  } catch (error: any) {
-    console.error('Erreur récupération signature:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message || 'Erreur serveur' 
-    });
-  }
-}
-
-
-  // HISTORIQUE DES PRÉSENCES
-  async getHistorique(req: Request, res: Response) {
-    console.log('getHistorique appelé avec query:', req.query);
+  async pointageEntree(req: Request, res: Response) {
     try {
-      const {
-        dateDebut,
-        dateFin,
-        matricule,
-        nom,
-        prenom,
-        annee,
-        mois,
-        campagne,
-        shift,
-      } = req.query;
-
-      if ((!dateDebut || !dateFin) && !annee) {
-        return res.status(400).json({
-          success: false,
-          error: "Période requise : soit dateDebut/dateFin, soit annee",
+      console.log('Controller - pointageEntree:', req.body);
+      
+      // Appeler l'API minimal.js qui fonctionne
+      const response = await axios.post(`${API_BASE_URL}/presences/entree-ultra-simple`, req.body);
+      
+      // Retourner la réponse de l'API
+      res.status(201).json(response.data);
+    } catch (error: any) {
+      console.error('Controller - Erreur pointage entrée:', error);
+      
+      // Essayer la route garantie en cas d'échec
+      try {
+        const fallbackResponse = await axios.post(`${API_BASE_URL}/presences/pointage-garanti`, req.body);
+        res.status(200).json(fallbackResponse.data);
+      } catch (fallbackError: any) {
+        res.status(400).json({ 
+          success: false, 
+          error: error.message || "Erreur lors du pointage d'entrée" 
         });
       }
+    }
+  }
 
-      const result = await this.presenceService.getHistoriquePresences({
-        dateDebut: dateDebut as string | undefined,
-        dateFin: dateFin as string | undefined,
-        matricule: matricule as string | undefined,
-        nom: nom as string | undefined,
-        prenom: prenom as string | undefined,
-        annee: annee as string | undefined,
-        mois: mois as string | undefined,
-        campagne: campagne as string | undefined,
-        shift: shift as string | undefined,
-      });
+  async pointageSortie(req: Request, res: Response) {
+    try {
+      const { matricule, heureSortieManuelle } = req.body;
+      if (!matricule) {
+        return res.status(400).json({ success: false, error: "Matricule requis" });
+      }
 
-      res.json({
-        success: true,
-        count: result.data.length,
-        totalHeures: result.totalHeures,
-        totalPresences: result.totalPresences,
-        data: result.data,
+      // Appeler l'API minimal.js
+      const response = await axios.post(`${API_BASE_URL}/presences/sortie-ultra-simple`, {
+        matricule,
+        heureSortieManuelle
       });
+      
+      res.json(response.data);
     } catch (error: any) {
-      console.error('Erreur récupération historique:', error);
-      res.status(500).json({
-        success: false,
-        error: error.message || "Erreur serveur",
+      console.error('Controller - Erreur pointage sortie:', error);
+      
+      // Essayer la version simple
+      try {
+        const fallbackResponse = await axios.post(`${API_BASE_URL}/presences/sortie-simple`, {
+          matricule: req.body.matricule,
+          heureSortieManuelle: req.body.heureSortieManuelle
+        });
+        res.json(fallbackResponse.data);
+      } catch (fallbackError: any) {
+        res.status(400).json({ 
+          success: false, 
+          error: error.message || "Erreur lors du pointage de sortie" 
+        });
+      }
+    }
+  }
+
+  async getHistorique(req: Request, res: Response) {
+    console.log('Controller - getHistorique avec query:', req.query);
+    try {
+      // Appeler l'API minimal.js
+      const response = await axios.get(`${API_BASE_URL}/presences/historique`, {
+        params: req.query
+      });
+      
+      res.json(response.data);
+    } catch (error: any) {
+      console.error('Controller - Erreur historique:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: error.message || "Erreur serveur" 
       });
     }
   }
 
-  // TOUTES LES PRÉSENCES (admin)
   async getAllPresences(req: Request, res: Response) {
     try {
-      const presences = await this.presenceService.findAll();
+      // Récupérer les dernières présences
+      const response = await axios.get(`${API_BASE_URL}/presences/recent`);
+      
       res.json({
         success: true,
-        count: presences.length,
-        data: presences,
+        count: response.data.count,
+        data: response.data.data,
       });
     } catch (error: any) {
-      console.error('Erreur getAllPresences:', error);
+      console.error('Controller - Erreur getAllPresences:', error);
       res.status(500).json({
         success: false,
         error: "Impossible de récupérer toutes les présences",
@@ -275,7 +102,6 @@ async getSignature(req: Request, res: Response) {
     }
   }
 
-  // VÉRIFIER L'ÉTAT ACTUEL D'UN AGENT
   async verifierEtatPresence(req: Request, res: Response) {
     try {
       const { matricule, nom, prenom } = req.body;
@@ -287,16 +113,16 @@ async getSignature(req: Request, res: Response) {
         });
       }
 
-      const result = await this.presenceService.verifierEtatPresence(matricule, nom, prenom);
-
-      res.json({
-        success: result.success,
-        etat: result.etat,
-        message: result.message,
-        presence: result.presence || null,
+      // Appeler l'API minimal.js
+      const response = await axios.post(`${API_BASE_URL}/presences/verifier-etat`, {
+        matricule,
+        nom,
+        prenom
       });
+      
+      res.json(response.data);
     } catch (error: any) {
-      console.error('Erreur verifierEtatPresence:', error);
+      console.error('Controller - Erreur verifierEtatPresence:', error);
       res.status(500).json({
         success: false,
         error: error.message || "Erreur de vérification",
@@ -304,7 +130,6 @@ async getSignature(req: Request, res: Response) {
     }
   }
 
-  // PRÉSENCE AUJOURD'HUI PAR MATRICULE
   async getPresenceAujourdhui(req: Request, res: Response) {
     try {
       const { matricule } = req.params;
@@ -312,8 +137,10 @@ async getSignature(req: Request, res: Response) {
         return res.status(400).json({ success: false, error: "Matricule requis" });
       }
 
-      const result = await this.presenceService.getPresenceAujourdhuiByMatricule(matricule);
-      res.json(result);
+      // Appeler l'API minimal.js
+      const response = await axios.get(`${API_BASE_URL}/presences/aujourdhui/${matricule}`);
+      
+      res.json(response.data);
     } catch (error: any) {
       res.status(500).json({
         success: false,
@@ -322,7 +149,6 @@ async getSignature(req: Request, res: Response) {
     }
   }
 
-  // PRÉSENCE AUJOURD'HUI PAR NOM + PRÉNOM
   async getPresenceAujourdhuiByNomPrenom(req: Request, res: Response) {
     try {
       const { nom, prenom } = req.params;
@@ -330,8 +156,14 @@ async getSignature(req: Request, res: Response) {
         return res.status(400).json({ success: false, error: "Nom et prénom requis" });
       }
 
-      const result = await this.presenceService.getPresenceAujourdhuiByNomPrenom(nom, prenom);
-      res.json(result);
+      // Appeler l'API minimal.js
+      const nomEncoded = encodeURIComponent(nom);
+      const prenomEncoded = encodeURIComponent(prenom);
+      const response = await axios.get(
+        `${API_BASE_URL}/presences/aujourdhui/nom/${nomEncoded}/prenom/${prenomEncoded}`
+      );
+      
+      res.json(response.data);
     } catch (error: any) {
       res.status(500).json({
         success: false,
@@ -340,7 +172,6 @@ async getSignature(req: Request, res: Response) {
     }
   }
 
-  // EXPORT PDF DE L'HISTORIQUE
   async exportHistorique(req: Request, res: Response) {
     try {
       const { dateDebut, dateFin, matricule, annee, mois, campagne, shift } = req.query;
@@ -350,21 +181,15 @@ async getSignature(req: Request, res: Response) {
         return res.status(400).json({ success: false, error: "Seul le format PDF est supporté" });
       }
 
-      const result = await this.presenceService.getHistoriquePresences({
-        dateDebut: dateDebut as string | undefined,
-        dateFin: dateFin as string | undefined,
-        matricule: matricule as string | undefined,
-        annee: annee as string | undefined,
-        mois: mois as string | undefined,
-        campagne: campagne as string | undefined,
-        shift: shift as string | undefined,
+      // Récupérer les données
+      const response = await axios.get(`${API_BASE_URL}/presences/historique`, {
+        params: { dateDebut, dateFin, matricule, annee, mois, campagne, shift }
       });
 
-      const pdfBuffer = await this.presenceService.generatePDF(
-        result.data,
-        result.totalHeures,
-        result.totalPresences
-      );
+      const { data, totalHeures, totalPresences } = response.data;
+
+      // Générer le PDF
+      const pdfBuffer = await this.generatePDF(data, totalHeures, totalPresences);
 
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader(
@@ -374,11 +199,94 @@ async getSignature(req: Request, res: Response) {
 
       res.send(pdfBuffer);
     } catch (error: any) {
-      console.error('Erreur export PDF:', error);
+      console.error('Controller - Erreur export PDF:', error);
       res.status(500).json({
         success: false,
         error: error.message || "Erreur lors de la génération du PDF",
       });
     }
+  }
+
+  private async generatePDF(data: any[], totalHeures: number, totalPresences: number): Promise<Buffer> {
+    const PDFDocument = require('pdfkit');
+    const doc = new PDFDocument({ margin: 30, size: 'A4', layout: 'landscape' });
+
+    // Titre
+    doc.fontSize(18).font('Helvetica-Bold').text('Rapport des Présences - Colarys', 30, 40);
+    doc.fontSize(10).font('Helvetica').fillColor('#666')
+      .text(`Généré le ${new Date().toLocaleString('fr-FR')}`, 30, 65);
+
+    // Stats
+    doc.fontSize(12).fillColor('#2c3e50');
+    doc.text(`Total présences : ${totalPresences}`, 30, 95);
+    doc.text(`Total heures travaillées : ${totalHeures.toFixed(2)} h`, 30, 115);
+
+    // Colonnes
+    const columns = [
+      { label: 'Date', width: 80 },
+      { label: 'Matricule', width: 90 },
+      { label: 'Nom Prénom', width: 160 },
+      { label: 'Entrée', width: 70 },
+      { label: 'Sortie', width: 70 },
+      { label: 'Heures', width: 70 },
+      { label: 'Shift', width: 60 },
+      { label: 'Campagne', width: 100 },
+    ];
+
+    let y = 160;
+    const rowHeight = 30;
+
+    // En-tête tableau
+    doc.fontSize(10).font('Helvetica-Bold').fillColor('#2c3e50');
+    let x = 30;
+    columns.forEach(col => {
+      doc.text(col.label, x, y, { width: col.width, align: 'center' });
+      x += col.width;
+    });
+
+    y += rowHeight;
+    doc.fontSize(9).font('Helvetica').fillColor('#333');
+
+    // Lignes de données
+    for (const p of data) {
+      if (y > 550) {
+        doc.addPage();
+        y = 50;
+      }
+
+      x = 30;
+      const nomComplet = `${p.nom} ${p.prenom}`.trim();
+
+      const rowData = [
+        new Date(p.date).toLocaleDateString('fr-FR'),
+        p.matricule || '—',
+        nomComplet.length > 25 ? nomComplet.substring(0, 22) + '...' : nomComplet,
+        p.heure_entree || '—',
+        p.heure_sortie || '—',
+        p.heures_travaillees ? p.heures_travaillees.toFixed(2) + 'h' : '—',
+        p.shift || 'JOUR',
+        p.campagne || 'Standard',
+      ];
+
+      rowData.forEach((text, i) => {
+        doc.text(text, x, y, { width: columns[i].width, align: 'center' });
+        x += columns[i].width;
+      });
+
+      y += rowHeight;
+    }
+
+    // Pied de page
+    doc.fontSize(10).fillColor('#2c3e50');
+    doc.text(`TOTAL : ${totalPresences} présence(s) — ${totalHeures.toFixed(2)} heures`, 30, y + 20);
+
+    // Finalisation
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      doc.on('data', chunk => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+      doc.end();
+    });
   }
 }
