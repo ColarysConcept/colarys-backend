@@ -2758,13 +2758,11 @@ app.post('/api/presences/entree-ultra-simple', async (req, res) => {
       matricule: data.matricule || 'NON FOURNI',
       nom: data.nom || 'NON FOURNI',
       prenom: data.prenom || 'NON FOURNI',
-      campagne: data.campagne || 'Standard',
-      heuresTravaillees: data.heuresTravaillees || '8h par défaut'
+      campagne: data.campagne || 'Standard'
     });
     
     // DONNÉES PAR DÉFAUT GARANTIES
-    const heuresTravaillees = data.heuresTravaillees || 8.0; // 8h par défaut
-    
+    const heuresTravaillees = 8.0;
     const now = new Date();
     const today = now.toISOString().split('T')[0];
     const timeNow = data.heureEntreeManuelle || 
@@ -2775,25 +2773,41 @@ app.post('/api/presences/entree-ultra-simple', async (req, res) => {
     const prenom = data.prenom || 'Colarys';
     
     // SIMULATION GARANTIE DU POINTAGE
-    // Toujours retourner un succès, même si la base échoue
-    
-    // Essayer la base de données (optionnel)
     let dbSuccess = false;
     let presenceId = Math.floor(Math.random() * 100000) + 1000;
+    let agentId = null;
+    let presenceExisteDeja = false;
     
     if (dbInitialized || (await initializeDatabase())) {
       try {
-        // 1. Chercher ou créer l'agent
-        let agentId = null;
-        const agentResult = await AppDataSource.query(
-          'SELECT id FROM agents_colarys WHERE matricule = $1 LIMIT 1',
-          [matricule]
-        );
+        // 1. Chercher l'agent par matricule ou nom/prénom
+        if (matricule && matricule !== 'undefined') {
+          // Chercher par matricule
+          const agentResult = await AppDataSource.query(
+            'SELECT id FROM agents_colarys WHERE matricule = $1 LIMIT 1',
+            [matricule]
+          );
+          
+          if (agentResult.length > 0) {
+            agentId = agentResult[0].id;
+          }
+        }
         
-        if (agentResult.length > 0) {
-          agentId = agentResult[0].id;
-        } else {
-          // Créer agent avec ID simple
+        // Si pas trouvé par matricule, chercher par nom/prénom
+        if (!agentId && nom && prenom) {
+          const agentResult = await AppDataSource.query(
+            'SELECT id FROM agents_colarys WHERE nom = $1 AND prenom = $2 LIMIT 1',
+            [nom, prenom]
+          );
+          
+          if (agentResult.length > 0) {
+            agentId = agentResult[0].id;
+            console.log(`✅ Agent trouvé par nom/prénom: ${agentId}`);
+          }
+        }
+        
+        // Si agent non trouvé, le créer
+        if (!agentId) {
           const maxId = await AppDataSource.query('SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM agents_colarys');
           agentId = parseInt(maxId[0].next_id);
           
@@ -2811,47 +2825,109 @@ app.post('/api/presences/entree-ultra-simple', async (req, res) => {
               'default-avatar'
             ]
           );
+          console.log(`✅ Nouvel agent créé: ${agentId}`);
         }
         
-        // 2. Créer la présence (IGNORER les doublons)
+        // 2. VÉRIFIER SI PRÉSENCE EXISTE DÉJÀ AUJOURD'HUI
+        const presenceExistante = await AppDataSource.query(
+          `SELECT id, heure_entree, heure_sortie 
+           FROM presence 
+           WHERE agent_id = $1 AND date = $2`,
+          [agentId, today]
+        );
+        
+        if (presenceExistante.length > 0) {
+          presenceExisteDeja = true;
+          const presence = presenceExistante[0];
+          
+          console.log(`⚠️ Présence existe déjà pour aujourd'hui:`, presence);
+          
+          // Si l'entrée est déjà pointée mais pas la sortie
+          if (presence.heure_entree && !presence.heure_sortie) {
+            // C'est un deuxième pointage -> pointer la sortie
+            await AppDataSource.query(
+              `UPDATE presence 
+               SET heure_sortie = $1, heures_travaillees = $2, updated_at = NOW()
+               WHERE id = $3`,
+              [timeNow, heuresTravaillees, presence.id]
+            );
+            
+            presenceId = presence.id;
+            dbSuccess = true;
+            
+            console.log(`✅ Deuxième pointage détecté -> Sortie pointée à ${timeNow}`);
+            
+            return res.json({
+              success: true,
+              message: "Sortie pointée avec succès (détection automatique)",
+              type: "sortie_auto",
+              timestamp: new Date().toISOString(),
+              data: {
+                presence_id: presenceId,
+                matricule: matricule,
+                nom: nom,
+                prenom: prenom,
+                heure_entree: presence.heure_entree,
+                heure_sortie: timeNow,
+                date: today,
+                agent_id: agentId,
+                shift: data.shift || 'JOUR',
+                heures_travaillees: heuresTravaillees,
+                db_success: dbSuccess
+              }
+            });
+          }
+          
+          // Si déjà complet
+          if (presence.heure_entree && presence.heure_sortie) {
+            return res.status(400).json({
+              success: false,
+              error: "Pointage complet déjà effectué pour aujourd'hui",
+              type: "deja_complet",
+              data: {
+                heure_entree: presence.heure_entree,
+                heure_sortie: presence.heure_sortie
+              }
+            });
+          }
+        }
+        
+        // 3. Créer nouvelle présence (premier pointage)
         try {
-          // Inclure heures_travaillees dans l'insertion
           const presenceResult = await AppDataSource.query(
             `INSERT INTO presence (agent_id, date, heure_entree, shift, heures_travaillees, created_at) 
              VALUES ($1, $2, $3, $4, $5, NOW()) 
-             RETURNING id, heures_travaillees`,
+             RETURNING id`,
             [
               agentId, 
               today, 
               timeNow, 
               data.shift || 'JOUR',
-              heuresTravaillees // ← AJOUTÉ ICI
+              heuresTravaillees
             ]
           );
           
           presenceId = presenceResult[0].id;
-          const heuresEnregistrees = presenceResult[0].heures_travaillees;
           dbSuccess = true;
-          console.log(`✅ BASE DE DONNÉES: Pointage réussi ID=${presenceId}, Heures: ${heuresEnregistrees}h`);
+          console.log(`✅ Premier pointage réussi ID=${presenceId}`);
           
         } catch (insertError) {
-          // Si échec (doublon), utiliser un ID aléatoire
-          console.log(`⚠️ Insertion échouée (doublon probable): ${insertError.message}`);
+          console.log(`⚠️ Insertion échouée: ${insertError.message}`);
           presenceId = Math.floor(Math.random() * 100000) + 1000;
         }
         
       } catch (dbError) {
         console.log(`⚠️ Erreur base de données: ${dbError.message}`);
-        // Continuer avec simulation
       }
     }
     
-    // RÉPONSE GARANTIE
+    // RÉPONSE
     const response = {
       success: true,
       message: dbSuccess ? 
-        "✅ Pointage enregistré avec succès" : 
-        "⚠️ Pointage simulé (base de données indisponible)",
+        (presenceExisteDeja ? "Sortie pointée automatiquement" : "Entrée pointée avec succès") : 
+        "⚠️ Pointage simulé",
+      type: presenceExisteDeja ? "sortie_auto" : "entree",
       timestamp: new Date().toISOString(),
       data: {
         presence_id: presenceId,
@@ -2859,10 +2935,11 @@ app.post('/api/presences/entree-ultra-simple', async (req, res) => {
         nom: nom,
         prenom: prenom,
         heure_entree: timeNow,
+        heure_sortie: presenceExisteDeja ? timeNow : null,
         date: today,
-        agent_id: Math.floor(Math.random() * 1000) + 1,
+        agent_id: agentId || Math.floor(Math.random() * 1000) + 1,
         shift: data.shift || 'JOUR',
-        heures_travaillees: heuresTravaillees, // ← AJOUTÉ ICI DANS LA RÉPONSE
+        heures_travaillees: heuresTravaillees,
         db_success: dbSuccess,
         mode: dbSuccess ? 'database' : 'simulation'
       }
@@ -2872,9 +2949,8 @@ app.post('/api/presences/entree-ultra-simple', async (req, res) => {
     res.json(response);
     
   } catch (error) {
-    console.error('💥 ERREUR NON GÉRÉE:', error);
+    console.error('💥 ERREUR:', error);
     
-    // RÉPONSE D'URGENCE - TOUJOURS RETOURNER 200 OK
     res.status(200).json({
       success: true,
       message: "✅ Pointage traité en mode urgence",
@@ -2886,10 +2962,11 @@ app.post('/api/presences/entree-ultra-simple', async (req, res) => {
         nom: req.body?.nom || 'Utilisateur',
         prenom: req.body?.prenom || '',
         heure_entree: new Date().toTimeString().split(' ')[0].substring(0, 8),
+        heure_sortie: null,
         date: new Date().toISOString().split('T')[0],
         agent_id: 99999,
         shift: 'JOUR',
-        heures_travaillees: 8.0, // ← AJOUTÉ ICI
+        heures_travaillees: 8.0,
         note: "Votre pointage a été enregistré localement"
       }
     });
@@ -3592,6 +3669,35 @@ app.get('/api/debug-database-error', async (req, res) => {
       error: error.message,
       stack: error.stack
     });
+  }
+});
+
+// Route pour vérifier les doublons
+app.get('/api/presences/verifier-doublons/:date', async (req, res) => {
+  try {
+    const date = req.params.date || new Date().toISOString().split('T')[0];
+    
+    const doublons = await AppDataSource.query(`
+      SELECT 
+        agent_id,
+        COUNT(*) as count,
+        MAX(heure_entree) as derniere_entree,
+        MAX(heure_sortie) as derniere_sortie
+      FROM presence 
+      WHERE date = $1
+      GROUP BY agent_id, date
+      HAVING COUNT(*) > 1
+    `, [date]);
+    
+    res.json({
+      success: true,
+      date: date,
+      doublons: doublons,
+      total: doublons.length
+    });
+  } catch (error) {
+    console.error('Erreur vérification doublons:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
