@@ -2873,7 +2873,8 @@ app.post('/api/presences/entree-ultra-simple', async (req, res) => {
                 agent_id: agentId,
                 shift: data.shift || 'JOUR',
                 heures_travaillees: heuresTravaillees,
-                db_success: dbSuccess
+                db_success: true,
+                note: "Sortie automatique (2ème scan détecté)"
               }
             });
           }
