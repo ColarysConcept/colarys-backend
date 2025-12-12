@@ -1024,8 +1024,9 @@ app.get('/api/presences/aujourdhui/nom/:nom/prenom/:prenom', async (req, res) =>
   }
 });
 
-// Route pour vérifier état de présence
-// Dans minimal.js - route /presences/verifier-etat
+// AJOUTEZ CES ROUTES DANS minimal.js
+
+// Route pour vérifier l'état de présence (déjà partiellement existante)
 app.post('/api/presences/verifier-etat', async (req, res) => {
   try {
     const { matricule, nom, prenom } = req.body;
@@ -1045,10 +1046,11 @@ app.post('/api/presences/verifier-etat', async (req, res) => {
     
     const today = new Date().toISOString().split('T')[0];
     let presence = null;
+    let agent = null;
     
     // Chercher par matricule
     if (matricule) {
-      const presences = await AppDataSource.query(
+      const result = await AppDataSource.query(
         `SELECT p.*, a.matricule, a.nom, a.prenom, a.campagne 
          FROM presence p
          JOIN agent a ON p.agent_id = a.id
@@ -1056,14 +1058,20 @@ app.post('/api/presences/verifier-etat', async (req, res) => {
         [matricule, today]
       );
       
-      if (presences.length > 0) {
-        presence = presences[0];
+      if (result.length > 0) {
+        presence = result[0];
+        agent = {
+          matricule: result[0].matricule,
+          nom: result[0].nom,
+          prenom: result[0].prenom,
+          campagne: result[0].campagne
+        };
       }
     }
     
     // Chercher par nom/prénom
     if (!presence && nom && prenom) {
-      const presences = await AppDataSource.query(
+      const result = await AppDataSource.query(
         `SELECT p.*, a.matricule, a.nom, a.prenom, a.campagne 
          FROM presence p
          JOIN agent a ON p.agent_id = a.id
@@ -1071,12 +1079,18 @@ app.post('/api/presences/verifier-etat', async (req, res) => {
         [`%${nom}%`, `%${prenom}%`, today]
       );
       
-      if (presences.length > 0) {
-        presence = presences[0];
+      if (result.length > 0) {
+        presence = result[0];
+        agent = {
+          matricule: result[0].matricule,
+          nom: result[0].nom,
+          prenom: result[0].prenom,
+          campagne: result[0].campagne
+        };
       }
     }
     
-    // Déterminer l'état - CORRECTION IMPORTANTE
+    // Déterminer l'état
     let etat = 'ABSENT';
     if (presence) {
       if (presence.heure_sortie) {
@@ -1086,12 +1100,11 @@ app.post('/api/presences/verifier-etat', async (req, res) => {
       }
     }
     
-    console.log('📊 État déterminé:', etat, 'Présence:', presence);
-    
     return res.json({
       success: true,
       etat: etat,
       presence: presence,
+      agent: agent,
       message: presence ? 
         (presence.heure_sortie ? "Entrée et sortie déjà pointées" : "Entrée pointée, sortie attendue") :
         "Aucune présence aujourd'hui"
@@ -3697,60 +3710,51 @@ app.get('/historique-presences', async (req, res) => {
   app._router.handle(req, res);
 });
 
-
-// AJOUTE ÇA À LA TOUTE FIN DE api.minimal.js (avant app.listen)
-
-// AJOUTER CES ROUTES AVEC LE PRÉFIXE /api/
-
-// Route pour vérifier la présence aujourd'hui (version simplifiée)
 app.get('/api/presences/aujourdhui/:matricule', async (req, res) => {
   try {
     const matricule = req.params.matricule;
-    console.log(`📅 Vérification présence pour: ${matricule}`);
+    
+    if (!matricule || matricule === 'undefined') {
+      return res.json({
+        success: true,
+        data: null,
+        message: "Matricule invalide"
+      });
+    }
     
     if (!dbInitialized) {
       await initializeDatabase();
     }
-
-    // Chercher l'agent
-    const agents = await AppDataSource.query(
-      'SELECT id FROM agents_colarys WHERE matricule = $1',
-      [matricule]
+    
+    const today = new Date().toISOString().split('T')[0];
+    
+    const result = await AppDataSource.query(
+      `SELECT p.*, a.matricule, a.nom, a.prenom, a.campagne 
+       FROM presence p
+       JOIN agent a ON p.agent_id = a.id
+       WHERE a.matricule = $1 AND p.date = $2`,
+      [matricule, today]
     );
-
-    if (agents.length === 0) {
+    
+    if (result.length === 0) {
       return res.json({
         success: true,
-        data: null,  // ← CHANGER ICI
-        message: "Agent non trouvé"
+        data: null,
+        message: "Aucune présence aujourd'hui"
       });
     }
-
-    const agentId = agents[0].id;
-    const today = new Date().toISOString().split('T')[0];
-
-    // Chercher les présences
-    let presences = [];
-    try {
-      presences = await AppDataSource.query(
-        'SELECT * FROM presence WHERE agent_id = $1 AND date = $2',
-        [agentId, today]
-      );
-    } catch (error) {
-      console.log('ℹ️ Aucune présence trouvée pour aujourd\'hui');
-    }
-
+    
     res.json({
       success: true,
-      data: presences.length > 0 ? presences[0] : null,  // ← CHANGER ICI: null si tableau vide
-      count: presences.length
+      data: result[0],
+      count: result.length
     });
-
+    
   } catch (error) {
-    console.error('❌ Error checking presence:', error);
+    console.error('❌ Erreur présence aujourd\'hui:', error);
     res.status(500).json({
       success: false,
-      error: "Erreur lors de la vérification de présence"
+      error: error.message
     });
   }
 });
