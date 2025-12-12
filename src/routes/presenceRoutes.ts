@@ -1,38 +1,39 @@
-// src/routes/presenceRoutes.ts - VERSION CORRIGÉE (juste les routes)
 import { Router } from 'express';
 import { PresenceController } from '../controllers/PresenceController';
 
 const router = Router();
 const presenceController = new PresenceController();
 
-// Route racine
-router.get('/', (req, res) => {
-  console.log('GET /presences/ appelé');
-  res.json({ message: 'API de présences - Utilisez les routes spécifiques' });
+router.post('/entree', (req, res) => {
+  console.log('POST /presences/entree appelé avec body:', req.body);
+  presenceController.pointageEntree(req, res);
 });
 
-// Pointage entrée
-router.post('/entree', presenceController.pointageEntree.bind(presenceController));
+router.post('/sortie', (req, res) => {
+  console.log('POST /presences/sortie appelé avec body:', req.body);
+  presenceController.pointageSortie(req, res);
+});
 
-// Pointage sortie
-router.post('/sortie', presenceController.pointageSortie.bind(presenceController));
+router.get('/historique', (req, res) => {
+  console.log('GET /presences/historique appelé avec query:', req.query);
+  presenceController.getHistorique(req, res);
+});
 
-// Vérification état présence
-router.post('/verifier-etat', presenceController.verifierEtatPresence.bind(presenceController));
+router.get('/aujourdhui/:matricule', (req, res) => {
+  console.log('GET /presences/aujourdhui/:matricule appelé avec matricule:', req.params.matricule);
+  presenceController.getPresenceAujourdhui(req, res);
+});
 
-// Historique
-router.get('/historique', presenceController.getHistorique.bind(presenceController));
+// Nouvelle route pour l'export
+router.get('/export/:format', (req, res) => {
+  console.log('GET /presences/export/:format appelé avec params:', req.params, 'query:', req.query);
+  presenceController.exportHistorique(req, res);
+});
 
-// Toutes les présences
-router.get('/recent', presenceController.getAllPresences.bind(presenceController));
-
-// Présence aujourd'hui par matricule
-router.get('/aujourdhui/:matricule', presenceController.getPresenceAujourdhui.bind(presenceController));
-
-// Présence aujourd'hui par nom + prénom
-router.get('/aujourdhui/nom/:nom/prenom/:prenom', presenceController.getPresenceAujourdhuiByNomPrenom.bind(presenceController));
-
-// Export PDF/Excel
-router.get('/export/:format', presenceController.exportHistorique.bind(presenceController));
+// Dans presenceRoutes.ts
+router.get('/aujourdhui/nom/:nom/prenom/:prenom', (req, res) => {
+  console.log('GET /presences/aujourdhui/nom/:nom/prenom/:prenom appelé avec:', req.params);
+  presenceController.getPresenceAujourdhuiByNomPrenom(req, res);
+});
 
 export default router;

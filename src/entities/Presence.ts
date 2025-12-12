@@ -1,13 +1,14 @@
-// src/entities/Presence.ts
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from "typeorm";
+// backend/src/entities/Presence.ts
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, OneToOne, JoinColumn, OneToMany } from "typeorm";
 import { Agent } from "./Agent";
+import { DetailPresence } from "./DetailPresence"; // Import ajouté
 
 @Entity("presence")
 export class Presence {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @ManyToOne(() => Agent, (agent) => agent.presences)
+  @ManyToOne(() => Agent, agent => agent.presences)
   @JoinColumn({ name: "agent_id" })
   agent!: Agent;
 
@@ -28,4 +29,9 @@ export class Presence {
 
   @Column({ name: "created_at", default: () => "CURRENT_TIMESTAMP" })
   createdAt!: Date;
+
+  // RELATION AJOUTÉE avec DetailPresence
+  @OneToOne(() => DetailPresence, detailPresence => detailPresence.presence, { cascade: true })
+  @JoinColumn({ name: "detail_presence_id" })
+  details!: DetailPresence;
 }
