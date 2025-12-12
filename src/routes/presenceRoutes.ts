@@ -1,23 +1,39 @@
-// backend/src/routes/presenceRoutes.ts
-
 import { Router } from 'express';
 import { PresenceController } from '../controllers/PresenceController';
 
 const router = Router();
-const controller = new PresenceController();
+const presenceController = new PresenceController();
 
-// Pointages
-router.post('/entree', controller.pointageEntree.bind(controller));
-router.post('/sortie', controller.pointageSortie.bind(controller));
+router.post('/entree', (req, res) => {
+  console.log('POST /presences/entree appelé avec body:', req.body);
+  presenceController.pointageEntree(req, res);
+});
 
-// Historique
-router.get('/historique', controller.getHistorique.bind(controller));
+router.post('/sortie', (req, res) => {
+  console.log('POST /presences/sortie appelé avec body:', req.body);
+  presenceController.pointageSortie(req, res);
+});
 
-// Présence aujourd'hui
-router.get('/aujourdhui/:matricule', controller.getPresenceAujourdhui.bind(controller));
-router.get('/aujourdhui/nom/:nom/prenom/:prenom', controller.getPresenceAujourdhuiByNomPrenom.bind(controller));
+router.get('/historique', (req, res) => {
+  console.log('GET /presences/historique appelé avec query:', req.query);
+  presenceController.getHistorique(req, res);
+});
 
-// Export
-router.get('/export/:format', controller.exportHistorique.bind(controller));
+router.get('/aujourdhui/:matricule', (req, res) => {
+  console.log('GET /presences/aujourdhui/:matricule appelé avec matricule:', req.params.matricule);
+  presenceController.getPresenceAujourdhui(req, res);
+});
+
+// Nouvelle route pour l'export
+router.get('/export/:format', (req, res) => {
+  console.log('GET /presences/export/:format appelé avec params:', req.params, 'query:', req.query);
+  presenceController.exportHistorique(req, res);
+});
+
+// Dans presenceRoutes.ts
+router.get('/aujourdhui/nom/:nom/prenom/:prenom', (req, res) => {
+  console.log('GET /presences/aujourdhui/nom/:nom/prenom/:prenom appelé avec:', req.params);
+  presenceController.getPresenceAujourdhuiByNomPrenom(req, res);
+});
 
 export default router;

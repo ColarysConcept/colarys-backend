@@ -914,15 +914,26 @@ app.get('/api/presences/test', (req, res) => {
 });
 
 // Vérifier la présence aujourd'hui (version simplifiée)
+// Dans minimal.js - PROTECTION BACKEND
 app.get('/api/presences/aujourdhui/:matricule', async (req, res) => {
+  const { matricule } = req.params;
+  console.log('📥 Route /aujourdhui appelée avec matricule:', matricule, 'Type:', typeof matricule);
+  
+  // Protection immédiate
+  if (!matricule || matricule === 'undefined' || matricule === 'null') {
+    console.log('🛡️ Protection activée - matricule invalide');
+    return res.json({
+      success: true,
+      data: null,
+      message: "Matricule invalide ou non fourni",
+      count: 0
+    });
+  }
+  
+  // Logique normale...
   try {
-    const matricule = req.params.matricule;
-    console.log(`📅 Vérification présence pour: ${matricule}`);
+    const today = new Date().toISOString().split('T')[0];
     
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-
     // Chercher l'agent
     const agents = await AppDataSource.query(
       'SELECT id FROM agents_colarys WHERE matricule = $1',
@@ -930,32 +941,28 @@ app.get('/api/presences/aujourdhui/:matricule', async (req, res) => {
     );
 
     if (agents.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Agent non trouvé"
+      return res.json({
+        success: true,
+        data: null,
+        message: "Agent non trouvé",
+        count: 0
       });
     }
 
     const agentId = agents[0].id;
-    const today = new Date().toISOString().split('T')[0];
-
+    
     // Chercher les présences
-    let presences = [];
-    try {
-      presences = await AppDataSource.query(
-        'SELECT * FROM presence WHERE agent_id = $1 AND date = $2',
-        [agentId, today]
-      );
-    } catch (error) {
-      console.log('ℹ️ Aucune présence trouvée pour aujourd\'hui');
-    }
+    const presences = await AppDataSource.query(
+      'SELECT * FROM presence WHERE agent_id = $1 AND date = $2',
+      [agentId, today]
+    );
 
     res.json({
       success: true,
-      data: presences,
+      data: presences.length > 0 ? presences[0] : null,
       count: presences.length
     });
-
+    
   } catch (error) {
     console.error('❌ Error checking presence:', error);
     res.status(500).json({

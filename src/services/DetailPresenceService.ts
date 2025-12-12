@@ -2,7 +2,7 @@
 import { AppDataSource } from "../config/data-source";
 import { DetailPresence } from "../entities/DetailPresence";
 import { BaseService } from "./BaseService";
-import { FindOptionsWhere } from "typeorm";
+import { FindOptionsWhere } from "typeorm";  // Ajout de cet import pour résoudre "Cannot find name 'FindOptionsWhere'"
 
 const detailPresenceRepo = AppDataSource.getRepository(DetailPresence);
 
@@ -13,7 +13,7 @@ export class DetailPresenceService extends BaseService<DetailPresence> {
 
   async update(id: number, data: Partial<DetailPresence>): Promise<DetailPresence | null> {
     try {
-    
+      // Correction : Conversion vers 'unknown' d'abord pour satisfaire la contrainte de TypeORM
       const whereCondition = { id } as unknown as FindOptionsWhere<DetailPresence>;
       const entity = await this.repo.findOne({ where: whereCondition });
       if (!entity) {

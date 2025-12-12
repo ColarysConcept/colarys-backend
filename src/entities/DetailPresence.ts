@@ -1,5 +1,3 @@
-// backend/src/entities/DetailPresence.ts
-
 import { Entity, PrimaryGeneratedColumn, Column, OneToOne, JoinColumn } from "typeorm";
 import { Presence } from "./Presence";
 
@@ -9,9 +7,8 @@ export class DetailPresence {
   id!: number;
 
   @Column({ type: "text", nullable: true })
-  observations!: string | null;
+  observations!: string;
 
-  // Relation inverse obligatoire
   @OneToOne(() => Presence, (presence) => presence.details, { onDelete: "CASCADE" })
   @JoinColumn({ name: "presence_id" })
   presence!: Presence;

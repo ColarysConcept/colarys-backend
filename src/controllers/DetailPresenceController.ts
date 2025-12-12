@@ -1,7 +1,7 @@
 // backend/src/controllers/DetailPresenceController.ts
 import { Request, Response } from 'express';
 import { DetailPresenceService } from '../services/DetailPresenceService';
-
+import { DetailPresence } from '../entities/DetailPresence';
 
 export class DetailPresenceController {
   private service: DetailPresenceService;
