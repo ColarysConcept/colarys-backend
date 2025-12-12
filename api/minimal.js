@@ -3687,9 +3687,11 @@ app.post('/pointage-sortie', async (req, res) => {
          res.status(200).json({ success: true, message: "Sortie pointée" });
 });
 
-// 3. Présence aujourd'hui par matricule
+// AJOUTE ÇA DANS api.minimal.js (juste avant app.listen(PORT, ...))
+
 app.get('/presence-aujourdhui/:matricule', async (req, res) => {
-  console.log('PRÉSENCE AUJOURD’HUI:', req.params.matricule);
+  console.log('PRESENCE AUJOURD’HUI DEMANDÉE →', req.params.matricule);
+  // Redirige vers la vraie route qui existe déjà
   req.url = `/api/presences/aujourdhui/${req.params.matricule}`;
   app._router.handle(req, res);
 });
@@ -3713,6 +3715,16 @@ app.get('/export-historique/pdf', async (req, res) => {
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'attachment; filename=historique.pdf');
   res.send(Buffer.from('%PDF-1.4 fake pdf content for now', 'utf8'));
+});
+
+app.post('/pointage-entree', (req, res) => {
+  req.url = '/api/presences/entree-ultra-simple';
+  app._router.handle(req, res);
+});
+
+app.post('/pointage-sortie', (req, res) => {
+  req.url = '/api/presences/sortie-simple';
+  app._router.handle(req, res);
 });
 
 // ========== SERVER LISTEN ==========
