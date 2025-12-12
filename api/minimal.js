@@ -3727,6 +3727,33 @@ app.post('/pointage-sortie', (req, res) => {
   app._router.handle(req, res);
 });
 
+// AJOUTE ÇA À LA FIN DE api.minimal.js (avant app.listen)
+
+app.get('/presence-aujourdhui/:matricule', async (req, res) => {
+  console.log('PRESENCE AUJOURD’HUI →', req.params.matricule);
+  req.url = `/api/presences/aujourdhui/${req.params.matricule}`;
+  app._router.handle(req, res);
+});
+
+app.post('/pointage-entree', async (req, res) => {
+  console.log('POINTAGE ENTREE →', req.body.matricule);
+  req.url = '/api/presences/entree-ultra-simple';
+  app._router.handle(req, res);
+});
+
+app.post('/pointage-sortie', async (req, res) => {
+  console.log('POINTAGE SORTIE →', req.body.matricule);
+  req.url = '/api/presences/sortie-simple';
+  app._router.handle(req, res);
+});
+
+app.get('/historique-presences', async (req, res) => {
+  console.log('HISTORIQUE DEMANDÉ');
+  req.url = '/api/presences/historique';
+  req.query = req.query || {};
+  app._router.handle(req, res);
+});
+
 // ========== SERVER LISTEN ==========
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
