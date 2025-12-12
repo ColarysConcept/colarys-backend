@@ -3809,6 +3809,26 @@ app.get('/api/health-check', (req, res) => {
   });
 });
 
+
+// Dans minimal.js - route pour éviter les erreurs 404 avec "undefined"
+app.get('/api/presences/aujourdhui/undefined', (req, res) => {
+  console.log('⚠️ Appel avec matricule=undefined intercepté');
+  res.status(400).json({
+    success: false,
+    error: "Matricule non défini",
+    message: "Le matricule ne peut pas être 'undefined'"
+  });
+});
+
+app.get('/api/presences/aujourdhui/null', (req, res) => {
+  console.log('⚠️ Appel avec matricule=null intercepté');
+  res.status(400).json({
+    success: false,
+    error: "Matricule invalide",
+    message: "Le matricule ne peut pas être 'null'"
+  });
+});
+
 // ========== SERVER LISTEN ==========
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
