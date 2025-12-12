@@ -1660,8 +1660,6 @@ app.post('/api/presences/sortie-simple', async (req, res) => {
   }
 });
 
-// ========== ROUTES HISTORIQUE ==========
-
 // Route historique (plus tolérante)
 app.get('/api/presences/historique', async (req, res) => {
   console.log('📊 Historique appelé avec query:', req.query);
@@ -3780,6 +3778,37 @@ app.get('/api/historique-presences', (req, res) => {
   req.query = req.query || {};
   app._router.handle(req, res);
 });
+
+// Dans minimal.js - ajoutez ces routes de test
+
+// Route de test pour toutes les routes de présence
+app.get('/api/presences/test-routes', (req, res) => {
+  res.json({
+    success: true,
+    message: "Routes de présence disponibles",
+    routes: [
+      "POST /api/presences/entree-ultra-simple",
+      "POST /api/presences/sortie-simple",
+      "GET /api/presences/aujourdhui/:matricule",
+      "GET /api/presences/aujourdhui/nom/:nom/prenom/:prenom",
+      "POST /api/presences/verifier-etat",
+      "GET /api/presences/historique",
+      "GET /api/health"
+    ],
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Route de test simple
+app.get('/api/health-check', (req, res) => {
+  res.json({
+    success: true,
+    message: "API fonctionnelle",
+    timestamp: new Date().toISOString(),
+    db: dbInitialized ? "connected" : "disconnected"
+  });
+});
+
 // ========== SERVER LISTEN ==========
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
