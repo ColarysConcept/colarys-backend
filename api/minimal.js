@@ -3669,33 +3669,6 @@ app.get('/api/presences/verifier-doublons/:date', async (req, res) => {
 });
 
 
-// ========== AJOUTEZ CES ROUTES À LA FIN DE api.minimal.js ==========
-
-// 1. Pointage entrée (compatible avec ton frontend)
-app.post('/pointage-entree', async (req, res) => {
-  console.log('POINTAGE ENTREE (nouvelle route)');
-  // Redirige vers la route qui marche déjà
-  return app._router.stack.find(layer => layer.route?.path === '/api/presences/entree-ultra-simple')?.handle(req, res) ||
-         app._router.stack.find(layer => layer.route?.path === '/api/presences/entree')?.handle(req, res) ||
-         res.status(200).json({ success: true, message: "Pointage simulé", data: { matricule: req.body.matricule || "TEST" } });
-});
-
-// 2. Pointage sortie
-app.post('/pointage-sortie', async (req, res) => {
-  console.log('POINTAGE SORTIE (nouvelle route)');
-  return app._router.stack.find(layer => layer.route?.path === '/api/presences/sortie-simple')?.handle(req, res) ||
-         res.status(200).json({ success: true, message: "Sortie pointée" });
-});
-
-// AJOUTE ÇA DANS api.minimal.js (juste avant app.listen(PORT, ...))
-
-app.get('/presence-aujourdhui/:matricule', async (req, res) => {
-  console.log('PRESENCE AUJOURD’HUI DEMANDÉE →', req.params.matricule);
-  // Redirige vers la vraie route qui existe déjà
-  req.url = `/api/presences/aujourdhui/${req.params.matricule}`;
-  app._router.handle(req, res);
-});
-
 // 4. Historique
 app.get('/historique-presences', async (req, res) => {
   console.log('HISTORIQUE DEMANDÉ');
@@ -3717,40 +3690,43 @@ app.get('/export-historique/pdf', async (req, res) => {
   res.send(Buffer.from('%PDF-1.4 fake pdf content for now', 'utf8'));
 });
 
+app.get('/historique-presences', async (req, res) => {
+  console.log('HISTORIQUE DEMANDÉ');
+  req.url = '/api/presences/historique';
+  req.query = req.query || {};
+  app._router.handle(req, res);
+});
+
+
+// AJOUTE ÇA À LA TOUTE FIN DE api.minimal.js (avant app.listen)
+
+app.get('/presence-aujourdhui/:matricule', (req, res) => {
+  const matricule = req.params.matricule;
+  console.log('PRESENCE AUJOURD’HUI DEMANDÉE →', matricule);
+
+  // Si matricule vide ou "undefined" → réponse propre
+  if (!matricule || matricule === 'undefined' || matricule === 'null') {
+    return res.json({
+      success: true,
+      data: [],
+      message: "Aucune présence aujourd'hui (matricule invalide)"
+    });
+  }
+
+  // Redirige vers la vraie route qui existe déjà
+  req.url = `/api/presences/aujourdhui/${matricule}`;
+  app._router.handle(req, res);
+});
+
 app.post('/pointage-entree', (req, res) => {
+  console.log('POINTAGE ENTREE →', req.body.matricule || 'anonyme');
   req.url = '/api/presences/entree-ultra-simple';
   app._router.handle(req, res);
 });
 
 app.post('/pointage-sortie', (req, res) => {
+  console.log('POINTAGE SORTIE →', req.body.matricule || 'anonyme');
   req.url = '/api/presences/sortie-simple';
-  app._router.handle(req, res);
-});
-
-// AJOUTE ÇA À LA FIN DE api.minimal.js (avant app.listen)
-
-app.get('/presence-aujourdhui/:matricule', async (req, res) => {
-  console.log('PRESENCE AUJOURD’HUI →', req.params.matricule);
-  req.url = `/api/presences/aujourdhui/${req.params.matricule}`;
-  app._router.handle(req, res);
-});
-
-app.post('/pointage-entree', async (req, res) => {
-  console.log('POINTAGE ENTREE →', req.body.matricule);
-  req.url = '/api/presences/entree-ultra-simple';
-  app._router.handle(req, res);
-});
-
-app.post('/pointage-sortie', async (req, res) => {
-  console.log('POINTAGE SORTIE →', req.body.matricule);
-  req.url = '/api/presences/sortie-simple';
-  app._router.handle(req, res);
-});
-
-app.get('/historique-presences', async (req, res) => {
-  console.log('HISTORIQUE DEMANDÉ');
-  req.url = '/api/presences/historique';
-  req.query = req.query || {};
   app._router.handle(req, res);
 });
 
