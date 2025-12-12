@@ -3700,9 +3700,12 @@ app.get('/historique-presences', async (req, res) => {
 
 // AJOUTE ÇA À LA TOUTE FIN DE api.minimal.js (avant app.listen)
 
-app.get('/presence-aujourdhui/:matricule', (req, res) => {
+// AJOUTER CES ROUTES AVEC LE PRÉFIXE /api/
+
+// Route pour vérifier présence aujourd'hui avec préfixe /api
+app.get('/api/presence-aujourdhui/:matricule', (req, res) => {
   const matricule = req.params.matricule;
-  console.log('PRESENCE AUJOURD’HUI DEMANDÉE →', matricule);
+  console.log('API - PRESENCE AUJOURD\'HUI DEMANDÉE →', matricule);
 
   // Si matricule vide ou "undefined" → réponse propre
   if (!matricule || matricule === 'undefined' || matricule === 'null') {
@@ -3718,18 +3721,27 @@ app.get('/presence-aujourdhui/:matricule', (req, res) => {
   app._router.handle(req, res);
 });
 
-app.post('/pointage-entree', (req, res) => {
-  console.log('POINTAGE ENTREE →', req.body.matricule || 'anonyme');
+// Route pour pointage entrée avec préfixe /api
+app.post('/api/pointage-entree', (req, res) => {
+  console.log('API - POINTAGE ENTREE →', req.body.matricule || 'anonyme');
   req.url = '/api/presences/entree-ultra-simple';
   app._router.handle(req, res);
 });
 
-app.post('/pointage-sortie', (req, res) => {
-  console.log('POINTAGE SORTIE →', req.body.matricule || 'anonyme');
+// Route pour pointage sortie avec préfixe /api
+app.post('/api/pointage-sortie', (req, res) => {
+  console.log('API - POINTAGE SORTIE →', req.body.matricule || 'anonyme');
   req.url = '/api/presences/sortie-simple';
   app._router.handle(req, res);
 });
 
+// Route pour historique avec préfixe /api
+app.get('/api/historique-presences', (req, res) => {
+  console.log('API - HISTORIQUE DEMANDÉ');
+  req.url = '/api/presences/historique';
+  req.query = req.query || {};
+  app._router.handle(req, res);
+});
 // ========== SERVER LISTEN ==========
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
