@@ -3702,23 +3702,57 @@ app.get('/historique-presences', async (req, res) => {
 
 // AJOUTER CES ROUTES AVEC LE PRÉFIXE /api/
 
-// Route pour vérifier présence aujourd'hui avec préfixe /api
-app.get('/api/presence-aujourdhui/:matricule', (req, res) => {
-  const matricule = req.params.matricule;
-  console.log('API - PRESENCE AUJOURD\'HUI DEMANDÉE →', matricule);
+// Route pour vérifier la présence aujourd'hui (version simplifiée)
+app.get('/api/presences/aujourdhui/:matricule', async (req, res) => {
+  try {
+    const matricule = req.params.matricule;
+    console.log(`📅 Vérification présence pour: ${matricule}`);
+    
+    if (!dbInitialized) {
+      await initializeDatabase();
+    }
 
-  // Si matricule vide ou "undefined" → réponse propre
-  if (!matricule || matricule === 'undefined' || matricule === 'null') {
-    return res.json({
+    // Chercher l'agent
+    const agents = await AppDataSource.query(
+      'SELECT id FROM agents_colarys WHERE matricule = $1',
+      [matricule]
+    );
+
+    if (agents.length === 0) {
+      return res.json({
+        success: true,
+        data: null,  // ← CHANGER ICI
+        message: "Agent non trouvé"
+      });
+    }
+
+    const agentId = agents[0].id;
+    const today = new Date().toISOString().split('T')[0];
+
+    // Chercher les présences
+    let presences = [];
+    try {
+      presences = await AppDataSource.query(
+        'SELECT * FROM presence WHERE agent_id = $1 AND date = $2',
+        [agentId, today]
+      );
+    } catch (error) {
+      console.log('ℹ️ Aucune présence trouvée pour aujourd\'hui');
+    }
+
+    res.json({
       success: true,
-      data: [],
-      message: "Aucune présence aujourd'hui (matricule invalide)"
+      data: presences.length > 0 ? presences[0] : null,  // ← CHANGER ICI: null si tableau vide
+      count: presences.length
+    });
+
+  } catch (error) {
+    console.error('❌ Error checking presence:', error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors de la vérification de présence"
     });
   }
-
-  // Redirige vers la vraie route qui existe déjà
-  req.url = `/api/presences/aujourdhui/${matricule}`;
-  app._router.handle(req, res);
 });
 
 // Route pour pointage entrée avec préfixe /api
