@@ -1025,6 +1025,7 @@ app.get('/api/presences/aujourdhui/nom/:nom/prenom/:prenom', async (req, res) =>
 });
 
 // Route pour vérifier état de présence
+// Dans minimal.js - route /presences/verifier-etat
 app.post('/api/presences/verifier-etat', async (req, res) => {
   try {
     const { matricule, nom, prenom } = req.body;
@@ -1075,64 +1076,29 @@ app.post('/api/presences/verifier-etat', async (req, res) => {
       }
     }
     
-    // Déterminer l'état
-    if (!presence) {
-      return res.json({
-        success: true,
-        etat: 'ABSENT',
-        message: "Aucune présence aujourd'hui",
-        data: null
-      });
+    // Déterminer l'état - CORRECTION IMPORTANTE
+    let etat = 'ABSENT';
+    if (presence) {
+      if (presence.heure_sortie) {
+        etat = 'COMPLET';
+      } else if (presence.heure_entree) {
+        etat = 'ENTREE_ONLY';
+      }
     }
     
-    if (presence.heure_sortie) {
-      return res.json({
-        success: true,
-        etat: 'COMPLET',
-        message: "Entrée et sortie déjà pointées",
-        data: presence
-      });
-    }
+    console.log('📊 État déterminé:', etat, 'Présence:', presence);
     
     return res.json({
       success: true,
-      etat: 'ENTREE_ONLY',
-      message: "Entrée pointée, sortie attendue",
-      data: presence
+      etat: etat,
+      presence: presence,
+      message: presence ? 
+        (presence.heure_sortie ? "Entrée et sortie déjà pointées" : "Entrée pointée, sortie attendue") :
+        "Aucune présence aujourd'hui"
     });
     
   } catch (error) {
     console.error('❌ Erreur vérification état:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Route pour voir les dernières présences
-app.get('/api/presences/recent', async (_req, res) => {
-  try {
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    const presences = await AppDataSource.query(`
-      SELECT p.*, a.matricule, a.nom, a.prenom 
-      FROM presence p
-      LEFT JOIN agent a ON p.agent_id = a.id
-      ORDER BY p.date DESC, p.created_at DESC
-      LIMIT 20
-    `);
-    
-    res.json({
-      success: true,
-      count: presences.length,
-      data: presences
-    });
-    
-  } catch (error) {
-    console.error('❌ Error fetching recent presences:', error);
     res.status(500).json({
       success: false,
       error: error.message
