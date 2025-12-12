@@ -135,14 +135,24 @@ export class PresenceService {
     }
   }
 
-    async getPresenceAujourdhuiByMatricule(matricule: string) {
-    const today = new Date().toISOString().split('T')[0];
-    const presence = await this.presenceRepo.findOne({
-      where: { agent: { matricule }, date: today },
-      relations: ['agent']
-    });
-    return { success: !!presence, data: presence };
-  }
+  // Dans PresenceService.ts - méthode getPresenceAujourdhuiByMatricule
+
+async getPresenceAujourdhuiByMatricule(matricule: string) {
+  const today = new Date().toISOString().split('T')[0];
+  const presence = await this.presenceRepo.findOne({
+    where: { agent: { matricule }, date: today },
+    relations: ['agent']
+  });
+  
+  // AJOUTER DES LOGS POUR DEBUG
+  console.log('📊 Presence trouvée:', presence);
+  console.log('📊 Agent dans presence:', presence?.agent);
+  
+  return { 
+    success: !!presence, 
+    data: presence || null // ← Important: retourner null si pas de présence
+  };
+}
 
   async getPresenceAujourdhuiByNomPrenom(nom: string, prenom: string) {
     const today = new Date().toISOString().split('T')[0];

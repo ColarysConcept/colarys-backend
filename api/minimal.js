@@ -1668,35 +1668,22 @@ app.post('/api/presences/sortie-simple', async (req, res) => {
 });
 
 // Route historique (plus tolérante)
+// Route /api/presences/historique
 app.get('/api/presences/historique', async (req, res) => {
   console.log('📊 Historique appelé avec query:', req.query);
   
   try {
-    // Extraire les paramètres avec des valeurs par défaut
-    const dateDebut = req.query.dateDebut;
-    const dateFin = req.query.dateFin;
+    const { dateDebut, dateFin } = req.query;
     
-    // Si pas de dates, utiliser ce mois-ci
-    let startDate = dateDebut;
-    let endDate = dateFin;
+    // Vérifiez que vous récupérez bien les données d'aujourd'hui
+    const today = new Date().toISOString().split('T')[0];
+    const startDate = dateDebut || today;
+    const endDate = dateFin || today;
     
-    if (!startDate || !endDate) {
-      const now = new Date();
-      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      
-      startDate = firstDay.toISOString().split('T')[0];
-      endDate = lastDay.toISOString().split('T')[0];
-      
-      console.log('📅 Dates par défaut appliquées:', { startDate, endDate });
-    }
+    console.log('📅 Dates utilisées pour la requête:', { startDate, endDate });
     
-    if (!dbInitialized) {
-      await initializeDatabase();
-    }
-    
-    // Construction de la requête SANS erreur
-    let query = `
+    // La requête SQL DOIT inclure les relations avec agent
+    const query = `
       SELECT 
         p.id,
         p.date,
@@ -1705,6 +1692,7 @@ app.get('/api/presences/historique', async (req, res) => {
         p.heures_travaillees,
         p.shift,
         p.agent_id,
+        a.id as agent_id,
         a.matricule,
         a.nom,
         a.prenom,
@@ -1712,47 +1700,36 @@ app.get('/api/presences/historique', async (req, res) => {
       FROM presence p
       LEFT JOIN agent a ON p.agent_id = a.id
       WHERE p.date BETWEEN $1 AND $2
-      ORDER BY p.date DESC
+      ORDER BY p.date DESC, p.heure_entree DESC
       LIMIT 100
     `;
     
-    const params = [startDate, endDate];
+    const presences = await AppDataSource.query(query, [startDate, endDate]);
+    console.log(`✅ ${presences.length} présence(s) trouvée(s) pour ${startDate} à ${endDate}`);
     
-    console.log('📋 Query historique:', query);
-    console.log('📋 Params:', params);
-    
-    const presences = await AppDataSource.query(query, params);
-    console.log(`✅ ${presences.length} présence(s) trouvée(s)`);
-    
-    // Calcul du total des heures
-    const totalHeures = presences.reduce((sum, p) => {
-      return sum + (p.heures_travaillees || 0);
-    }, 0);
+    // Vérifiez la structure des données retournées
+    if (presences.length > 0) {
+      console.log('📋 Première présence:', {
+        id: presences[0].id,
+        date: presences[0].date,
+        agent_id: presences[0].agent_id,
+        has_agent: !!presences[0].nom, // Vérifiez si agent existe
+        nom: presences[0].nom,
+        prenom: presences[0].prenom
+      });
+    }
     
     res.json({
       success: true,
       data: presences,
-      totalHeures: parseFloat(totalHeures.toFixed(2)),
+      totalHeures: presences.reduce((sum, p) => sum + (p.heures_travaillees || 0), 0),
       totalPresences: presences.length,
-      dates_utilisees: {
-        dateDebut: startDate,
-        dateFin: endDate
-      },
-      message: `${presences.length} présence(s) récupérée(s)`
+      dates_utilisees: { dateDebut: startDate, dateFin: endDate }
     });
     
   } catch (error) {
     console.error('❌ Erreur historique:', error);
-    
-    // Fallback encore plus simple
-    res.json({
-      success: true,
-      data: [],
-      totalHeures: 0,
-      totalPresences: 0,
-      message: "Mode fallback activé",
-      error: error.message
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -3715,51 +3692,69 @@ app.get('/historique-presences', async (req, res) => {
   app._router.handle(req, res);
 });
 
+// Dans minimal.js - route /api/presences/aujourdhui/:matricule
+
 app.get('/api/presences/aujourdhui/:matricule', async (req, res) => {
+  const { matricule } = req.params;
+  console.log('📥 Route /aujourdhui appelée avec matricule:', matricule);
+  
   try {
-    const matricule = req.params.matricule;
-    
-    if (!matricule || matricule === 'undefined') {
+    if (!matricule || matricule === 'undefined' || matricule === 'null') {
+      console.log('🛡️ Protection activée - matricule invalide');
       return res.json({
         success: true,
         data: null,
-        message: "Matricule invalide"
+        message: "Matricule invalide ou non fourni",
+        count: 0
       });
-    }
-    
-    if (!dbInitialized) {
-      await initializeDatabase();
     }
     
     const today = new Date().toISOString().split('T')[0];
     
+    // Chercher l'agent avec la relation correcte
     const result = await AppDataSource.query(
       `SELECT p.*, a.matricule, a.nom, a.prenom, a.campagne 
        FROM presence p
-       JOIN agent a ON p.agent_id = a.id
+       LEFT JOIN agent a ON p.agent_id = a.id
        WHERE a.matricule = $1 AND p.date = $2`,
       [matricule, today]
     );
     
+    // CORRECTION : Vérifier si résultat existe
     if (result.length === 0) {
+      console.log(`ℹ️ Aucune présence pour ${matricule} aujourd'hui`);
       return res.json({
         success: true,
-        data: null,
-        message: "Aucune présence aujourd'hui"
+        data: null, // ← Retourner explicitement null
+        count: 0
       });
     }
     
+    const presence = result[0];
+    
+    // CORRECTION : S'assurer que l'agent existe dans la réponse
+    const presenceWithAgent = {
+      ...presence,
+      agent: presence.nom ? {
+        id: presence.agent_id,
+        matricule: presence.matricule,
+        nom: presence.nom || '',
+        prenom: presence.prenom || '',
+        campagne: presence.campagne || 'Standard'
+      } : null
+    };
+    
     res.json({
       success: true,
-      data: result[0],
+      data: presenceWithAgent,
       count: result.length
     });
     
   } catch (error) {
-    console.error('❌ Erreur présence aujourd\'hui:', error);
+    console.error('❌ Error checking presence:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: "Erreur lors de la vérification de présence"
     });
   }
 });

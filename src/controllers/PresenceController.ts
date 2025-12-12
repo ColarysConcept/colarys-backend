@@ -91,27 +91,30 @@ export class PresenceController {
   }
 
   // Présence aujourd'hui par matricule (CORRIGÉE)
-  async getPresenceAujourdhui(req: Request, res: Response) {
-    try {
-      const { matricule } = req.params;
-      if (!matricule) {
-        return res.status(400).json({ success: false, error: "Matricule requis" });
-      }
+// Dans PresenceController.ts - méthode getPresenceAujourdhui
 
-      const result = await this.service.getPresenceAujourdhuiByMatricule(matricule);
-
-      return res.json({
-        success: result.success,
-        data: result.data
-      });
-    } catch (error: any) {
-      console.error('Erreur getPresenceAujourdhui:', error);
-      return res.status(500).json({
-        success: false,
-        error: error.message
-      });
+async getPresenceAujourdhui(req: Request, res: Response) {
+  try {
+    const { matricule } = req.params;
+    if (!matricule) {
+      return res.status(400).json({ success: false, error: "Matricule requis" });
     }
+
+    const result = await this.service.getPresenceAujourdhuiByMatricule(matricule);
+
+    // AJOUTEZ CETTE VÉRIFICATION
+    return res.json({
+      success: result.success,
+      data: result.data || null // ← Assurez-vous de retourner null si pas de données
+    });
+  } catch (error: any) {
+    console.error('Erreur getPresenceAujourdhui:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
+}
 
   // Présence aujourd'hui par nom + prénom (CORRIGÉE)
   async getPresenceAujourdhuiByNomPrenom(req: Request, res: Response) {
