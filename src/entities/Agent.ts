@@ -1,4 +1,3 @@
-// backend/src/entities/Agent.ts
 import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from "typeorm";
 import { Presence } from "./Presence";
 
@@ -8,7 +7,7 @@ export class Agent {
   id!: number;
 
   @Column({ type: "varchar", unique: true, nullable: true })
-  matricule!: string | null; // IMPORTANT: Permettre null
+  matricule!: string | null;
 
   @Column({ type: "varchar" })
   nom!: string;
@@ -19,12 +18,9 @@ export class Agent {
   @Column({ type: "varchar", default: "Standard" })
   campagne!: string;
 
-  @Column({ type: "text", nullable: true })
-  signature!: string;
-
   @Column({ name: "date_creation", default: () => "CURRENT_TIMESTAMP" })
   dateCreation!: Date;
 
-  @OneToMany(() => Presence, presence => presence.agent)
+  @OneToMany(() => Presence, (presence) => presence.agent)
   presences!: Presence[];
 }
